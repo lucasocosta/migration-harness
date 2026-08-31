@@ -1,0 +1,23 @@
+{
+  "name": "migration-harness",
+  "private": true,
+  "version": "0.2.1",
+  "packageManager": "pnpm@10.15.0",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "clean": "find packages -type d -name dist -prune -exec rm -rf {} +",
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:v02": "node scripts/smoke-v02.mjs",
+    "e2e:fixture": "bash scripts/e2e-fixture.sh"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3",
+    "turbo": "^2.5.0"
+  }
+}

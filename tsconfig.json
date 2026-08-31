@@ -1,0 +1,32 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/trace-recorder"
+    },
+    {
+      "path": "./packages/contract-synthesizer"
+    },
+    {
+      "path": "./packages/contract-review"
+    },
+    {
+      "path": "./packages/engine"
+    },
+    {
+      "path": "./packages/quality-gates"
+    },
+    {
+      "path": "./packages/cli"
+    },
+    {
+      "path": "./packages/equivalence-validator"
+    },
+    {
+      "path": "./packages/scenario-runner"
+    }
+  ]
+}

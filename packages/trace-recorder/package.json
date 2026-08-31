@@ -1,0 +1,16 @@
+{
+  "name": "@migration-harness/trace-recorder",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@migration-harness/core": "workspace:*",
+    "@playwright/test": "^1.63.0"
+  }
+}

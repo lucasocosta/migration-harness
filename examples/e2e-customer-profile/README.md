@@ -1,0 +1,9 @@
+# Customer Profile E2E fixture
+
+This fixture validates the Migration Harness differential-execution core without requiring Angular/React package installation.
+
+- `source.html` represents the observable behavior of the Angular source.
+- `target.html` represents the behavior-preserving React candidate.
+- `target-regression.html` injects an intentional `PUT -> POST` migration regression.
+
+The browser execution is real (Chromium + Playwright). The framework runtime itself is intentionally not part of this offline fixture; framework-specific integration remains an adapter concern.

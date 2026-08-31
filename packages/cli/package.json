@@ -1,0 +1,21 @@
+{
+  "name": "@migration-harness/cli",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "bin": {
+    "harness": "dist/index.js"
+  },
+  "dependencies": {
+    "@migration-harness/core": "workspace:*",
+    "@migration-harness/contract-review": "workspace:*",
+    "@migration-harness/contract-synthesizer": "workspace:*",
+    "@migration-harness/equivalence-validator": "workspace:*"
+  }
+}

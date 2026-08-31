@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../contract-review"
+    },
+    {
+      "path": "../contract-synthesizer"
+    },
+    {
+      "path": "../equivalence-validator"
+    }
+  ]
+}

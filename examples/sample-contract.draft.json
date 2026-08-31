@@ -1,0 +1,28 @@
+{
+  "unitId": "user-profile",
+  "contractId": "user-profile-contract",
+  "version": "0.1.0",
+  "status": "DRAFT",
+  "integrity": { "contentHash": "", "algorithm": "sha256" },
+  "scenarios": [
+    {
+      "scenarioId": "user-profile-save-valid",
+      "invariants": {
+        "network": [],
+        "accessibilityAriaYaml": {
+          "id": "aria-profile",
+          "value": "- main:\n  - button \"Salvar alterações\"",
+          "evidenceTrail": [{ "source": "HUMAN_SPECIFICATION", "evidenceConfidenceHeuristic": 1, "sourceReference": "pilot" }],
+          "enforcement": "BLOCKING"
+        },
+        "accessibilityAriaJson": {
+          "id": "aria-profile-json",
+          "value": {},
+          "evidenceTrail": [{ "source": "HUMAN_SPECIFICATION", "evidenceConfidenceHeuristic": 1, "sourceReference": "pilot" }],
+          "enforcement": "INFORMATIONAL"
+        },
+        "storageDeltas": []
+      }
+    }
+  ]
+}

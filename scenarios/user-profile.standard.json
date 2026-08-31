@@ -1,0 +1,41 @@
+{
+  "scenarioId": "user-profile-save-valid",
+  "unitId": "user-profile",
+  "name": "Save valid user profile",
+  "description": "Edits the profile and waits for the success alert.",
+  "entryUrl": "http://localhost:4200/profile",
+  "preconditions": {
+    "storageInitialState": {
+      "local": { "feature.profileEdit": "enabled" }
+    },
+    "mockInitialApiResponses": []
+  },
+  "steps": [
+    {
+      "stepId": "fill-name",
+      "action": "fill",
+      "targetRole": "textbox",
+      "targetName": "Nome completo",
+      "inputValue": "Engenharia de Software"
+    },
+    {
+      "stepId": "save-profile",
+      "action": "click",
+      "targetRole": "button",
+      "targetName": "Salvar alterações",
+      "completionSignal": {
+        "type": "RESPONSE_RECEIVED",
+        "responseUrlPattern": "/api/profile",
+        "responseMethod": "PUT",
+        "timeoutMs": 5000
+      }
+    }
+  ],
+  "completionSignal": {
+    "type": "LOCATOR_VISIBLE",
+    "targetRole": "alert",
+    "targetName": "Perfil atualizado",
+    "timeoutMs": 5000
+  },
+  "testDataProfile": "standard"
+}
