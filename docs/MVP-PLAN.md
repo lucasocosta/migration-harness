@@ -14,7 +14,7 @@ Use a real Angular implementation and a manually equivalent React implementation
 8. Structured EquivalenceResult.
 9. Intentional PUT→POST regression test.
 
-Current scaffold implements items 2, a substantial part of 3, initial 4, and the network core of 6–9.
+All nine items now have executable coverage, including real Angular/React browser execution. Navigation, storage, ARIA, critical contracts and declared causal ordering are also implemented.
 
 ## Phase 2 — Critical contracts
 
@@ -31,3 +31,7 @@ TransformationPlan → codemods → bounded LLM transform → TransformationMani
 ## Phase 5 — Repair
 
 Failure classification → localized context → minimal patch → sandbox → retry budget → revalidation → audit.
+
+## Delivery status (2026-09-05)
+
+All phases are represented in the executable pilot. Discovery and transformation intentionally support a bounded subset; worker transport and container execution remain configurable adapters. `IMPLEMENTATION-STATUS.md` is the detailed requirement-to-code status and records remaining work. `pnpm pilot` demonstrates the integration; `pnpm test` and `pnpm test:browser` cover regressions and security constraints.

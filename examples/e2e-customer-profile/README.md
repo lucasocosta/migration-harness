@@ -1,5 +1,7 @@
 # Customer Profile E2E fixture
 
+Historical v0.2 fixture. The `scripts/e2e-fixture.sh` command now runs the real Angular/React pilot in `examples/angular-react-pilot`. The Python recorder and these pages are retained as historical reference, not as the current sanitization or validation implementation.
+
 This fixture validates the Migration Harness differential-execution core without requiring Angular/React package installation.
 
 - `source.html` represents the observable behavior of the Angular source.

@@ -1,0 +1,5 @@
+{
+  "network": { "pathTemplates": ["/api/customers/:id"] },
+  "sanitization": { "allowedPayloadKeys": ["email"], "allowedStorageKeys": ["profile.saved"] },
+  "observables": { "ariaSeverity": "WARNING" }
+}

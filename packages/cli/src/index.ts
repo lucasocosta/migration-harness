@@ -1,101 +1,137 @@
 #!/usr/bin/env node
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import type { BehaviorContract, RawObservedTrace, SanitizedObservedTrace } from '@migration-harness/core';
-import { approveContract, verifyContractIntegrity } from '@migration-harness/contract-review';
-import { sanitizeTrace } from '@migration-harness/contract-synthesizer';
-import { EquivalenceValidator } from '@migration-harness/equivalence-validator';
+import { readFile, mkdir, open, rename, unlink, lstat } from 'node:fs/promises';
+import { dirname, resolve, basename, relative } from 'node:path';
+import { parseArgs } from 'node:util';
+import { randomBytes } from 'node:crypto';
+import { parseContract, parseRawTrace, parseSanitizedTrace, parseScenario, parseManifest, HarnessPolicySchema, HttpEvidenceBundleSchema, type HttpEndpointInvariant, type Invariant } from '@migration-harness/core';
+import { approveContract, reviewContract, verifyContractIntegrity } from '@migration-harness/contract-review';
+import { sanitizeTrace, synthesizeContract, importOpenApi, importExistingTestEvidence, type SanitizationPolicy } from '@migration-harness/contract-synthesizer';
+import { EquivalenceValidator, parseValidationPolicy } from '@migration-harness/equivalence-validator';
+import { captureScenario } from '@migration-harness/scenario-runner';
+import { discover } from '@migration-harness/static-analyzer';
+import { planTransformation } from '@migration-harness/transformation-planner';
+import { transformAngularComponent, repairHttpMethod } from '@migration-harness/codemods';
+import { ArtifactStore, runRepairLoop, safeArtifactPath } from '@migration-harness/engine';
+import { fileHash } from '@migration-harness/llm-worker';
 
-const [command, ...args] = process.argv.slice(2);
-const flags = parseFlags(args);
-
-try {
+async function main(): Promise<void> {
+  const [command, ...args] = process.argv.slice(2);
+  const optionNames = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence'];
+  const { values } = parseArgs({ args, options: Object.fromEntries(optionNames.map(name => [name, { type: 'string' as const }])), strict: true, allowPositionals: false });
+  const flag = (name: string): string | undefined => values[name] as string | undefined;
+  const required = (name: string): string => { const value = flag(name); if (!value) throw new Error(`Required flag --${name} is missing.`); return value; };
+  const number = (name: string, fallback: number, min = 0, max = 100): number => { const value = flag(name) === undefined ? fallback : Number(flag(name)); if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`Invalid --${name}.`); return value; };
+  const json = async (path: string): Promise<unknown> => JSON.parse(await readFile(path, 'utf8')) as unknown;
+  const artifactRoot = resolve(flag('artifact-root') ?? '.');
+  const store = new ArtifactStore(artifactRoot);
+  const policyConfig = HarnessPolicySchema.parse(flag('policy') ? await json(required('policy')) : {});
+  const sanitizationPolicy = policyConfig.sanitization as Omit<SanitizationPolicy, 'pseudonymizationKey'> | undefined;
+  const validationPolicy = parseValidationPolicy(policyConfig);
+  const key = async (): Promise<string> => {
+    if (flag('key-file')) return (await readFile(required('key-file'), 'utf8')).trim();
+    const path = await store.privatePath('pseudonymization.key');
+    try { if ((await lstat(path)).mode & 0o077) throw new Error('Pseudonymization key must be private.'); return (await readFile(path, 'utf8')).trim(); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    const value = randomBytes(32).toString('hex');
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    const handle = await open(path, 'wx', 0o600);
+    try { if ((await handle.stat()).mode & 0o077) throw new Error('Pseudonymization key filesystem must enforce mode 0600.'); await handle.writeFile(value); } finally { await handle.close(); }
+    return value;
+  };
   switch (command) {
-    case 'sanitize-trace': {
-      const input = required(flags, 'input');
-      const output = required(flags, 'out');
-      const trace = JSON.parse(await readFile(input, 'utf8')) as RawObservedTrace;
-      await writeJson(output, sanitizeTrace(trace));
-      console.log(`Sanitized trace written to ${output}`);
-      break;
-    }
-    case 'approve-contract': {
-      const input = required(flags, 'input');
-      const output = required(flags, 'out');
-      const approvedBy = required(flags, 'approved-by');
-      const contract = JSON.parse(await readFile(input, 'utf8')) as BehaviorContract;
-      const approved = approveContract(contract, approvedBy);
-      await writeJson(output, approved);
-      console.log(`Approved contract written to ${output}`);
-      console.log(`SHA-256: ${approved.integrity.contentHash}`);
-      break;
-    }
-    case 'verify-contract': {
-      const input = required(flags, 'contract');
-      const contract = JSON.parse(await readFile(input, 'utf8')) as BehaviorContract;
-      const valid = verifyContractIntegrity(contract);
-      console.log(valid ? 'Contract integrity: VALID' : 'Contract integrity: INVALID');
-      process.exitCode = valid ? 0 : 2;
-      break;
-    }
+    case 'sanitize-trace': await writeJson(required('out'), sanitizeTrace(parseRawTrace(await json(required('input'))), { ...sanitizationPolicy, pseudonymizationKey: await key() })); break;
+    case 'review-contract': await writeJson(required('out'), reviewContract(parseContract(await json(required('input'))))); break;
+    case 'approve-contract': await writeJson(required('out'), approveContract(parseContract(await json(required('input'))), required('approved-by'))); break;
+    case 'verify-contract': { const valid = verifyContractIntegrity(parseContract(await json(required('contract')))); console.log(valid ? 'Contract integrity: VALID' : 'Contract integrity: INVALID'); process.exitCode = valid ? 0 : 2; break; }
     case 'compare': {
-      const sourcePath = required(flags, 'source');
-      const targetPath = required(flags, 'target');
-      const source = JSON.parse(await readFile(sourcePath, 'utf8')) as SanitizedObservedTrace;
-      const target = JSON.parse(await readFile(targetPath, 'utf8')) as SanitizedObservedTrace;
-      const validator = new EquivalenceValidator();
-      const result = validator.validate({ source, target });
-      if (flags.has('out')) await writeJson(flags.get('out')!, result);
-      console.log(JSON.stringify(result, null, 2));
-      process.exitCode = result.status === 'EQUIVALENT' ? 0 : 4;
+      const result = new EquivalenceValidator().validate({ source: parseSanitizedTrace(await json(required('source'))), target: parseSanitizedTrace(await json(required('target'))),
+        policy: validationPolicy,
+        ...(flag('contract') ? { contract: parseContract(await json(required('contract'))) } : {}), ...(flag('manifest') ? { transformationManifest: parseManifest(await json(required('manifest'))) } : {}),
+      });
+      if (flag('out')) await writeJson(required('out'), result);
+      console.log(JSON.stringify(result, null, 2)); process.exitCode = result.status === 'EQUIVALENT' ? 0 : 4; break;
+    }
+    case 'discover': { const result = await discover(required('source-root'), flag('entrypoint') ? [required('entrypoint')] : undefined); await writeJson(required('out'), result); break; }
+    case 'plan': { const result = await discover(required('source-root'), flag('entrypoint') ? [required('entrypoint')] : undefined); await writeJson(required('out'), planTransformation(result)); break; }
+    case 'trace': {
+      const scenario = parseScenario(await json(required('scenario')));
+      const sharedKey = await key();
+      for (let runIndex = 1; runIndex <= number('runs', 1, 1); runIndex++) {
+        const raw = await captureScenario(scenario, runIndex, { fixtureBaseDir: dirname(resolve(required('scenario'))), ...(policyConfig.allowedOrigins ? { allowedOrigins: policyConfig.allowedOrigins } : {}), ...(flag('base-url') ? { baseUrl: required('base-url') } : {}) });
+        await store.writeRaw(scenario.unitId, raw);
+        const path = await store.writeSanitized(scenario.unitId, 'source', sanitizeTrace(raw, { ...sanitizationPolicy, pseudonymizationKey: sharedKey }));
+        console.log(path);
+      }
       break;
     }
-    case 'discover':
-    case 'trace':
-    case 'synthesize':
-    case 'run':
-      console.error(`${command} remains an extension point in v0.2.`);
-      process.exitCode = 3;
-      break;
+    case 'synthesize': {
+      const paths = required('input').split(',');
+      const traces = [];
+      for (const path of paths) traces.push(parseSanitizedTrace(await json(path)));
+      const additional: Invariant<HttpEndpointInvariant>[] = [];
+      for (const path of flag('evidence')?.split(',') ?? []) {
+        const bundle = HttpEvidenceBundleSchema.parse(await json(path));
+        if (bundle.unresolved.length) throw new Error(`Evidence ${path} has unresolved findings requiring review.`);
+        additional.push(...bundle.invariants as Invariant<HttpEndpointInvariant>[]);
+      }
+      await writeJson(required('out'), synthesizeContract(required('unit-id'), traces, additional)); break;
+    }
+    case 'import-openapi': await writeJson(required('out'), importOpenApi(await json(required('input')), required('input'))); break;
+    case 'import-test-evidence': await writeJson(required('out'), importExistingTestEvidence(await json(required('input')), required('input'))); break;
+    case 'transform': {
+      const input = required('input');
+      const result = transformAngularComponent(await readFile(input, 'utf8'), required('unit-id'), basename(input));
+      await writeText(required('out'), result.code);
+      await writeJson(required('manifest'), result.manifest); break;
+    }
+    case 'run': {
+      const scenario = parseScenario(await json(required('scenario')));
+      const contract = parseContract(await json(required('contract')));
+      if (contract.unitId !== scenario.unitId) throw new Error('Scenario and contract unit mismatch.');
+      const sharedKey = await key();
+      const capture = async (baseUrl: string, index: number, side: 'source' | 'target') => {
+        const raw = await captureScenario(scenario, index, { baseUrl, fixtureBaseDir: dirname(resolve(required('scenario'))), ...(policyConfig.allowedOrigins ? { allowedOrigins: policyConfig.allowedOrigins } : {}) });
+        await store.writeRaw(`${scenario.unitId}-${side}`, raw);
+        const sanitized = sanitizeTrace(raw, { ...sanitizationPolicy, pseudonymizationKey: sharedKey });
+        await store.writeSanitized(scenario.unitId, side, sanitized);
+        return sanitized;
+      };
+      const source = await capture(required('source-url'), 1, 'source');
+      const result = await runRepairLoop({ source, contract, maxRepairAttempts: number('max-repairs', 0, 0, 10),
+        policy: validationPolicy,
+        captureTarget: attempt => capture(required('target-url'), attempt + 1, 'target'),
+        repair: async failure => {
+          const path = resolve(required('target-file'));
+          if (!/\.[jt]sx?$/.test(path) || /(^|[\\/])(?:source|contracts?|tests?|validation|policy|\.migration-private)([\\/]|\.)/i.test(path) || [required('scenario'), required('contract')].some(protectedPath => resolve(protectedPath) === path)) throw new Error('Invalid repair target.');
+          const candidateRoot = resolve(required('candidate-root'));
+          await safeArtifactPath(candidateRoot, relative(candidateRoot, path));
+          if ((await lstat(path)).nlink !== 1) throw new Error('Repair target cannot have hard links.');
+          const divergence = failure.divergences.find(d => d.code === 'NETWORK_METHOD_MISMATCH');
+          if (!divergence || typeof divergence.source !== 'string' || typeof divergence.target !== 'string') throw new Error('No localized method mismatch.');
+          const before = await readFile(path, 'utf8');
+          const after = repairHttpMethod(before, divergence.source, divergence.target);
+          await store.write(`.migration-private/repair-backups/${Date.now()}.json`, { path, before }, true);
+          const temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+          try {
+            await writeText(temporary, after);
+            if (await readFile(path, 'utf8') !== before) throw new Error('Candidate changed during repair.');
+            await rename(temporary, path);
+          } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+          return { changedFiles: [path], patchHash: fileHash(after) };
+        },
+      });
+      await writeJson(required('out'), result); console.log(result.result.status); process.exitCode = result.result.status === 'EQUIVALENT' ? 0 : 4; break;
+    }
+    case 'purge-raw': console.log(await store.purgeRaw(number('retention-hours', 24, 0, 8760) * 3600000)); break;
     default:
-      printHelp();
+      console.log('Migration Harness\nCommands: discover, plan, trace, sanitize-trace, import-openapi, import-test-evidence, synthesize, review-contract, approve-contract, verify-contract, transform, compare, run, purge-raw\nSee docs/USAGE.md for command arguments.');
+      if (command && command !== 'help') process.exitCode = 1;
   }
-} catch (error) {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
 }
-
-function parseFlags(values: string[]): Map<string, string> {
-  const result = new Map<string, string>();
-  for (let i = 0; i < values.length; i += 1) {
-    const value = values[i];
-    if (!value?.startsWith('--')) continue;
-    const next = values[i + 1];
-    if (!next || next.startsWith('--')) throw new Error(`Missing value for ${value}`);
-    result.set(value.slice(2), next);
-    i += 1;
-  }
-  return result;
+async function writeText(path: string, value: string): Promise<void> {
+  await mkdir(dirname(resolve(path)), { recursive: true });
+  const handle = await open(path, 'wx');
+  try { await handle.writeFile(value); } finally { await handle.close(); }
 }
-
-function required(flagsMap: Map<string, string>, name: string): string {
-  const value = flagsMap.get(name);
-  if (!value) throw new Error(`Required flag --${name} is missing.`);
-  return value;
-}
-
-async function writeJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
-
-function printHelp(): void {
-  console.log(`Migration Harness v0.2\n\n` +
-    `Implemented:\n` +
-    `  harness sanitize-trace --input raw.json --out sanitized.json\n` +
-    `  harness approve-contract --input draft.json --out approved.json --approved-by engineer\n` +
-    `  harness verify-contract --contract approved.json\n` +
-    `  harness compare --source source.sanitized.json --target target.sanitized.json [--out result.json]\n\n` +
-    `Extension points:\n` +
-    `  discover | trace | synthesize | run\n`);
-}
+async function writeJson(path: string, value: unknown): Promise<void> { await writeText(path, `${JSON.stringify(value, null, 2)}\n`); }
+main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });

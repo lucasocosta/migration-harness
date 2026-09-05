@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "dependencies":{"@migration-harness/core":"workspace:*","typescript":"^5.8.3","@angular/compiler":"^19.2.0"},
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false"

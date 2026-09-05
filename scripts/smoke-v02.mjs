@@ -29,7 +29,7 @@ fsm.start();
 fsm.discoveryCompleted();
 fsm.scenariosPrepared();
 fsm.sourceTraceCompleted(3);
-fsm.synthesisCompleted(true);
+fsm.synthesisCompleted();
 fsm.contractApproved();
 fsm.contractIntegrityVerified();
 fsm.transformationPlanned();

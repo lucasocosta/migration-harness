@@ -1,6 +1,11 @@
 {
   "files": [],
   "references": [
+    { "path": "./packages/static-analyzer" },
+    { "path": "./packages/transformation-planner" },
+    { "path": "./packages/trace-sanitizer" },
+    { "path": "./packages/codemods" },
+    { "path": "./packages/llm-worker" },
     {
       "path": "./packages/core"
     },

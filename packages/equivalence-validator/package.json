@@ -10,6 +10,7 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@migration-harness/core": "workspace:*"
+    "@migration-harness/core": "workspace:*",
+    "@migration-harness/contract-review": "workspace:*"
   }
 }

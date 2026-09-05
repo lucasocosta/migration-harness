@@ -1,0 +1,14 @@
+{
+  "scenarioId": "update-customer",
+  "unitId": "CustomerProfileComponent",
+  "name": "Update customer email",
+  "description": "Customer profile pilot",
+  "entryUrl": "http://localhost/customers/123",
+  "preconditions": { "storageInitialState": { "local": { "feature.profileEdit": "enabled" } } },
+  "steps": [
+    { "stepId": "email", "action": "fill", "targetRole": "textbox", "targetName": "Email", "inputValue": "updated@example.test" },
+    { "stepId": "save", "action": "click", "targetRole": "button", "targetName": "Save", "completionSignal": { "type": "LOCATOR_VISIBLE", "targetRole": "alert", "targetName": "Saved", "timeoutMs": 10000 } }
+  ],
+  "completionSignal": { "type": "STORAGE_KEY_SET", "storageType": "localStorage", "storageKey": "profile.saved", "timeoutMs": 5000 },
+  "testDataProfile": "standard"
+}

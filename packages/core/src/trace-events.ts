@@ -12,6 +12,7 @@ export interface BaseTraceEvent {
   timestampMs: number;
   sequenceIndex: number;
   correlationId?: string;
+  causedByEventIds?: string[];
 }
 
 export interface UserInteractionEvent extends BaseTraceEvent {
@@ -87,10 +88,12 @@ export interface TraceEnvironment {
 
 export interface RawObservedTrace {
   scenarioId: string;
+  runId?: string;
   runIndex: number;
   startedAt: string;
   events: TraceEvent[];
   environment: TraceEnvironment;
+  completion?: { status: 'COMPLETED' | 'FAILED'; completedStepIds: string[] };
 }
 
 export interface SanitizedObservedTrace extends RawObservedTrace {

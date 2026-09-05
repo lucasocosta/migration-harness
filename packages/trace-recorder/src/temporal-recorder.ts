@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { stringify } from 'yaml';
 import type { Page, Request } from '@playwright/test';
 import type {
   AriaStateEvent,
@@ -12,6 +13,7 @@ import type {
 interface PendingRequestMeta {
   correlationId: string;
   startedAtMs: number;
+  requestEventId: string;
 }
 
 type StorageSnapshot = {
@@ -24,6 +26,7 @@ export interface TraceRecorderOptions {
   maxResponseBodyBytes?: number;
   allowedResponseContentTypes?: readonly string[];
   locale?: string;
+  drainTimeoutMs?: number;
 }
 
 export class TemporalTraceRecorder {
@@ -32,9 +35,12 @@ export class TemporalTraceRecorder {
   private requestCorrelations = new WeakMap<Request, PendingRequestMeta>();
   private pendingAsyncHandlers = new Set<Promise<void>>();
   private startedAt = '';
+  private runId = '';
   private initialUrl = '';
   private listenersInstalled = false;
   private lastMainFrameUrl = '';
+  private inFlight = new Set<Request>();
+  private handlerErrors: unknown[] = [];
 
   private readonly options: Required<Pick<TraceRecorderOptions, 'maxResponseBodyBytes' | 'allowedResponseContentTypes' | 'locale'>> & TraceRecorderOptions;
 
@@ -57,7 +63,10 @@ export class TemporalTraceRecorder {
     this.sequenceCounter = 0;
     this.requestCorrelations = new WeakMap<Request, PendingRequestMeta>();
     this.pendingAsyncHandlers.clear();
+    this.inFlight.clear();
+    this.handlerErrors = [];
     this.startedAt = new Date().toISOString();
+    this.runId = randomUUID();
     this.initialUrl = this.page.url();
     this.lastMainFrameUrl = this.initialUrl;
 
@@ -70,22 +79,23 @@ export class TemporalTraceRecorder {
 
   async finish(scenarioId: string, runIndex: number): Promise<RawObservedTrace> {
     if (!this.listenersInstalled) throw new Error('Trace recorder is not running.');
-    await this.drainPendingHandlers();
-    this.detachListeners();
+    try { await this.drainPendingHandlers(); } finally { this.detachListeners(); }
+    if (this.handlerErrors.length) throw new Error('Trace capture failed while recording a response.');
 
     return {
       scenarioId,
+      runId: this.runId,
       runIndex,
       startedAt: this.startedAt,
       events: [...this.events].sort((a, b) => a.sequenceIndex - b.sequenceIndex),
-      environment: this.environment(),
+      environment: await this.environment(),
     };
   }
 
   async abort(): Promise<void> {
     if (!this.listenersInstalled) return;
-    await this.drainPendingHandlers();
     this.detachListeners();
+    await Promise.allSettled([...this.pendingAsyncHandlers]);
   }
 
   recordUserInteraction(input: Omit<UserInteractionEvent, keyof Pick<UserInteractionEvent,
@@ -102,8 +112,8 @@ export class TemporalTraceRecorder {
 
   async captureAria(triggerEventId: string): Promise<AriaStateEvent> {
     const body = this.page.locator('body');
-    const rawYamlTree = await body.ariaSnapshot();
-    const jsonTree = await body.ariaSnapshotJSON({ boxes: true });
+    const jsonTree = await body.ariaSnapshotJSON();
+    const rawYamlTree = stringify(jsonTree);
     const sequenceIndex = this.nextSeq();
     return this.pushEvent({
       type: 'ARIA_STATE_CHANGE',
@@ -112,7 +122,7 @@ export class TemporalTraceRecorder {
       sequenceIndex,
       triggerEventId,
       rawYamlTree,
-      jsonTree: jsonTree as Record<string, unknown>,
+      jsonTree: Array.isArray(jsonTree) ? { children: jsonTree } : jsonTree as Record<string, unknown>,
     });
   }
 
@@ -143,7 +153,8 @@ export class TemporalTraceRecorder {
     const sequenceIndex = this.nextSeq();
     const correlationId = randomUUID();
     const startedAtMs = Date.now();
-    this.requestCorrelations.set(request, { correlationId, startedAtMs });
+    this.requestCorrelations.set(request, { correlationId, startedAtMs, requestEventId: `evt_${sequenceIndex}` });
+    this.inFlight.add(request);
     this.pushEvent({
       type: 'HTTP_REQUEST',
       eventId: `evt_${sequenceIndex}`,
@@ -160,13 +171,24 @@ export class TemporalTraceRecorder {
   private readonly onRequestFinished = (request: Request): void => {
     const meta = this.requestCorrelations.get(request);
     if (!meta) return;
-    const task = this.captureFinishedRequest(request, meta).finally(() => this.pendingAsyncHandlers.delete(task));
+    const task = this.captureFinishedRequest(request, meta).catch(error => { this.handlerErrors.push(error); }).finally(() => { this.pendingAsyncHandlers.delete(task); this.inFlight.delete(request); });
     this.pendingAsyncHandlers.add(task);
   };
 
   private readonly onRequestFailed = (request: Request): void => {
     const meta = this.requestCorrelations.get(request);
     if (!meta) return;
+    const task = this.captureFailedRequest(request, meta).catch(error => { this.handlerErrors.push(error); }).finally(() => { this.pendingAsyncHandlers.delete(task); this.inFlight.delete(request); });
+    this.pendingAsyncHandlers.add(task);
+  };
+
+  private async captureFailedRequest(request: Request, meta: PendingRequestMeta): Promise<void> {
+    // Chromium can report ERR_ABORTED after a fulfilled bodyless response.
+    const response = await request.response();
+    if (response && (response.status() === 204 || response.status() === 304 || request.method() === 'HEAD') && request.failure()?.errorText === 'net::ERR_ABORTED') {
+      await this.captureFinishedRequest(request, meta);
+      return;
+    }
     const sequenceIndex = this.nextSeq();
     this.pushEvent({
       type: 'HTTP_FAILED',
@@ -177,14 +199,15 @@ export class TemporalTraceRecorder {
       method: request.method(),
       url: request.url(),
       errorText: request.failure()?.errorText ?? 'Unknown request failure',
+      causedByEventIds: [meta.requestEventId],
     });
-  };
+  }
 
   private readonly onFrameNavigated = (frame: ReturnType<Page['mainFrame']>): void => {
     if (frame !== this.page.mainFrame()) return;
     const toUrl = frame.url();
     const fromUrl = this.lastMainFrameUrl || this.initialUrl;
-    if (!toUrl || toUrl === fromUrl) return;
+    if (!toUrl || toUrl === fromUrl && this.events.some(event => event.type === 'NAVIGATION')) return;
     this.lastMainFrameUrl = toUrl;
     const sequenceIndex = this.nextSeq();
     this.pushEvent({
@@ -199,8 +222,15 @@ export class TemporalTraceRecorder {
 
   private async captureFinishedRequest(request: Request, meta: PendingRequestMeta): Promise<void> {
     const response = await request.response();
-    if (!response) return;
-    const body = await this.safeResponseBody(response.headers()['content-type'] ?? '', response.body.bind(response));
+    if (!response) {
+      const sequenceIndex = this.nextSeq();
+      this.pushEvent({ type: 'HTTP_FAILED', eventId: `evt_${sequenceIndex}`, timestampMs: Date.now(), sequenceIndex, correlationId: meta.correlationId, method: request.method(), url: request.url(), errorText: 'Response unavailable after request completion', causedByEventIds: [meta.requestEventId] });
+      return;
+    }
+    const declaredLength = Number(response.headers()['content-length'] ?? '0');
+    const body = declaredLength > this.options.maxResponseBodyBytes ? { omitted: true, reason: 'BODY_TOO_LARGE' }
+      : response.status() === 204 || response.status() === 304 || request.method() === 'HEAD' ? null
+      : await this.safeResponseBody(response.headers()['content-type'] ?? '', response.body.bind(response));
     const timing = request.timing();
     const duration = timing.requestStart >= 0 && timing.responseEnd >= 0
       ? Math.max(0, timing.responseEnd - timing.requestStart)
@@ -218,6 +248,7 @@ export class TemporalTraceRecorder {
       headers: response.headers(),
       body,
       requestToResponseEndMs: Math.round(duration),
+      causedByEventIds: [meta.requestEventId],
     });
   }
 
@@ -246,8 +277,10 @@ export class TemporalTraceRecorder {
   }
 
   private async drainPendingHandlers(): Promise<void> {
-    while (this.pendingAsyncHandlers.size > 0) {
-      await Promise.all([...this.pendingAsyncHandlers]);
+    const deadline = Date.now() + (this.options.drainTimeoutMs ?? 10000);
+    while (this.pendingAsyncHandlers.size > 0 || this.inFlight.size > 0) {
+      if (Date.now() >= deadline) throw new Error('Timed out draining recorded HTTP requests.');
+      await new Promise(resolve => setTimeout(resolve, 10));
     }
   }
 
@@ -259,11 +292,11 @@ export class TemporalTraceRecorder {
     this.listenersInstalled = false;
   }
 
-  private environment(): TraceEnvironment {
+  private async environment(): Promise<TraceEnvironment> {
     return {
       browser: this.page.context().browser()?.browserType().name() ?? 'unknown',
       viewport: this.page.viewportSize() ?? { width: 1280, height: 720 },
-      locale: this.options.locale,
+      locale: await this.page.evaluate(() => navigator.language),
     };
   }
 

@@ -1,4 +1,4 @@
-# Migration Harness v0.2
+# Migration Harness
 
 Evidence-Guided Translation Validation for behavior-preserving software migration.
 
@@ -25,30 +25,31 @@ SourceTrace + TargetTrace + Critical Contract + Manifest hints
 
 The `TransformationManifest` is evidence/hints only. It cannot make a failing candidate pass.
 
-## v0.2 implemented foundation
+## Implemented
 
-- core schemas for `TransformationPlan`, `TransformationManifest` and `EquivalenceResult`;
+- strict runtime schemas for scenarios, traces, contracts, units, plans, manifests, results and CLI policy;
 - deterministic v0.2 state machine;
 - `ScenarioRunner` separated from trace observation;
 - hardened Playwright trace recorder with navigation events, async request draining, configurable request filtering and response-body caps;
-- initial network `EquivalenceValidator`;
-- method, path, query, payload-shape and status comparison;
+- network, navigation, storage, ARIA, critical contract and declared causal-graph comparison;
+- method, path parameters, query, complete payload shapes, response shapes, transport failures and status comparison;
 - volatile query parameter support;
-- contract integrity and initial trace sanitization from v0.1;
-- CLI `compare` command;
-- executable PUT→POST regression smoke test.
+- contract review/approval, recursive integrity hashing and independent critical gates;
+- trace sanitization, keyed pseudonyms, a structural-only LLM projection, private raw artifacts and retention;
+- TypeScript/Angular discovery with routes, guards/resolvers, DI and template dependencies, transformation planning and a conservative standalone-component codemod;
+- bounded patch workers, package/file allowlists, deadline enforcement and a Docker execution adapter;
+- OpenAPI/structured-test evidence import, multi-dimension observational synthesis, failure classification, bounded repair, TypeScript/ESLint/axe checks, coverage, eligibility and audit;
+- working CLI commands and an executable real Angular/React regression-and-repair pilot.
 
-## Not implemented yet
+## Scope And Limits
 
-- production runtime schema validation;
-- end-to-end browser CLI for `trace`;
-- full navigation/storage/ARIA equivalence validators;
-- causal DAG comparison;
-- EvidenceFusionEngine;
-- production-grade raw/sanitized artifact isolation;
-- Angular static analyzer implementation;
-- automatic codemods/LLM migration;
-- bounded LLM repair sandbox.
+The pilot covers a deliberately small Angular component. Arbitrary Angular applications, dependency-injection lifetimes, reactive forms and asynchronous stream orchestration still require semantic adapters or review. Discovery reports unresolved dependencies instead of inventing mappings. Causal comparison checks declared edges; automatic browser-wide causal inference is not implemented.
+
+The bounded worker accepts a configurable JSON service. Tests use a deterministic provider; no external LLM credentials or inference are required for the pilot. Container execution requires Docker and a locally available image pinned by digest. Docker execution was not verified in the current WSL environment.
+
+See [RFC implementation status](docs/IMPLEMENTATION-STATUS.md) for the complete scope and remaining work.
+
+The [live checklist](docs/PROGRESS.md), [review resolutions](docs/REVIEW-RESOLUTION.md), and [handoff](docs/HANDOFF.md) record completed work, pending validation and continuation details.
 
 ## First milestone
 
@@ -72,6 +73,9 @@ After dependencies are installed:
 ```bash
 pnpm build
 pnpm smoke:v02
+pnpm test
+pnpm test:browser
+pnpm pilot
 ```
 
 Compare two sanitized traces:
@@ -95,9 +99,10 @@ harness compare \
 Run:
 
 ```bash
-bash scripts/e2e-fixture.sh
+pnpm exec playwright install chromium
+pnpm pilot
 ```
 
-This executes a real Chromium scenario, compares source and target traces, then injects a `PUT → POST` regression and verifies that the `EquivalenceValidator` blocks it with `NETWORK_METHOD_MISMATCH`.
+This executes the TypeScript runner against real Angular and generated React in Chromium. It captures three source runs, creates a synthetic fixture contract, detects a `PUT → POST` regression, repairs one candidate file and revalidates the unchanged contract. Each run writes an audit and evidence directory under `artifacts/pilot-*`.
 
-See `examples/e2e-customer-profile/` and `docs/VALIDATION.md` for scope and environment limitations.
+The pilot simulates human approval for synthetic fixture data only. It does not approve any user contract. See [CLI usage](docs/USAGE.md), [pilot](examples/angular-react-pilot/README.md), and [validation](docs/VALIDATION.md). The older Python fixture is retained as historical material.

@@ -9,15 +9,29 @@
     "clean": "find packages -type d -name dist -prune -exec rm -rf {} +",
     "smoke": "node scripts/smoke.mjs",
     "smoke:v02": "node scripts/smoke-v02.mjs",
+    "test": "pnpm build && node --test tests/*.test.mjs",
+    "test:browser": "pnpm build && node --test tests/browser/*.test.mjs",
+    "pilot": "pnpm build && node scripts/pilot.mjs",
     "e2e:fixture": "bash scripts/e2e-fixture.sh"
   },
   "workspaces": [
     "packages/*"
   ],
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "1.63.0",
     "@types/node": "^22.15.0",
     "typescript": "^5.8.3",
-    "turbo": "^2.5.0"
+    "turbo": "^2.5.0",
+    "esbuild": "^0.25.0",
+    "@angular/core": "^19.2.0",
+    "@angular/common": "^19.2.0",
+    "@angular/compiler": "^19.2.0",
+    "@angular/platform-browser": "^19.2.0",
+    "rxjs": "^7.8.2",
+    "zone.js": "~0.15.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0"
   }
 }

@@ -6,3 +6,5 @@ export * from './gate-result.js';
 export * from './transformation-manifest.js';
 export * from './transformation-plan.js';
 export * from './equivalence-result.js';
+export * from './schemas.js';
+export * from './normalization.js';
