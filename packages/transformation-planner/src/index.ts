@@ -18,10 +18,10 @@ export function planTransformation(discovery: DiscoveryResult): TransformationPl
       if (forms && reactive) {
         const blockers = [
           forms.templateDirectives.includes('ngModel') ? 'template-driven ngModel mixed with reactive forms' : undefined,
-          forms.hasAsyncValidators ? 'async validators' : undefined,
+          forms.hasAsyncValidators || forms.asyncValidatorEvidence.length > 0 ? 'async validators' : undefined,
           forms.hasFormArray ? 'FormArray' : undefined,
           forms.hasDynamicControlCreation ? 'dynamically created controls' : undefined,
-          forms.formsSymbols.some(name => name === 'FormBuilder' || name === 'NonNullableFormBuilder') ? 'FormBuilder-created groups' : undefined,
+          forms.formsSymbols.some(name => name === 'FormBuilder' || name === 'NonNullableFormBuilder') && !forms.builderInferred ? 'FormBuilder groups without static normalization' : undefined,
           forms.subscriptions.some(subscription => subscription.semantics === 'request-response') ? 'valueChanges subscriptions issuing requests' : undefined,
           forms.subscriptions.some(subscription => subscription.semantics !== 'request-response') ? `${forms.subscriptions.find(subscription => subscription.semantics !== 'request-response')!.semantics} subscriptions` : undefined,
           forms.validators.some(validator => !SIMPLE_SYNC_VALIDATORS.has(validator)) ? 'validators outside the synchronous subset' : undefined,

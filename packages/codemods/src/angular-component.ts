@@ -9,7 +9,7 @@ interface Control { name: string; initial: string; valueType: 'string' | 'number
 interface InputSpec { name: string; alias?: string; type: string; }
 interface OutputSpec { name: string; callback: string; eventType: string; }
 
-const CORE_IMPORTS = new Set(['Component', 'Input', 'Output', 'EventEmitter']);
+const CORE_IMPORTS = new Set(['Component', 'Input', 'Output', 'EventEmitter', 'inject']);
 const FORMS_IMPORTS = new Set(['FormGroup', 'FormControl', 'FormArray', 'FormBuilder', 'NonNullableFormBuilder', 'Validators', 'ReactiveFormsModule']);
 const RESERVED_FORM_DIRECTIVES = new Set(['formGroupName', 'formArrayName', 'formControl', 'ngModel', 'ngModelGroup', 'formControlName']);
 const SUPPORTED_FORM_API = new Set(['valid', 'invalid', 'value', 'getRawValue']);
@@ -92,44 +92,93 @@ export function transformAngularComponent(source: string, unitId: string, fileNa
     refuse(`Validator expression '${node.getText(file)}'`);
   };
   const parseValidatorList = (node: ts.Expression): Validator[] => ts.isArrayLiteralExpression(node) ? node.elements.map(parseValidator) : [parseValidator(node)];
-  const parseFormGroup = (group: ts.NewExpression): Control[] => {
-    if (group.typeArguments?.length) refuse('Generic FormGroup type arguments');
-    const literal = group.arguments?.[0];
-    if (!literal || !ts.isObjectLiteralExpression(literal)) refuse('Non-literal FormGroup configuration');
+  const isBuilderCreation = (node: ts.Expression): boolean => /^new (?:NonNullable)?FormBuilder\(\)$/.test(node.getText(file)) || /^inject\(\s*(?:NonNullable)?FormBuilder\s*\)$/.test(node.getText(file));
+  const builderFields = new Set<string>();
+  for (const member of component.members) {
+    if (!ts.isPropertyDeclaration(member) || !member.initializer || !member.name || !ts.isIdentifier(member.name) || memberRole.has(member)) continue;
+    if (isBuilderCreation(member.initializer)) builderFields.add(member.name.text);
+  }
+  const isBuilderReceiver = (receiver: ts.Expression): boolean => /^(?:this\.)?(?:fb|formBuilder|builder)$/.test(receiver.getText(file)) || isBuilderCreation(receiver);
+  const scanInject = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.getText(file) === 'inject') {
+      const target = node.arguments[0]?.getText(file) ?? '';
+      if (!/^(?:NonNullable)?FormBuilder$/.test(target)) refuse(`Dependency injection 'inject(${target || '?'})'`);
+    }
+    ts.forEachChild(node, scanInject);
+  };
+  scanInject(component);
+  const asyncValidatorSummary = (node: ts.Expression): string => (ts.isArrayLiteralExpression(node) ? node.elements.map(element => element.getText(file)) : [node.getText(file)]).map(name => `'${name.replace(/\s+/g, ' ').trim().slice(0, 60)}'`).join(', ');
+  const parseControlArguments = (controlName: string, args: readonly ts.Expression[]): Control => {
+    if (args.length > 3) refuse(`Form control '${controlName}' with more than three arguments`);
+    const asyncArg = args[2];
+    if (asyncArg && asyncArg.kind !== ts.SyntaxKind.NullKeyword) refuse(`Async validator ${asyncValidatorSummary(asyncArg)}`);
+    const initial = args[0];
+    if (!initial || ts.isOmittedExpression(initial) || (!ts.isStringLiteralLike(initial) && !isNumericLike(initial) && !isBooleanLiteral(initial))) refuse(`Form control '${controlName}' initial value`);
+    const options = args[1];
+    let validators: Validator[] = [];
+    if (options && options.kind !== ts.SyntaxKind.NullKeyword) {
+      if (ts.isObjectLiteralExpression(options)) {
+        for (const option of options.properties) {
+          if (!ts.isPropertyAssignment(option)) refuse(`Form control '${controlName}' options object`);
+          const key = option.name.getText(file);
+          if (key === 'asyncValidators' || key === 'asyncValidator') refuse(`Async validator ${asyncValidatorSummary(option.initializer)}`);
+          else if (key === 'validators') validators = parseValidatorList(option.initializer);
+          else if (key !== 'nonNullable') refuse(`Form control '${controlName}' option '${key}'`);
+        }
+      } else validators = parseValidatorList(options);
+    }
+    return { name: controlName, initial: initial.getText(file), valueType: literalType(initial), validators };
+  };
+  const parseGroupEntries = (literal: ts.ObjectLiteralExpression, builder: boolean): Control[] => {
     const controls: Control[] = [];
     for (const property of literal.properties) {
-      if (!ts.isPropertyAssignment(property) || !(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))) refuse('Form group property');
+      if (!ts.isPropertyAssignment(property) || !(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))) refuse(builder ? 'FormBuilder group entry that is not a static property assignment' : 'Form group property');
       const controlName = property.name.text;
       const value = property.initializer;
-      if (!ts.isNewExpression(value) || value.expression.getText(file) !== 'FormControl' || value.typeArguments?.length) refuse(`Form control '${controlName}' that is not a literal FormControl`);
-      const args = value.arguments ?? [];
-      if (args.length > 2) refuse('Async validators passed to FormControl');
-      const initial = args[0];
-      if (!initial || (!ts.isStringLiteralLike(initial) && !isNumericLike(initial) && !isBooleanLiteral(initial))) refuse(`Form control '${controlName}' initial value`);
-      const valueType = literalType(initial);
-      controls.push({ name: controlName, initial: initial.getText(file), valueType, validators: args[1] ? parseValidatorList(args[1]) : [] });
+      if (ts.isNewExpression(value) && value.expression.getText(file) === 'FormControl') {
+        if (value.typeArguments?.length) refuse('Generic FormControl type arguments');
+        controls.push(parseControlArguments(controlName, value.arguments ?? []));
+      } else if (builder && ts.isArrayLiteralExpression(value) && value.elements.length >= 1 && value.elements.length <= 3) {
+        controls.push(parseControlArguments(controlName, value.elements as unknown as ts.Expression[]));
+      } else if (builder && (ts.isStringLiteralLike(value) || isNumericLike(value) || isBooleanLiteral(value))) {
+        controls.push({ name: controlName, initial: value.getText(file), valueType: literalType(value), validators: [] });
+      } else if (builder && ((ts.isCallExpression(value) && ts.isPropertyAccessExpression(value.expression) && ['group', 'control', 'array'].includes(value.expression.name.text)) || (ts.isNewExpression(value) && /^(?:FormGroup|FormArray)$/.test(value.expression.getText(file))))) {
+        refuse(`Nested form structure for control '${controlName}'`);
+      } else refuse(`Form control '${controlName}' that is not a literal FormControl`);
     }
     if (!controls.length) refuse('Empty FormGroup');
     return controls;
   };
+  const parseFormGroup = (group: ts.NewExpression): Control[] => {
+    if (group.typeArguments?.length) refuse('Generic FormGroup type arguments');
+    const literal = group.arguments?.[0];
+    if (!literal || !ts.isObjectLiteralExpression(literal)) refuse('Non-literal FormGroup configuration');
+    return parseGroupEntries(literal, false);
+  };
   const templateText = templateProperty.initializer.text;
   const rejectUnsupportedFormSemantics = (): void => {
-    if (/\basyncValidators\b/.test(source)) refuse('Async validators');
     if (/\bFormArray\b/.test(source)) refuse('FormArray');
     if (/\.\s*(?:addControl|setControl|removeControl)\s*\(/.test(source)) refuse('Dynamically created controls');
     if (/\b(?:valueChanges|statusChanges)\b/.test(source)) refuse('valueChanges or statusChanges subscriptions');
     if (/\bngModel\b/.test(templateText)) refuse('Template-driven ngModel mixed with reactive forms');
   };
   let formField: { name: string; controls: Control[] } | undefined;
+  let builderNormalized = false;
   for (const member of component.members) {
-    if (!ts.isPropertyDeclaration(member) || !member.initializer || !member.name || !ts.isIdentifier(member.name) || memberRole.has(member)) continue;
+    if (!ts.isPropertyDeclaration(member) || !member.initializer || !member.name || !ts.isIdentifier(member.name) || memberRole.has(member) || builderFields.has(member.name.text)) continue;
     const initializer = member.initializer;
     if (ts.isNewExpression(initializer) && initializer.expression.getText(file) === 'FormGroup') {
       if (formField) refuse('Multiple FormGroup fields');
       rejectUnsupportedFormSemantics();
       formField = { name: member.name.text, controls: parseFormGroup(initializer) };
     } else if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression) && initializer.expression.name.text === 'group') {
-      refuse('FormBuilder-created group');
+      if (formField) refuse('Multiple FormGroup fields');
+      if (!isBuilderReceiver(initializer.expression.expression)) refuse('Form group call on a non-FormBuilder receiver');
+      rejectUnsupportedFormSemantics();
+      const config = initializer.arguments[0];
+      if (!config || !ts.isObjectLiteralExpression(config)) refuse('Non-literal FormBuilder group configuration');
+      builderNormalized = true;
+      formField = { name: member.name.text, controls: parseGroupEntries(config, true) };
     }
   }
   if (formField) {
@@ -234,7 +283,7 @@ export function transformAngularComponent(source: string, unitId: string, fileNa
   if (!extended) {
     const model = ts.factory.updateClassDeclaration(component, undefined, ts.factory.createIdentifier('ComponentModel'), component.typeParameters, undefined, component.members);
     const code = `import React, { useReducer, useRef } from 'react';\n${extra}\n${printer.printNode(ts.EmitHint.Unspecified, model, file)}\nexport function ${className}() {\n const ref = useRef<ComponentModel | null>(null);\n if (!ref.current) ref.current = new ComponentModel();\n const model = ref.current;\n const [, refresh] = useReducer(value => value + 1, 0);\n return <>${body}</>;\n}\n`;
-    return { code, manifest: { unitId, generatedAt: new Date().toISOString(), transformer: { kind: 'CODEMOD', name: 'standalone-component', version: '0.4.0' }, mappings: [{ mappingId: 'component', source: `${fileName}#${className}`, target: `component.tsx#${className}`, preserves: basePreserves, rationale: 'Preserved method bodies; adapted supported template bindings and event-driven rendering.' }] } };
+    return { code, manifest: { unitId, generatedAt: new Date().toISOString(), transformer: { kind: 'CODEMOD', name: 'standalone-component', version: '0.5.0' }, mappings: [{ mappingId: 'component', source: `${fileName}#${className}`, target: `component.tsx#${className}`, preserves: basePreserves, rationale: 'Preserved method bodies; adapted supported template bindings and event-driven rendering.' }] } };
   }
   const emitTargets = new Map(outputs.map(output => [output.name, output.callback]));
   const transformEmits = (): ts.ClassElement[] => {
@@ -268,12 +317,15 @@ export function transformAngularComponent(source: string, unitId: string, fileNa
     if (ts.isPropertyDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
       const role = memberRole.get(member as ts.PropertyDeclaration);
       if (role === 'output') continue;
+      if (role !== 'input' && builderFields.has(member.name.text)) continue;
       if (formField && role !== 'input' && member.name.text === formField.name) continue;
     }
     kept.push(memberText(member));
   }
   for (const output of outputs) kept.push(`${output.callback}?: (value: ${output.eventType}) => void;`);
   if (formField) kept.push(`${formField.name}!: FormState<${className}FormValue>;`);
+  const builderUsage = builderFields.size ? kept.join('\n').match(new RegExp(String.raw`\bthis\.(${[...builderFields].join('|')})\b`)) : null;
+  if (builderUsage) refuse(`FormBuilder field reference 'this.${builderUsage[1] ?? ''}' outside group creation`);
   const residual = kept.join('\n').match(ANGULAR_REFERENCE);
   if (residual) refuse(`Remaining Angular reference '${residual[0] ?? 'forms'}'`);
   const describeValidators = (validators: Validator[]): string => validators.map(validator => validator.kind === 'compose' ? `compose(${describeValidators(validator.inner ?? [])})` : `${validator.kind}${validator.argument ? `(${validator.argument})` : ''}`).join('; ');
@@ -332,10 +384,11 @@ export function transformAngularComponent(source: string, unitId: string, fileNa
   for (const input of inputs) mappings.push({ mappingId: `input-${input.name}`, source: `${fileName}#${className}#${input.name}`, target: `component.tsx#${className}Props.${input.alias ?? input.name}`, preserves: [], rationale: `Decorated input '${input.name}' exposed as required prop '${input.alias ?? input.name}'${input.alias ? ` (Angular alias; member name '${input.name}' preserved on the model)` : ''} and synchronized into the model on every render.` });
   for (const output of outputs) mappings.push({ mappingId: `output-${output.name}`, source: `${fileName}#${className}#${output.name}`, target: `component.tsx#${className}Props.${output.callback}`, preserves: ['SUCCESS_BEHAVIOR'], rationale: `EventEmitter '${output.name}' payload and call site preserved through callback prop '${output.callback}'.` });
   if (formField) {
+    if (builderNormalized) mappings.push({ mappingId: 'form-builder-normalization', source: `${fileName}#${className}#${formField.name}`, target: `component.tsx#${className}FormValue`, preserves: [], rationale: 'FormBuilder group configuration normalized statically; control order, initial values and synchronous validator rules are generated identically to a literal FormGroup.' });
     for (const control of formField.controls) mappings.push({ mappingId: `validate-${control.name}`, source: `${fileName}#${className}#${formField.name}.controls.${control.name}`, target: `component.tsx#validate${className}Form.${control.name}`, preserves: ['VALIDATION'], rationale: `Rules preserved explicitly, field-by-field: ${describeValidators(control.validators) || 'none (unvalidated control)'}.` });
     mappings.push({ mappingId: 'form-invalid-gating', source: `${fileName}#${className}#${formField.name}.invalid`, target: `component.tsx#FormState.invalid`, preserves: ['VALIDATION', 'SUCCESS_BEHAVIOR'], rationale: 'Generated valid/invalid flags derive from the explicit validate() result, mirroring Angular [disabled]="form.invalid" submit gating while invalid.' });
   }
-  return { code, manifest: { unitId, generatedAt: new Date().toISOString(), transformer: { kind: 'CODEMOD', name: 'standalone-component', version: '0.4.0' }, mappings } };
+  return { code, manifest: { unitId, generatedAt: new Date().toISOString(), transformer: { kind: 'CODEMOD', name: 'standalone-component', version: '0.5.0' }, mappings } };
 }
 
 export function repairHttpMethod(code: string, expected: string, actual: string): string {

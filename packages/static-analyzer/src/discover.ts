@@ -3,7 +3,7 @@ import { resolve, relative, dirname, extname } from 'node:path';
 import { createHash } from 'node:crypto';
 import ts from 'typescript';
 import { parseTemplate, BindingPipe } from '@angular/compiler';
-import type { ComponentInputRef, ComponentOutputRef, MigrationUnit, SymbolRef, DependencyEdge } from '@migration-harness/core';
+import type { AsyncValidatorEvidence, ComponentInputRef, ComponentOutputRef, MigrationUnit, ProviderScopeRef, SymbolRef, DependencyEdge } from '@migration-harness/core';
 import { parseMigrationUnit } from '@migration-harness/core';
 
 export type StreamClassification = 'request-response' | 'event-stream' | 'state-stream' | 'cancellation-sensitive' | 'orchestration';
@@ -48,9 +48,11 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   const rendered: Array<{ owner: SymbolRef; names: Set<string>; pipes: Set<string> }> = [];
   const ioInputs: ComponentInputRef[] = [];
   const ioOutputs: ComponentOutputRef[] = [];
-  interface FormsRecord { formsSymbols: Set<string>; templateDirectives: Set<string>; validators: Set<string>; hasAsyncValidators: boolean; hasFormArray: boolean; hasDynamicControlCreation: boolean; subscriptions: Array<{ source: string; semantics: StreamClassification }> }
+  interface FormsRecord { formsSymbols: Set<string>; templateDirectives: Set<string>; controls: Set<string>; validators: Set<string>; hasAsyncValidators: boolean; hasFormArray: boolean; hasDynamicControlCreation: boolean; subscriptions: Array<{ source: string; semantics: StreamClassification }>; builderGroups: number; builderGroupsNormalized: boolean; asyncValidatorEvidence: AsyncValidatorEvidence[] }
   const formsRecords = new Map<string, FormsRecord>();
-  const formsFor = (symbolId: string): FormsRecord => { let record = formsRecords.get(symbolId); if (!record) formsRecords.set(symbolId, record = { formsSymbols: new Set(), templateDirectives: new Set(), validators: new Set(), hasAsyncValidators: false, hasFormArray: false, hasDynamicControlCreation: false, subscriptions: [] }); return record; };
+  const formsFor = (symbolId: string): FormsRecord => { let record = formsRecords.get(symbolId); if (!record) formsRecords.set(symbolId, record = { formsSymbols: new Set(), templateDirectives: new Set(), controls: new Set(), validators: new Set(), hasAsyncValidators: false, hasFormArray: false, hasDynamicControlCreation: false, subscriptions: [], builderGroups: 0, builderGroupsNormalized: true, asyncValidatorEvidence: [] }); return record; };
+  const providerScopes = new Map<string, ProviderScopeRef>();
+  const providerScopeFor = (symbolId: string): ProviderScopeRef => { let scope = providerScopes.get(symbolId); if (!scope) providerScopes.set(symbolId, scope = { symbolId, providedIn: 'none', componentProviders: [] }); return scope; };
   const decoratorName = (decorator: ts.Decorator, file: ts.SourceFile): string => {
     const expression = ts.isCallExpression(decorator.expression) ? decorator.expression.expression : decorator.expression;
     const symbol = checker.getSymbolAtLocation(expression);
@@ -60,6 +62,8 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   let loc = 0, branches = 0;
   for (const file of program.getSourceFiles().filter(file => paths.includes(file.fileName))) {
     loc += file.text.split('\n').length;
+    const importBindings = new Set<string>();
+    for (const statement of file.statements) if (ts.isImportDeclaration(statement) && statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings)) for (const element of statement.importClause.namedBindings.elements) importBindings.add(element.name.text);
     const candidates = file.statements.flatMap<ts.Node>(statement => ts.isVariableStatement(statement) ? [...statement.declarationList.declarations].filter(declaration => /Guard|Resolver|CanActivateFn|ResolveFn/.test(declaration.getText(file))) : [statement]);
     for (const node of candidates) {
       if (!(ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) || !node.name || !ts.isIdentifier(node.name)) continue;
@@ -97,10 +101,104 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
           for (const hit of validatorHits) record.validators.add(hit);
           record.hasAsyncValidators ||= hasAsyncValidators; record.hasFormArray ||= hasFormArray; record.hasDynamicControlCreation ||= hasDynamicControlCreation;
         }
+        const isBuilderReceiver = (receiver: ts.Expression): boolean => {
+          const text = receiver.getText(file);
+          return /^(?:this\.)?(?:fb|formBuilder|builder)$/.test(text) || /^new\s+(?:NonNullable)?FormBuilder\(\)$/.test(text) || /^inject\(\s*(?:NonNullable)?FormBuilder\s*\)$/.test(text);
+        };
+        const literalControlValue = (value: ts.Expression): boolean => ts.isStringLiteralLike(value) || ts.isNumericLiteral(value) || (ts.isPrefixUnaryExpression(value) && ts.isNumericLiteral(value.operand)) || value.kind === ts.SyntaxKind.TrueKeyword || value.kind === ts.SyntaxKind.FalseKeyword;
+        const validatorNames = (node: ts.Expression): string[] => {
+          if (node.kind === ts.SyntaxKind.NullKeyword || node.kind === ts.SyntaxKind.UndefinedKeyword) return [];
+          if (ts.isArrayLiteralExpression(node)) return node.elements.flatMap(validatorNames);
+          if (ts.isPropertyAccessExpression(node) && node.expression.getText(file) === 'Validators') return [node.name.text];
+          if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.expression.getText(file) === 'Validators') return node.expression.name.text === 'compose' ? node.arguments.flatMap(validatorNames) : [node.expression.name.text];
+          return [node.getText(file)];
+        };
+        const asyncValidatorScope = (node: ts.Expression): AsyncValidatorEvidence['scope'] => {
+          if (ts.isPropertyAccessExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword) return 'local';
+          if (ts.isIdentifier(node)) {
+            if (importBindings.has(node.text)) { unresolved.push({ name: node.text, requestedBy: symbol.id, reason: 'Imported async validator requires explicit resolution' }); return 'imported'; }
+            const target = checker.getSymbolAtLocation(node);
+            if (target?.declarations?.some(declaration => !ts.isImportSpecifier(declaration) && inside(root, declaration.getSourceFile().fileName))) return 'local';
+          }
+          unresolved.push({ name: node.getText(file).slice(0, 480), requestedBy: symbol.id, reason: 'Async validator reference is unresolved' });
+          return 'unknown';
+        };
+        const recordAsyncEvidence = (field: string, node: ts.Expression): void => {
+          const elements = ts.isArrayLiteralExpression(node) ? [...node.elements] : [node];
+          const names = elements.map(element => element.getText(file));
+          const scopes = elements.map(asyncValidatorScope);
+          const scope: AsyncValidatorEvidence['scope'] = scopes.includes('unknown') ? 'unknown' : scopes.includes('imported') ? 'imported' : 'local';
+          const record = formsFor(symbol.id);
+          record.asyncValidatorEvidence.push({ field, validators: names, scope });
+          record.hasAsyncValidators = true;
+        };
+        const parseGroupConfig = (config: ts.ObjectLiteralExpression, builder: boolean): { controls: string[]; ok: boolean } => {
+          const controls: string[] = []; let ok = config.properties.length > 0;
+          const addSync = (node: ts.Expression) => { for (const name of validatorNames(node)) formsFor(symbol.id).validators.add(name); };
+          const readControl = (field: string, value: ts.Expression): void => {
+            if (ts.isNewExpression(value) && value.expression.getText(file) === 'FormControl' && !value.typeArguments?.length) {
+              const args = value.arguments ?? [];
+              if (args.length > 3 || (!args.length || !literalControlValue(args[0]!))) { ok = false; return; }
+              if (args[1] && ts.isObjectLiteralExpression(args[1])) {
+                for (const option of args[1].properties) {
+                  if (!ts.isPropertyAssignment(option)) { ok = false; continue; }
+                  const key = option.name.getText(file);
+                  if (key === 'asyncValidators' || key === 'asyncValidator') recordAsyncEvidence(field, option.initializer);
+                  else if (key === 'validators') addSync(option.initializer);
+                  else if (key !== 'nonNullable' && key !== 'updateOn') ok = false;
+                }
+              } else if (args[1]) addSync(args[1]);
+              if (args[2] && args[2].kind !== ts.SyntaxKind.NullKeyword) recordAsyncEvidence(field, args[2]);
+              controls.push(field);
+            } else if (builder && ts.isArrayLiteralExpression(value) && value.elements.length >= 1 && value.elements.length <= 3) {
+              const [initial, syncNode, asyncNode]: (ts.Expression | undefined)[] = [...value.elements];
+              if (!initial || !literalControlValue(initial)) { ok = false; return; }
+              if (syncNode) addSync(syncNode);
+              if (asyncNode && asyncNode.kind !== ts.SyntaxKind.NullKeyword) recordAsyncEvidence(field, asyncNode);
+              controls.push(field);
+            } else if (builder && literalControlValue(value)) controls.push(field);
+            else ok = false;
+          };
+          for (const property of config.properties) {
+            if (!ts.isPropertyAssignment(property) || !(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))) { ok = false; continue; }
+            readControl(property.name.text, property.initializer);
+          }
+          return { controls, ok };
+        };
+        for (const member of node.members) {
+          if (!ts.isPropertyDeclaration(member) || !member.initializer || !member.name || !ts.isIdentifier(member.name)) continue;
+          const initializer = member.initializer;
+          let config: ts.Expression | undefined; let builder = false;
+          if (ts.isNewExpression(initializer) && initializer.expression.getText(file) === 'FormGroup') config = initializer.arguments?.[0];
+          else if (ts.isCallExpression(initializer) && ts.isPropertyAccessExpression(initializer.expression) && initializer.expression.name.text === 'group' && isBuilderReceiver(initializer.expression.expression)) { config = initializer.arguments[0]; builder = true; }
+          if (config === undefined && !builder) continue;
+          const record = formsFor(symbol.id);
+          if (builder) record.builderGroups++;
+          if (config && ts.isObjectLiteralExpression(config)) {
+            const parsed = parseGroupConfig(config, builder);
+            for (const control of parsed.controls) record.controls.add(control);
+            if (!parsed.ok && builder) { record.builderGroupsNormalized = false; unresolved.push({ name: `${symbol.name}#${member.name.text} group configuration`, requestedBy: symbol.id, reason: 'Builder form group configuration is not statically resolvable' }); }
+          } else if (builder) { record.builderGroupsNormalized = false; unresolved.push({ name: `${symbol.name}#${member.name.text} group configuration`, requestedBy: symbol.id, reason: 'Builder form group configuration is not statically resolvable' }); }
+        }
       }
       for (const decorator of decorators) if (ts.isCallExpression(decorator.expression)) {
         const config = decorator.expression.arguments[0];
         if (!config || !ts.isObjectLiteralExpression(config)) continue;
+        for (const property of config.properties) if (ts.isPropertyAssignment(property)) {
+          const key = property.name.getText(file);
+          const value = property.initializer;
+          if (key === 'providedIn') {
+            const scope = providerScopeFor(symbol.id);
+            if (ts.isStringLiteralLike(value)) scope.providedIn = value.text === 'root' || value.text === 'platform' || value.text === 'any' ? value.text : 'unknown';
+            else if (ts.isIdentifier(value) || ts.isPropertyAccessExpression(value)) { scope.providedIn = 'type'; scope.token = value.getText(file); }
+            else scope.providedIn = 'unknown';
+          }
+          if (key === 'providers') {
+            const scope = providerScopeFor(symbol.id);
+            if (ts.isArrayLiteralExpression(value)) scope.componentProviders = value.elements.map(element => ts.isIdentifier(element) ? element.text : element.getText(file).replace(/\s+/g, ' ').slice(0, 200));
+            if (scope.componentProviders.length && (symbol.kind === 'component' || symbol.kind === 'directive')) for (const name of scope.componentProviders) unresolved.push({ name, requestedBy: symbol.id, reason: 'Component-level provider requires scope resolution' });
+          }
+        }
         for (const property of config.properties) if (ts.isPropertyAssignment(property) && ts.isStringLiteralLike(property.initializer)) {
           const key = property.name.getText(file);
           if (key === 'selector') selectors.set(property.initializer.text, symbol);
@@ -256,7 +354,8 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   const internal = symbols.filter(s => included.has(s.id));
   const unit: MigrationUnit = { id: internal.find(s => entries.includes(s.id))!.name, version: '1.0.0', runtimeRoutes: routes.filter(route => route.componentId && included.has(route.componentId)).map(route => route.path), symbols: internal, dependencyGraph: edges.filter(e => included.has(e.fromSymbolId) && included.has(e.toSymbolId)),
     inputs: ioInputs.filter(input => included.has(input.symbolId)), outputs: ioOutputs.filter(output => included.has(output.symbolId)),
-    reactiveForms: [...formsRecords].filter(([symbolId]) => included.has(symbolId)).map(([symbolId, record]) => ({ symbolId, formsSymbols: [...record.formsSymbols].sort(), templateDirectives: [...record.templateDirectives].sort(), validators: [...record.validators].sort(), hasAsyncValidators: record.hasAsyncValidators, hasFormArray: record.hasFormArray, hasDynamicControlCreation: record.hasDynamicControlCreation, subscriptions: record.subscriptions })),
+    reactiveForms: [...formsRecords].filter(([symbolId]) => included.has(symbolId)).map(([symbolId, record]) => ({ symbolId, formsSymbols: [...record.formsSymbols].sort(), templateDirectives: [...record.templateDirectives].sort(), controls: [...record.controls].sort(), validators: [...record.validators].sort(), hasAsyncValidators: record.hasAsyncValidators, hasFormArray: record.hasFormArray, hasDynamicControlCreation: record.hasDynamicControlCreation, subscriptions: record.subscriptions, builderInferred: record.builderGroups > 0 && record.builderGroupsNormalized, asyncValidatorEvidence: record.asyncValidatorEvidence })),
+    providerScopes: [...providerScopes].filter(([symbolId]) => included.has(symbolId)).map(([symbolId, scope]) => ({ symbolId, providedIn: scope.providedIn, ...(scope.token ? { token: scope.token } : {}), componentProviders: scope.componentProviders })),
     boundary: { entrypoints: entries, internalSymbols: [...included], externalDependencies: [...external].map(name => ({ name, targetPackage: name, resolvedStrategy: 'keep_external' })) },
     resolutionMetrics: { totalSymbolsIdentified: symbols.length, resolvedSymbolsCount: internal.length, resolutionCoverage: internal.length / Math.max(1, internal.length + unresolved.length), unresolvedSymbols: unresolved, dynamicEdgesCount: unresolved.filter(e => e.reason.startsWith('Dynamic')).length },
     metadata: { loc, cyclomaticComplexity: branches + 1, hasRxjsStreams: streams.length > 0, hasDynamicForms: templates.some(t => t.bindings.some(b => /formArray|ngFor/.test(b))), templateAstComplexityScore: templates.reduce((sum, t) => sum + t.bindings.length, 0) },

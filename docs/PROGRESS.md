@@ -55,7 +55,9 @@ Updated: 2026-09-05. This is the live task checklist. `[x]` means implemented; v
 
 - [ ] Execute DockerSandbox against a real local digest-pinned image. Docker is unavailable in this WSL environment.
 - [ ] Exercise an external model service with actual credentials. The HTTP protocol is tested locally; model reasoning is not.
-- [ ] Angular forms beyond the synchronous codemod subset (async validators, FormArray, dynamic controls, builder-based groups, ngModel mixing, side-effectful valueChanges), complex provider lifetimes and stream orchestration transformations.
+- [x] Builder-based reactive form groups with statically-normalizable configs: normalized to the literal subset in discovery (`builderInferred` provenance), CODEMOD-routed with byte-identical generation; non-static configs remain explicit unresolved edges.
+- [x] Structured async-validator evidence (bound field, validator symbol, local/imported/unknown scope) and provider-lifetime recording (`providedIn`, component `providers`) on MigrationUnit, feeding the LLM/MANUAL lanes.
+- [ ] Transformations for async validators, FormArray, dynamic controls, ngModel mixing and side-effectful valueChanges (stay LLM/MANUAL), complex provider lifetimes and stream orchestration transformations.
 - [ ] Dedicated WebSocket/service-worker scenario adapters and automatic application-wide causal instrumentation.
 - [ ] OpenAPI composed/conditional schemas, external references and arbitrary test-framework extraction beyond structured assertion imports.
 - [ ] Operational encryption/key rotation, backup retention and externally anchored audit storage.

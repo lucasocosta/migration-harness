@@ -1,12 +1,21 @@
-import { Component, Input, Output, EventEmitter, inject } from '@angular/core';
+import { Component, Injectable, Input, Output, EventEmitter, inject } from '@angular/core';
 import { FormArray, FormControl, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
+import { uniqueEmail } from './validators';
 
 export function emailExists(): boolean { return true; }
 
-@Component({ selector: 'badge-root', standalone: true, template: '<button type="button" (click)="dismiss()">dismiss</button><p>{{ label }}</p>' })
+export class LegacyToken {}
+
+@Injectable({ providedIn: 'root' })
+export class SignupService { endpoint(): string { return '/api/signup'; } }
+
+@Injectable({ providedIn: LegacyToken })
+export class TokenService { read(): string { return 'token'; } }
+
+@Component({ selector: 'badge-root', standalone: true, providers: [SignupService], template: '<button type="button" (click)="dismiss()">dismiss</button><p>{{ label }}</p>' })
 export class BadgeComponent {
   @Input() label: string = '';
   @Output() dismissed = new EventEmitter<void>();
@@ -66,4 +75,17 @@ export class NewsletterComponent {
 export class CheckoutComponent {
   fb = inject(FormBuilder);
   order = this.fb.group({ item: new FormControl('', Validators.required) });
+}
+
+@Component({ selector: 'review-root', standalone: true, template: '<form [formGroup]="review"><input formControlName="comment"><input formControlName="email"></form>' })
+export class ReviewComponent {
+  fb = inject(FormBuilder);
+  review = this.fb.group({ comment: ['', [Validators.required, Validators.minLength(5)]], email: ['', [Validators.required], [uniqueEmail]] });
+}
+
+@Component({ selector: 'draft-order-root', standalone: true, template: '<form [formGroup]="draftOrder"><input formControlName="item"></form>' })
+export class DraftOrderComponent {
+  fb = inject(FormBuilder);
+  defaults = { item: new FormControl('') };
+  draftOrder = this.fb.group({ ...this.defaults, note: '' });
 }

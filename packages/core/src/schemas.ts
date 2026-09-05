@@ -121,7 +121,8 @@ export const MigrationUnitSchema = z.object({ id, version: id, runtimeRoutes: st
   dependencyGraph: z.array(z.object({ fromSymbolId: id, toSymbolId: id, relation: z.enum(['imports', 'injects', 'renders', 'applies_directive', 'pipes_through', 'guards', 'resolves']), isDynamic: z.boolean() }).strict()),
   inputs: z.array(z.object({ symbolId: id, name: id, alias: id.optional(), type: id }).strict()),
   outputs: z.array(z.object({ symbolId: id, name: id, alias: id.optional(), eventType: id }).strict()),
-  reactiveForms: z.array(z.object({ symbolId: id, formsSymbols: strings, templateDirectives: strings, validators: strings, hasAsyncValidators: z.boolean(), hasFormArray: z.boolean(), hasDynamicControlCreation: z.boolean(), subscriptions: z.array(z.object({ source: id, semantics: streamSemantics }).strict()).max(10000) }).strict()),
+  reactiveForms: z.array(z.object({ symbolId: id, formsSymbols: strings, templateDirectives: strings, controls: strings, validators: strings, hasAsyncValidators: z.boolean(), hasFormArray: z.boolean(), hasDynamicControlCreation: z.boolean(), subscriptions: z.array(z.object({ source: id, semantics: streamSemantics }).strict()).max(10000), builderInferred: z.boolean(), asyncValidatorEvidence: z.array(z.object({ field: id, validators: strings, scope: z.enum(['local', 'imported', 'unknown']) }).strict()).max(10000) }).strict()),
+  providerScopes: z.array(z.object({ symbolId: id, providedIn: z.enum(['root', 'platform', 'any', 'type', 'unknown', 'none']), token: id.optional(), componentProviders: strings }).strict()),
   boundary: z.object({ entrypoints: strings, internalSymbols: strings, externalDependencies: z.array(z.object({ name: id, targetPackage: id, resolvedStrategy: z.enum(['keep_external', 'polyfilled', 'mocked_in_harness']) }).strict()) }).strict(),
   resolutionMetrics: z.object({ totalSymbolsIdentified: z.number().int().nonnegative(), resolvedSymbolsCount: z.number().int().nonnegative(), resolutionCoverage: z.number().min(0).max(1), unresolvedSymbols: z.array(z.object({ name: id, requestedBy: id, reason: id }).strict()), dynamicEdgesCount: z.number().int().nonnegative() }).strict(),
   metadata: z.object({ loc: z.number().int().nonnegative(), cyclomaticComplexity: z.number().int().nonnegative(), hasRxjsStreams: z.boolean(), hasDynamicForms: z.boolean(), templateAstComplexityScore: z.number().nonnegative() }).strict(),
@@ -131,6 +132,8 @@ export const MigrationUnitSchema = z.object({ id, version: id, runtimeRoutes: st
   const kinds = new Map(value.symbols.map(s => [s.id, s.kind]));
   if ([...value.inputs, ...value.outputs, ...value.reactiveForms].some(item => kinds.get(item.symbolId) !== 'component')) ctx.addIssue({ code: 'custom', message: 'Decorated IO and reactive forms must reference component symbols' });
   if (new Set(value.reactiveForms.map(f => f.symbolId)).size !== value.reactiveForms.length) ctx.addIssue({ code: 'custom', message: 'Duplicate reactive forms record' });
+  if (value.providerScopes.some(p => !ids.has(p.symbolId))) ctx.addIssue({ code: 'custom', message: 'Provider scope references an unknown symbol' });
+  if (new Set(value.providerScopes.map(p => p.symbolId)).size !== value.providerScopes.length) ctx.addIssue({ code: 'custom', message: 'Duplicate provider scope record' });
 });
 export const parseMigrationUnit = (value: unknown): MigrationUnit => MigrationUnitSchema.parse(value) as MigrationUnit;
 

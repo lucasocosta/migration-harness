@@ -6,45 +6,79 @@ import { planTransformation } from '../packages/transformation-planner/dist/inde
 import { transformAngularComponent } from '../packages/codemods/dist/index.js';
 import { parseManifest } from '../packages/core/dist/index.js';
 
-const ENTRIES = ['SignupComponent', 'BadgeComponent', 'AuditComponent', 'InventoryComponent', 'SearchComponent', 'PingComponent', 'DraftComponent', 'NewsletterComponent', 'CheckoutComponent'].map(name => `forms.ts#${name}`);
-const discovery = await discover('tests/fixtures/forms-io', ENTRIES);
+const NAMES = ['SignupComponent', 'BadgeComponent', 'AuditComponent', 'InventoryComponent', 'SearchComponent', 'PingComponent', 'DraftComponent', 'NewsletterComponent', 'CheckoutComponent', 'ReviewComponent', 'DraftOrderComponent', 'SignupService', 'TokenService'];
+const id = name => `forms.ts#${name}`;
+const discovery = await discover('tests/fixtures/forms-io', NAMES.map(id));
+const forms = name => discovery.unit.reactiveForms.find(record => record.symbolId === id(name));
 
 test('discovery records decorated inputs, outputs and reactive-form semantics', () => {
-  const signup = ENTRIES[0];
-  const input = name => discovery.unit.inputs.find(item => item.symbolId === signup && item.name === name);
+  const input = name => discovery.unit.inputs.find(item => item.symbolId === id('SignupComponent') && item.name === name);
   assert.equal(input('coupon').type, 'string');
   assert.equal(input('name').alias, 'customerName');
   assert.ok(!input('coupon').alias);
-  assert.deepEqual(discovery.unit.inputs.filter(item => item.symbolId === ENTRIES[1]).map(item => item.name), ['label']);
-  const accepted = discovery.unit.outputs.find(item => item.symbolId === signup && item.name === 'accepted');
-  assert.equal(accepted.eventType, 'string');
+  assert.deepEqual(discovery.unit.inputs.filter(item => item.symbolId === id('BadgeComponent')).map(item => item.name), ['label']);
+  assert.equal(discovery.unit.outputs.find(item => item.symbolId === id('SignupComponent') && item.name === 'accepted').eventType, 'string');
   assert.equal(discovery.unit.outputs.find(item => item.name === 'dismissed').eventType, 'void');
-  const forms = symbolId => discovery.unit.reactiveForms.find(record => record.symbolId === symbolId);
-  assert.deepEqual(forms(signup).validators, ['max', 'min', 'minLength', 'pattern', 'required']);
-  assert.deepEqual(forms(signup).templateDirectives, ['formControlName', 'formGroup', 'ngSubmit']);
-  assert.deepEqual(forms(signup).subscriptions, []);
-  assert.equal(forms(ENTRIES[2]).hasAsyncValidators, true);
-  assert.equal(forms(ENTRIES[3]).hasFormArray, true);
-  assert.ok(forms(ENTRIES[3]).templateDirectives.includes('formArrayName'));
-  assert.deepEqual(forms(ENTRIES[4]).subscriptions, [{ source: 'valueChanges', semantics: 'request-response' }]);
-  assert.deepEqual(forms(ENTRIES[5]).subscriptions, [{ source: 'valueChanges', semantics: 'cancellation-sensitive' }]);
-  assert.deepEqual(forms(ENTRIES[6]).subscriptions, [{ source: 'valueChanges', semantics: 'state-stream' }]);
-  assert.deepEqual(forms(ENTRIES[7]).templateDirectives, ['ngModel']);
-  assert.ok(forms(ENTRIES[8]).formsSymbols.includes('FormBuilder'));
-  for (const [index, classification] of [[4, 'request-response'], [5, 'cancellation-sensitive'], [6, 'state-stream']])
-    assert.equal(discovery.streams.find(stream => stream.symbolId === ENTRIES[index]).classification, classification);
+  assert.deepEqual(forms('SignupComponent').controls, ['age', 'email', 'nickname']);
+  assert.deepEqual(forms('SignupComponent').validators, ['max', 'min', 'minLength', 'pattern', 'required']);
+  assert.deepEqual(forms('SignupComponent').templateDirectives, ['formControlName', 'formGroup', 'ngSubmit']);
+  assert.deepEqual(forms('SignupComponent').subscriptions, []);
+  assert.equal(forms('SignupComponent').builderInferred, false);
+  assert.equal(forms('AuditComponent').hasAsyncValidators, true);
+  assert.equal(forms('InventoryComponent').hasFormArray, true);
+  assert.ok(forms('InventoryComponent').templateDirectives.includes('formArrayName'));
+  assert.deepEqual(forms('SearchComponent').subscriptions, [{ source: 'valueChanges', semantics: 'request-response' }]);
+  assert.deepEqual(forms('PingComponent').subscriptions, [{ source: 'valueChanges', semantics: 'cancellation-sensitive' }]);
+  assert.deepEqual(forms('DraftComponent').subscriptions, [{ source: 'valueChanges', semantics: 'state-stream' }]);
+  assert.deepEqual(forms('NewsletterComponent').templateDirectives, ['ngModel']);
+  for (const [name, classification] of [['SearchComponent', 'request-response'], ['PingComponent', 'cancellation-sensitive'], ['DraftComponent', 'state-stream']])
+    assert.equal(discovery.streams.find(stream => stream.symbolId === id(name)).classification, classification);
 });
 
-test('planner routes decorated IO and simple synchronous forms to CODEMOD and refuses CODEMOD beyond the safe subset', () => {
-  const mechanism = name => planTransformation(discovery).items.find(item => item.sourceSymbol === `forms.ts#${name}`);
+test('discovery normalizes builder groups to the literal shape and records async-validator evidence', () => {
+  const checkout = forms('CheckoutComponent');
+  assert.equal(checkout.builderInferred, true);
+  assert.deepEqual(checkout.controls, ['item']);
+  assert.deepEqual(checkout.validators, ['required']);
+  assert.deepEqual(checkout.asyncValidatorEvidence, []);
+  const review = forms('ReviewComponent');
+  assert.equal(review.builderInferred, true);
+  assert.deepEqual(review.controls, ['comment', 'email']);
+  assert.deepEqual(review.validators, ['minLength', 'required']);
+  assert.deepEqual(review.asyncValidatorEvidence, [{ field: 'email', validators: ['uniqueEmail'], scope: 'imported' }]);
+  assert.equal(review.hasAsyncValidators, true);
+  const audit = forms('AuditComponent');
+  assert.deepEqual(audit.asyncValidatorEvidence, [{ field: 'email', validators: ['emailExists'], scope: 'local' }]);
+  assert.equal(forms('DraftOrderComponent').builderInferred, false);
+  const unresolved = discovery.unit.resolutionMetrics.unresolvedSymbols;
+  assert.ok(unresolved.some(item => item.requestedBy === id('DraftOrderComponent') && item.reason === 'Builder form group configuration is not statically resolvable'));
+  assert.ok(unresolved.some(item => item.name === 'uniqueEmail' && item.requestedBy === id('ReviewComponent') && item.reason === 'Imported async validator requires explicit resolution'));
+});
+
+test('discovery records provider lifetimes and component-level provider scope edges', () => {
+  const scope = name => discovery.unit.providerScopes.find(record => record.symbolId === id(name));
+  assert.deepEqual(scope('SignupService'), { symbolId: id('SignupService'), providedIn: 'root', componentProviders: [] });
+  assert.deepEqual(scope('TokenService'), { symbolId: id('TokenService'), providedIn: 'type', token: 'LegacyToken', componentProviders: [] });
+  assert.deepEqual(scope('BadgeComponent'), { symbolId: id('BadgeComponent'), providedIn: 'none', componentProviders: ['SignupService'] });
+  assert.ok(!scope('SignupComponent'));
+  assert.ok(discovery.unit.resolutionMetrics.unresolvedSymbols.some(item => item.name === 'SignupService' && item.requestedBy === id('BadgeComponent') && item.reason === 'Component-level provider requires scope resolution'));
+});
+
+test('planner routes decorated IO, literal and builder-normalized forms to CODEMOD and refuses CODEMOD beyond the safe subset', () => {
+  const plan = planTransformation(discovery);
+  const mechanism = name => plan.items.find(item => item.sourceSymbol === id(name));
   assert.equal(mechanism('SignupComponent').mechanism, 'CODEMOD');
   assert.match(mechanism('SignupComponent').rationale, /forms note/i);
   assert.equal(mechanism('BadgeComponent').mechanism, 'CODEMOD');
   assert.equal(mechanism('BadgeComponent').transformationClass, 'STRUCTURE_CHANGING');
-  for (const name of ['AuditComponent', 'InventoryComponent', 'CheckoutComponent', 'PingComponent', 'DraftComponent']) {
+  assert.equal(mechanism('CheckoutComponent').mechanism, 'CODEMOD');
+  assert.match(mechanism('CheckoutComponent').rationale, /forms note/i);
+  for (const name of ['AuditComponent', 'InventoryComponent', 'DraftOrderComponent', 'PingComponent', 'DraftComponent', 'ReviewComponent']) {
     assert.equal(mechanism(name).mechanism, 'MANUAL', name);
     assert.equal(mechanism(name).transformationClass, 'BEHAVIORAL_REIMPLEMENTATION', name);
   }
+  assert.match(mechanism('ReviewComponent').targetConcept, /async validators/);
+  assert.match(mechanism('DraftOrderComponent').targetConcept, /without static normalization/);
   assert.equal(mechanism('SearchComponent').mechanism, 'LLM');
   assert.equal(mechanism('NewsletterComponent').mechanism, 'LLM');
 });
@@ -113,10 +147,7 @@ test('codemod converts simple synchronous reactive forms into controlled state w
   assert.ok(mappings['validate-age'].preserves.includes('VALIDATION'));
   assert.ok(mappings['form-invalid-gating'].preserves.includes('VALIDATION'));
   // Execute the generated validator: rules must match Angular semantics field-by-field.
-  const patched = code.replace(/^import React[^\n]*\n/m, 'const React = { useReducer: 0, useRef: 0, useState: 0 };\n');
-  const output = await esbuild.transform(patched, { loader: 'tsx', format: 'esm', target: 'es2020' });
-  const candidate = await import(`data:text/javascript,${encodeURIComponent(output.code)}`);
-  const validate = candidate.validateSignupComponentForm;
+  const validate = await evaluateValidator(code, 'validateSignupComponentForm', 'SignupComponent');
   const base = { nickname: 'abcd', age: 18, terms: false, email: 'a@b' };
   assert.deepEqual(validate({ ...base, nickname: '' }), { nickname: { required: true } });
   assert.deepEqual(validate({ ...base, nickname: '  ' }), { nickname: { minlength: { requiredLength: 3, actualLength: 2 } } });
@@ -125,22 +156,70 @@ test('codemod converts simple synchronous reactive forms into controlled state w
   assert.deepEqual(validate({ ...base, age: 121 }), { age: { max: { max: 120, actual: 121 } } });
   assert.deepEqual(validate({ ...base, email: 'nope' }), { email: { pattern: { requiredPattern: '.+@.+', actualValue: 'nope' } } });
   assert.deepEqual(validate({ ...base, terms: true }), {});
-  const state = candidate.buildSignupComponentForm({ nickname: '', age: 18, terms: false, email: 'a@b' });
+  const candidate = await evaluateValidator(code, 'buildSignupComponentForm', 'SignupComponent');
+  const state = candidate({ nickname: '', age: 18, terms: false, email: 'a@b' });
   assert.equal(state.invalid, true);
-  assert.equal(candidate.buildSignupComponentForm({ ...base, terms: true }).valid, true);
+  assert.equal(state.valid, false);
   assert.deepEqual(state.getRawValue(), { nickname: '', age: 18, terms: false, email: 'a@b' });
 });
 
-test('codemod refuses async validators, FormArrays, dynamic controls, valueChanges, ngModel mixing, builders and non-core validators', () => {
+async function evaluateValidator(code, exportName, className) {
+  const patched = code.replace(/^import React[^\n]*\n/m, 'const React = { useReducer: 0, useRef: 0, useState: 0 };\n');
+  const output = await esbuild.transform(patched, { loader: 'tsx', format: 'esm', target: 'es2020' });
+  const module = await import(`data:text/javascript,${encodeURIComponent(output.code)}#${exportName}`);
+  return module[exportName];
+}
+
+const literalOrderSource = `import { Component } from '@angular/core';
+import { FormControl, FormGroup, Validators } from '@angular/forms';
+@Component({ selector: 'order-root', standalone: true, template: '<form [formGroup]="order" (ngSubmit)="send()"><input formControlName="item"><input type="number" formControlName="qty"><button type="submit" [disabled]="order.invalid">Send</button></form>' })
+export class OrderComponent {
+  order = new FormGroup({ item: new FormControl('', [Validators.required, Validators.minLength(3)]), qty: new FormControl(1, Validators.min(1)) });
+  send(): void { if (this.order.valid) console.log(this.order.getRawValue().item); }
+}
+`;
+
+const builderOrderSource = `import { Component, inject } from '@angular/core';
+import { FormBuilder, FormControl, Validators } from '@angular/forms';
+@Component({ selector: 'order-root', standalone: true, template: '<form [formGroup]="order" (ngSubmit)="send()"><input formControlName="item"><input type="number" formControlName="qty"><button type="submit" [disabled]="order.invalid">Send</button></form>' })
+export class OrderComponent {
+  fb = inject(FormBuilder);
+  order = this.fb.group({ item: ['', [Validators.required, Validators.minLength(3)]], qty: [1, Validators.min(1)] });
+  send(): void { if (this.order.valid) console.log(this.order.getRawValue().item); }
+}
+`;
+
+test('codemod normalizes builder groups identically to literal groups', async () => {
+  const literal = transformAngularComponent(literalOrderSource, 'unit', 'order.ts');
+  const builder = transformAngularComponent(builderOrderSource, 'unit', 'order.ts');
+  assert.equal(builder.code, literal.code); // Byte-identical: same controlled state, validate() and gating as the literal group.
+  assert.doesNotMatch(builder.code, /FormBuilder|inject|\.group\(/);
+  parseManifest(builder.manifest);
+  const normalization = builder.manifest.mappings.find(mapping => mapping.mappingId === 'form-builder-normalization');
+  assert.ok(normalization && /normalized statically/i.test(normalization.rationale));
+  assert.ok(literal.manifest.mappings.every(mapping => mapping.mappingId !== 'form-builder-normalization'));
+  const validate = await evaluateValidator(builder.code, 'validateOrderComponentForm', 'OrderComponent');
+  assert.deepEqual(validate({ item: '', qty: 1 }), { item: { required: true } });
+  assert.deepEqual(validate({ item: 'ab', qty: 0 }), { item: { minlength: { requiredLength: 3, actualLength: 2 } }, qty: { min: { min: 1, actual: 0 } } });
+  assert.deepEqual(validate({ item: 'abc', qty: 1 }), {});
+  const state = (await evaluateValidator(builder.code, 'buildOrderComponentForm', 'OrderComponent'))({ item: '', qty: 1 });
+  assert.equal(state.invalid, true);
+});
+
+test('codemod refuses async validators by name, FormArrays, dynamic controls, valueChanges, ngModel mixing, non-static builder configs and non-core validators', () => {
   const withBody = (source, patch) => transformAngularComponent(source.replace('submit(): void {', `${patch}\n  submit(): void {`), 'unit', 'signup.ts');
   for (const [label, run] of [
-    ['async validators', () => transformAngularComponent(signupSource.replace("terms: new FormControl(false, Validators.required),", "terms: new FormControl(false, { asyncValidators: unique }),"), 'unit', 'signup.ts')],
+    ['async validators', () => transformAngularComponent(signupSource.replace("terms: new FormControl(false, Validators.required),", "terms: new FormControl(false, { asyncValidators: [unique] }),"), 'unit', 'signup.ts')],
     ['FormArray', () => transformAngularComponent(signupSource.replace("terms: new FormControl(false, Validators.required),", "rows: new FormArray([]),"), 'unit', 'signup.ts')],
     ['dynamic control creation', () => withBody(signupSource, "grow(): void { this.form.addControl('extra', new FormControl('')); }")],
     ['valueChanges subscription', () => withBody(signupSource, 'watch(): void { this.form.valueChanges.subscribe(values => console.log(values)); }')],
     ['statusChanges subscription', () => withBody(signupSource, 'watch(): void { this.form.statusChanges.subscribe(values => console.log(values)); }')],
     ['template-driven ngModel mixing', () => transformAngularComponent(signupSource.replace('<input formControlName="nickname">', '<input formControlName="nickname" [(ngModel)]="nickname">'), 'unit', 'signup.ts')],
-    ['FormBuilder group', () => transformAngularComponent(`import { Component } from '@angular/core';\nimport { FormBuilder, FormControl, Validators } from '@angular/forms';\n@Component({ selector: 'x-root', standalone: true, template: '<form [formGroup]="order"><input formControlName="item"></form>' })\nexport class OrderComponent { fb = new FormBuilder(); order = this.fb.group({ item: new FormControl('', Validators.required) }); }\n`, 'unit', 'order.ts')],
+    ['non-static builder configuration', () => transformAngularComponent(builderOrderSource.replace('{ item: [\'\', [Validators.required, Validators.minLength(3)]], qty: [1, Validators.min(1)] }', '{ ...this.base, qty: [1, Validators.min(1)] }'), 'unit', 'order.ts')],
+    ['builder group on unknown receiver', () => transformAngularComponent(builderOrderSource.replace('this.fb.group', 'this.other.group'), 'unit', 'order.ts')],
+    ['fb.array', () => transformAngularComponent(builderOrderSource.replace("qty: [1, Validators.min(1)]", "lines: this.fb.array([])"), 'unit', 'order.ts')],
+    ['fb reuse outside creation', () => transformAngularComponent(builderOrderSource.replace('send(): void', 'spare(): unknown { return this.fb; }\n  send(): void'), 'unit', 'order.ts')],
+    ['non-builder inject', () => transformAngularComponent(builderOrderSource.replace('fb = inject(FormBuilder);', 'fb = inject(FormBuilder);\n  http = inject(HttpClient);'), 'unit', 'order.ts')],
     ['custom validator', () => transformAngularComponent(signupSource.replace('Validators.minLength(3)', 'uniqueNickname'), 'unit', 'signup.ts')],
     ['non-core synchronous validator', () => transformAngularComponent(signupSource.replace('Validators.minLength(3)', 'Validators.email'), 'unit', 'signup.ts')],
     ['nested form group', () => transformAngularComponent(signupSource.replace("terms: new FormControl(false, Validators.required),", "address: new FormGroup({ city: new FormControl('') }),"), 'unit', 'signup.ts')],
@@ -150,7 +229,8 @@ test('codemod refuses async validators, FormArrays, dynamic controls, valueChang
     ['optional input', () => transformAngularComponent(badgeSource.replace("label: string = '';", "label?: string;"), 'unit', 'badge.ts')],
     ['callback name collision', () => transformAngularComponent(badgeSource.replace('dismiss(): void {', 'onDismissed?: string;\n  dismiss(): void {'), 'unit', 'badge.ts')],
   ]) assert.throws(run, /needs semantic review\./, label);
-  assert.throws(() => transformAngularComponent(signupSource.replace("terms: new FormControl(false, Validators.required),", "terms: new FormControl(false, { asyncValidators: unique }),"), 'unit', 'signup.ts'), /Async validators needs semantic review\./);
+  assert.throws(() => transformAngularComponent(signupSource.replace("terms: new FormControl(false, Validators.required),", "terms: new FormControl(false, { asyncValidators: [unique] }),"), 'unit', 'signup.ts'), /Async validator 'unique' needs semantic review\./);
+  assert.throws(() => transformAngularComponent(signupSource.replace('[Validators.required, Validators.minLength(3)]', '[Validators.required], [unique]'), 'unit', 'signup.ts'), /Async validator 'unique' needs semantic review\./);
   assert.throws(() => transformAngularComponent(signupSource.replace("terms: new FormControl(false, Validators.required),", "rows: new FormArray([]),"), 'unit', 'signup.ts'), /FormArray needs semantic review\./);
   assert.throws(() => withBody(signupSource, 'clear(): void { this.form.reset(); }'), /this\.form\.reset/);
 });
