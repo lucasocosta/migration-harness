@@ -4,11 +4,14 @@ import type { Page, Request } from '@playwright/test';
 import type {
   AriaStateEvent,
   RawObservedTrace,
+  ScenarioFrameShape,
   StorageDeltaEvent,
   TraceEnvironment,
   TraceEvent,
   UserInteractionEvent,
+  WebSocketFrameDirection,
 } from '@migration-harness/core';
+import { matchesDeclaredShape, urlPatternMatches, valueShape } from '@migration-harness/core';
 
 interface PendingRequestMeta {
   correlationId: string;
@@ -24,6 +27,7 @@ type StorageSnapshot = {
 export interface TraceRecorderOptions {
   shouldRecordRequest?: (request: Request) => boolean;
   maxResponseBodyBytes?: number;
+  maxWebSocketFrameBytes?: number;
   allowedResponseContentTypes?: readonly string[];
   locale?: string;
   drainTimeoutMs?: number;
@@ -41,13 +45,15 @@ export class TemporalTraceRecorder {
   private lastMainFrameUrl = '';
   private inFlight = new Set<Request>();
   private handlerErrors: unknown[] = [];
+  private lastUserInteractionEventId = '';
 
-  private readonly options: Required<Pick<TraceRecorderOptions, 'maxResponseBodyBytes' | 'allowedResponseContentTypes' | 'locale'>> & TraceRecorderOptions;
+  private readonly options: Required<Pick<TraceRecorderOptions, 'maxResponseBodyBytes' | 'maxWebSocketFrameBytes' | 'allowedResponseContentTypes' | 'locale'>> & TraceRecorderOptions;
 
   constructor(private readonly page: Page, options: TraceRecorderOptions = {}) {
     this.options = {
       ...options,
       maxResponseBodyBytes: options.maxResponseBodyBytes ?? 256_000,
+      maxWebSocketFrameBytes: options.maxWebSocketFrameBytes ?? 32_000,
       allowedResponseContentTypes: options.allowedResponseContentTypes ?? [
         'application/json',
         'text/plain',
@@ -101,13 +107,50 @@ export class TemporalTraceRecorder {
   recordUserInteraction(input: Omit<UserInteractionEvent, keyof Pick<UserInteractionEvent,
     'eventId' | 'timestampMs' | 'sequenceIndex' | 'type'>>): UserInteractionEvent {
     const sequenceIndex = this.nextSeq();
-    return this.pushEvent({
+    const event = this.pushEvent({
       ...input,
       type: 'USER_INTERACTION',
       eventId: `evt_${sequenceIndex}`,
       timestampMs: Date.now(),
       sequenceIndex,
     });
+    this.lastUserInteractionEventId = event.eventId;
+    return event;
+  }
+
+  /** Capture a routed WebSocket frame. Only ever active while recording: frames observed after finish/abort must not leak into the trace. */
+  recordWebSocketFrame(direction: WebSocketFrameDirection, connectionUrl: string, payload: string | Buffer, connectionId: string = randomUUID()): void {
+    if (!this.listenersInstalled) return;
+    const byteLength = typeof payload === 'string' ? Buffer.byteLength(payload, 'utf8') : payload.byteLength;
+    const framePayload: unknown = typeof payload !== 'string' ? { omitted: true, reason: 'BINARY_FRAME', byteLength }
+      : byteLength > this.options.maxWebSocketFrameBytes ? { omitted: true, reason: 'FRAME_TOO_LARGE', byteLength }
+      : parseBody(payload);
+    const causedBy = this.lastUserInteractionEventId;
+    const sequenceIndex = this.nextSeq();
+    this.pushEvent({
+      type: 'WEBSOCKET_FRAME',
+      eventId: `evt_${sequenceIndex}`,
+      timestampMs: Date.now(),
+      sequenceIndex,
+      correlationId: connectionId,
+      url: connectionUrl,
+      direction,
+      payload: framePayload,
+      ...(causedBy ? { causedByEventIds: [causedBy] } : {}),
+    });
+  }
+
+  async waitForWebSocketFrame(input: { urlPattern: string; direction: WebSocketFrameDirection; payloadShape: ScenarioFrameShape; timeoutMs: number }): Promise<void> {
+    const deadline = Date.now() + input.timeoutMs;
+    for (;;) {
+      const matched = this.events.some(event => event.type === 'WEBSOCKET_FRAME'
+        && urlPatternMatches(input.urlPattern, event.url)
+        && event.direction === input.direction
+        && matchesDeclaredShape(input.payloadShape, valueShape(event.payload)));
+      if (matched) return;
+      if (Date.now() >= deadline) throw new Error('Timed out waiting for a matching WebSocket frame.');
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
   }
 
   async captureAria(triggerEventId: string): Promise<AriaStateEvent> {

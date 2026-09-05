@@ -69,11 +69,12 @@ export function sanitizeTrace(input: RawObservedTrace, policy: SanitizationPolic
       case 'STORAGE_DELTA':
         if (isSensitive(event.key) || !(policy.allowedStorageKeys ?? []).includes(event.key)) { count++; return []; }
         return [{ ...event, previousValue: event.previousValue === null ? null : scrubText(event.previousValue), newValue: event.newValue === null ? null : scrubText(event.newValue) }];
+      case 'WEBSOCKET_FRAME': return [{ ...event, url: url(event.url), payload: scrub(event.payload) }];
     }
   });
   const retained = new Set(events.map(event => event.eventId));
   for (const event of events) if (event.causedByEventIds) event.causedByEventIds = event.causedByEventIds.filter(id => retained.has(id));
-  return parseSanitizedTrace({ ...raw, events, sanitization: { version: '0.3.0', appliedAt: new Date().toISOString(), redactionsCount: count } });
+  return parseSanitizedTrace({ ...raw, events, sanitization: { version: '0.4.0', appliedAt: new Date().toISOString(), redactionsCount: count } });
 }
 
 /** Runtime strings never enter the worker context, even when they look sanitized. */
@@ -85,6 +86,7 @@ export function projectTraceForLlm(input: SanitizedObservedTrace): { kind: 'LLM_
       case 'HTTP_RESPONSE': return { type: event.type, statusCode: event.statusCode, bodyTypes: leafTypes(valueShape(event.body)) };
       case 'USER_INTERACTION': return { type: event.type, action: event.action };
       case 'STORAGE_DELTA': return { type: event.type, storageType: event.storageType, mutationType: event.mutationType };
+      case 'WEBSOCKET_FRAME': return { type: event.type, direction: event.direction, frameTypes: leafTypes(valueShape(event.payload)) };
       default: return { type: event.type };
     }
   }) };

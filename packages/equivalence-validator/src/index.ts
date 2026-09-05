@@ -8,12 +8,14 @@ import type {
 } from '@migration-harness/core';
 import { parseSanitizedTrace, parseContract, parseManifest, parseEquivalenceResult, parseMigrationUnit, HarnessPolicySchema } from '@migration-harness/core';
 import { compareNetworkBehavior, type NetworkComparisonPolicy } from './network/index.js';
+import { compareWebSockets, type WebSocketComparisonPolicy } from './websocket.js';
 import { compareObservables, compareCausality, type ObservablePolicy } from './dimensions.js';
 import { verifyCriticalContract } from './contract.js';
 
 export interface EquivalenceValidationPolicy {
   network?: NetworkComparisonPolicy;
   observables?: ObservablePolicy;
+  websockets?: WebSocketComparisonPolicy;
 }
 
 export interface EquivalenceValidationInput {
@@ -42,6 +44,8 @@ export class EquivalenceValidator {
     divergences.push(...compareObservables(input.source, input.target, input.policy?.observables));
     // Network differences already explain graph label changes.
     if (!divergences.some(d => d.dimension === 'NETWORK')) divergences.push(...compareCausality(input.source, input.target, input.policy?.network));
+    // WebSocket frame streams are compared independently of the causal-graph guard (frames are not causal labels).
+    divergences.push(...compareWebSockets(input.source, input.target, input.policy?.websockets));
     const evaluatedDimensions: EquivalenceDimension[] = ['NETWORK', 'NAVIGATION', 'STATE', 'ARIA', 'CONTRACT'];
     if (input.contract) divergences.push(...verifyCriticalContract(input.contract, input.target));
     let manifestUsed = false;
@@ -70,6 +74,7 @@ export class EquivalenceValidator {
 export * from './network/index.js';
 export * from './dimensions.js';
 export * from './contract.js';
+export * from './websocket.js';
 
 export function parseValidationPolicy(value: unknown): EquivalenceValidationPolicy {
   const parsed = HarnessPolicySchema.parse(value);
@@ -77,5 +82,6 @@ export function parseValidationPolicy(value: unknown): EquivalenceValidationPoli
   return {
     network: { ...network, pathTemplateRules: (pathTemplates ?? []).map(template => ({ template, pattern: new RegExp('^' + template.split('/').map(part => part.startsWith(':') ? '[^/]+' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('/') + '$') })) },
     ...(parsed.observables ? { observables: parsed.observables } : {}),
+    ...(parsed.websockets ? { websockets: parsed.websockets } : {}),
   } as EquivalenceValidationPolicy;
 }

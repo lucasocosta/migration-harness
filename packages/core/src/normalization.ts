@@ -38,3 +38,24 @@ export function matchPath(template: string, pathname: string): Record<string, st
   }
   return params;
 }
+
+/** Glob match for declared URL patterns: '**' spans any characters, '*' spans a single path segment, anything else is an exact match. */
+export function urlPatternMatches(pattern: string, value: string): boolean {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*\*/g, '\u0000').replace(/\*/g, '[^/]*').replaceAll('\u0000', '.*');
+  return new RegExp(`^${escaped}$`).test(value);
+}
+
+/** Match a declared scenario frame shape against the valueShape output of an observed payload. */
+export function matchesDeclaredShape(declared: unknown, shaped: unknown): boolean {
+  if (declared === 'any') return true;
+  if (typeof declared === 'string') {
+    if (declared === 'array') return Array.isArray(shaped);
+    if (declared === 'object') return shaped !== null && typeof shaped === 'object' && !Array.isArray(shaped);
+    return shaped === declared;
+  }
+  if (declared !== null && typeof declared === 'object' && !Array.isArray(declared)) {
+    if (shaped === null || typeof shaped !== 'object' || Array.isArray(shaped)) return false;
+    return Object.entries(declared).every(([key, child]) => Object.hasOwn(shaped, key) && matchesDeclaredShape(child, (shaped as Record<string, unknown>)[key]));
+  }
+  return false;
+}

@@ -52,7 +52,7 @@ export function buildExchanges(trace: SanitizedObservedTrace, policy: NetworkCom
   });
 }
 
-function omitFields(value: unknown, keys: readonly string[] = []): unknown {
+export function omitFields(value: unknown, keys: readonly string[] = []): unknown {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key))) : value;
 }
 export function exchangeSignature(e: HttpExchange, policy: NetworkComparisonPolicy = {}): string {

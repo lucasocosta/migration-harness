@@ -68,7 +68,8 @@ Decision: the harness does NOT call a model via API. The Transform/Repair "LLM w
 - [x] Builder-based reactive form groups with statically-normalizable configs: normalized to the literal subset in discovery (`builderInferred` provenance), CODEMOD-routed with byte-identical generation; non-static configs remain explicit unresolved edges.
 - [x] Structured async-validator evidence (bound field, validator symbol, local/imported/unknown scope) and provider-lifetime recording (`providedIn`, component `providers`) on MigrationUnit, feeding the LLM/MANUAL lanes.
 - [ ] Transformations for async validators, FormArray, dynamic controls, ngModel mixing and side-effectful valueChanges (stay LLM/MANUAL), complex provider lifetimes and stream orchestration transformations.
-- [ ] Dedicated WebSocket/service-worker scenario adapters and automatic application-wide causal instrumentation.
+- [x] Dedicated WebSocket scenario adapter: WEBSOCKET_FRAME signal + 8th additive trace event, opt-in routeWebSocket capture (default stays blocked), capped/correlated recording, sanitizer default-deny pipeline, structural LLM projection, equivalence pairing by connection with strict within-connection order (direction/payload-shape/missing/unexpected divergences, BLOCKING); dependency-free RFC 6455 echo fixture; 45 unit/CLI + 9 browser tests passing.
+- [ ] Service-worker scenario adapter and automatic application-wide causal instrumentation.
 - [ ] OpenAPI composed/conditional schemas, external references and arbitrary test-framework extraction beyond structured assertion imports.
 - [ ] Operational encryption/key rotation, backup retention and externally anchored audit storage.
 - [ ] Human accessibility review and actual approval of any real migration contract. Synthetic fixture approval does not satisfy this.

@@ -5,7 +5,8 @@ export type TraceEventType =
   | 'HTTP_FAILED'
   | 'ARIA_STATE_CHANGE'
   | 'STORAGE_DELTA'
-  | 'NAVIGATION';
+  | 'NAVIGATION'
+  | 'WEBSOCKET_FRAME';
 
 export interface BaseTraceEvent {
   eventId: string;
@@ -71,6 +72,17 @@ export interface NavigationEvent extends BaseTraceEvent {
   toUrl: string;
 }
 
+export type WebSocketFrameDirection = 'sent' | 'received';
+
+export interface WebSocketFrameEvent extends BaseTraceEvent {
+  type: 'WEBSOCKET_FRAME';
+  /** Connection URL; correlationId identifies the individual connection across frames. */
+  url: string;
+  direction: WebSocketFrameDirection;
+  /** Text frames parsed to JSON when possible, otherwise the string; binary/oversized frames are replaced by an omission record. */
+  payload: unknown;
+}
+
 export type TraceEvent =
   | UserInteractionEvent
   | HttpRequestEvent
@@ -78,7 +90,8 @@ export type TraceEvent =
   | HttpFailedEvent
   | AriaStateEvent
   | StorageDeltaEvent
-  | NavigationEvent;
+  | NavigationEvent
+  | WebSocketFrameEvent;
 
 export interface TraceEnvironment {
   browser: string;

@@ -1,7 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, resolve, relative } from 'node:path';
 import type { Page } from '@playwright/test';
-import type { CompletionSignal, RawObservedTrace, ScenarioDefinition, ScenarioInteractionStep } from '@migration-harness/core';
+import type { CompletionSignal, RawObservedTrace, ScenarioDefinition, ScenarioInteractionStep, WebSocketFrameDirection } from '@migration-harness/core';
 import { parseScenario } from '@migration-harness/core';
 import { TemporalTraceRecorder, type TraceRecorderOptions } from '@migration-harness/trace-recorder';
 export * from './browser.js';
@@ -14,6 +14,12 @@ export interface ScenarioRunnerOptions {
   allowedOrigins?: string[];
   locale?: string;
   viewport?: { width: number; height: number };
+  /** Optional WebSocket frame sink attached while a run is recording; populated by the capture route for opted-in scenarios. */
+  webSocketSink?: WebSocketFrameSink;
+}
+
+export interface WebSocketFrameSink {
+  handler?: ((direction: WebSocketFrameDirection, url: string, payload: string | Buffer, connectionId: string) => void) | undefined;
 }
 
 /** Resolve a mock fixture inside the allowed base; refuse escapes, symlinks out of root, and private stores. */
@@ -28,13 +34,15 @@ export async function resolveMockFixture(fixtureBaseDir: string, fixturePath: st
 export class ScenarioRunner {
   private used = false;
   private controller = new AbortController();
+  private recorder: TemporalTraceRecorder | null = null;
   constructor(private readonly page: Page, private readonly options: ScenarioRunnerOptions = {}) {}
 
   async run(scenario: ScenarioDefinition, runIndex: number): Promise<RawObservedTrace> {
     scenario = parseScenario(scenario);
     if (this.used) throw new Error('Use a fresh BrowserContext and ScenarioRunner for each run.');
     this.used = true;
-    const recorder = new TemporalTraceRecorder(this.page, this.options.traceRecorder);
+    const recorder = this.recorder = new TemporalTraceRecorder(this.page, this.options.traceRecorder);
+    if (this.options.webSocketSink) this.options.webSocketSink.handler = (direction, url, payload, connectionId) => recorder.recordWebSocketFrame(direction, url, payload, connectionId);
     await this.installPreconditions(scenario);
     recorder.start();
     const responseCompletion = scenario.completionSignal?.type === 'RESPONSE_RECEIVED' ? this.armCompletionSignal(scenario.completionSignal) : undefined;
@@ -62,6 +70,8 @@ export class ScenarioRunner {
       throw error;
     } finally {
       this.controller.abort();
+      if (this.options.webSocketSink) this.options.webSocketSink.handler = undefined;
+      this.recorder = null;
     }
   }
 
@@ -131,6 +141,11 @@ export class ScenarioRunner {
           const store = storageType === 'localStorage' ? localStorage : sessionStorage;
           return store.getItem(storageKey) !== null;
         }, { storageType: signal.storageType, storageKey: signal.storageKey }, { timeout: signal.timeoutMs }).then(() => undefined);
+      case 'WEBSOCKET_FRAME': {
+        const recorder = this.recorder;
+        if (!recorder) throw new Error('WebSocket completion requires an active recorder.');
+        return recorder.waitForWebSocketFrame({ urlPattern: signal.urlPattern, direction: signal.direction, payloadShape: signal.payloadShape, timeoutMs: signal.timeoutMs });
+      }
       default:
         return assertNever(signal);
     }

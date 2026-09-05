@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { BehaviorContract } from './behavior-contract.js';
-import type { ScenarioDefinition } from './scenario.js';
+import type { ScenarioDefinition, ScenarioFrameShape } from './scenario.js';
 import type { RawObservedTrace, SanitizedObservedTrace } from './trace-events.js';
 import type { TransformationManifest } from './transformation-manifest.js';
 import type { TransformationPlan } from './transformation-plan.js';
@@ -20,10 +20,13 @@ const storageType = z.enum(['localStorage', 'sessionStorage']);
 const mutationType = z.enum(['SET', 'REMOVE', 'CLEAR']);
 const role = z.enum(['alert', 'alertdialog', 'application', 'article', 'banner', 'blockquote', 'button', 'caption', 'cell', 'checkbox', 'code', 'columnheader', 'combobox', 'complementary', 'contentinfo', 'definition', 'deletion', 'dialog', 'directory', 'document', 'emphasis', 'feed', 'figure', 'form', 'generic', 'grid', 'gridcell', 'group', 'heading', 'img', 'insertion', 'link', 'list', 'listbox', 'listitem', 'log', 'main', 'marquee', 'math', 'meter', 'menu', 'menubar', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'navigation', 'none', 'note', 'option', 'paragraph', 'presentation', 'progressbar', 'radio', 'radiogroup', 'region', 'row', 'rowgroup', 'rowheader', 'scrollbar', 'search', 'searchbox', 'separator', 'slider', 'spinbutton', 'status', 'strong', 'subscript', 'superscript', 'switch', 'tab', 'table', 'tablist', 'tabpanel', 'term', 'textbox', 'time', 'timer', 'toolbar', 'tooltip', 'tree', 'treegrid', 'treeitem']);
 const timeoutMs = z.number().int().positive().max(300000);
+const frameShape: z.ZodType<ScenarioFrameShape> = z.lazy(() => z.record(z.union([z.enum(['any', 'string', 'number', 'boolean', 'null', 'object', 'array']), frameShape])));
+const wsDirection = z.enum(['sent', 'received']);
 export const CompletionSignalSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('LOCATOR_VISIBLE'), targetRole: role, targetName: text.optional(), timeoutMs }).strict(),
   z.object({ type: z.literal('RESPONSE_RECEIVED'), responseUrlPattern: id, responseMethod: id, timeoutMs }).strict(),
   z.object({ type: z.literal('STORAGE_KEY_SET'), storageType, storageKey: id, timeoutMs }).strict(),
+  z.object({ type: z.literal('WEBSOCKET_FRAME'), urlPattern: id, direction: wsDirection, payloadShape: frameShape, timeoutMs }).strict(),
 ]);
 const step = z.object({ stepId: id, action, targetRole: role, targetName: text.optional(), inputValue: text.optional(), description: text.optional(), completionSignal: CompletionSignalSchema.optional() }).strict();
 export const ScenarioDefinitionSchema = z.object({
@@ -48,6 +51,7 @@ export const TraceEventSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('NAVIGATION'), fromUrl: z.string().url(), toUrl: z.string().url() }).strict(),
   z.object({ ...base, type: z.literal('ARIA_STATE_CHANGE'), triggerEventId: id, rawYamlTree: text, jsonTree: object }).strict(),
   z.object({ ...base, type: z.literal('STORAGE_DELTA'), storageType, mutationType, key: text, previousValue: text.nullable(), newValue: text.nullable() }).strict(),
+  z.object({ ...base, type: z.literal('WEBSOCKET_FRAME'), url: z.string().url(), direction: wsDirection, payload: json }).strict(),
 ]);
 const trace = z.object({ scenarioId: id, runId: id.optional(), runIndex: z.number().int().nonnegative(), startedAt: time, events: z.array(TraceEventSchema).max(100000),
   environment: z.object({ browser: id, viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).strict(), locale: id }).strict(),
@@ -140,6 +144,7 @@ export const parseMigrationUnit = (value: unknown): MigrationUnit => MigrationUn
 export const HarnessPolicySchema = z.object({
   network: z.object({ volatileQueryParams: strings.optional(), volatilePayloadFields: strings.optional(), volatileResponseFields: strings.optional(), volatilePathParams: z.record(strings).optional(), pathTemplates: strings.optional(), comparePayloadShape: z.boolean().optional(), compareStatusCode: z.boolean().optional(), compareResponseShape: z.boolean().optional() }).strict().optional(),
   observables: z.object({ volatileQueryParams: strings.optional(), ignoredStorageKeys: strings.optional(), volatileStorageValues: z.array(z.object({ storageType, key: id }).strict()).optional(), ariaSeverity: severity.optional(), navigationAliases: record.optional() }).strict().optional(),
+  websockets: z.object({ volatileWebSocketFields: strings.optional() }).strict().optional(),
   sanitization: z.object({ allowedPayloadKeys: strings.optional(), allowedStorageKeys: strings.optional(), sensitiveKeys: strings.optional() }).strict().optional(),
   allowedOrigins: z.array(z.string().url()).optional(),
 }).strict();
