@@ -45,4 +45,4 @@ Source: `REVIEW.md`, supplied during implementation on 2026-09-05. The original 
 - Legacy Python/example fixtures remain clearly labeled historical. They are not used by current test commands.
 - Added bounded OpenAPI and structured existing-test evidence importers, local HTTP-provider protocol tests, axe integration and a fixed trusted ESLint configuration. None of these execute an application's configuration scripts on the host.
 
-No automatic commit or external publication is part of these corrections. The user's supplied review and all implementation changes remain available in the shared worktree.
+The user subsequently requested a checkpoint commit. Implementation, tests, documentation and the supplied review are preserved in `0af541e`. No external publication was requested or performed.

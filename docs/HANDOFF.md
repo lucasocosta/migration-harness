@@ -1,6 +1,6 @@
 # Continuation handoff
 
-Checkpoint: 2026-09-05. Active work is implementation, review corrections and verification, not a completed RFC-wide production delivery.
+Checkpoint: 2026-09-05. Implementation commit: `0af541e` (`feat: implement RFC migration pilot and harden validation boundaries`). This is a validated checkpoint, not a completed RFC-wide production delivery.
 
 ## User instructions
 
@@ -17,7 +17,7 @@ The session has no reliable account-quota percentage indicator. This handoff is 
 - Bash, Node 20.20.1. pnpm is not on PATH; use `npx --yes pnpm@10.15.0`.
 - All original docs were read in full. `docs/REVIEW.md` was supplied by the user during implementation; preserve it unchanged.
 - The worktree was initially clean. Almost all current changes were made in this task; `docs/REVIEW.md` belongs to the user/other reviewer.
-- No applicable AGENTS.md was found. A checkpoint commit is now authorized and being prepared. Do not reset/clean the worktree.
+- No applicable AGENTS.md was found. The user-authorized implementation checkpoint is committed as `0af541e`. Do not reset/clean the worktree.
 - Dependencies and Chromium are installed. The exact Playwright pin is 1.63.0.
 - Docker is not available through this WSL integration. No live external LLM credentials were used.
 
@@ -59,7 +59,11 @@ node scripts/pilot.mjs
 git diff --check
 ```
 
-README/USAGE/status docs and `VALIDATION.md` now record the delivered scope. Before ending the checkpoint, finish the lockfile/private-mode check and create the user-requested commit, then mark it in `PROGRESS.md`.
+README/USAGE/status docs and `VALIDATION.md` now record the delivered scope. Frozen-lockfile installation and private permission checks passed (raw file 0600; directory 0700). The user-requested implementation commit is `0af541e`; the following documentation commit records its reference and the completed checklist. There are no running tool sessions or fixture servers to resume.
+
+## Next implementation choices
+
+Continue with the unchecked items in `PROGRESS.md`; do not restart completed phases or repeat tests without a new change. General Angular semantics remain the largest code scope. A concrete next slice is decorated inputs/outputs and reactive forms, preserving explicit validation and cancellation behavior through the existing independent validator. Docker execution and live-model inference require environment/service prerequisites that were not available in this session. Keep those as unverified, not as successful checks.
 
 ## Review decisions recorded in REVIEW-RESOLUTION.md
 

@@ -39,15 +39,15 @@ Updated: 2026-09-05. This is the live task checklist. `[x]` means implemented; v
 - [x] Finalize MF-2 documentation: static scanning is defense in depth; Docker is the execution boundary, never a proof supplied by the scanner.
 - [x] Record the rejected SF-4 suggestion: same-page navigation order is meaningful; do not replace it with a multiset.
 
-## In progress
+## Validated checkpoint
 
 - [x] Finish the current strict build after ESLint/axe and discovery additions.
 - [x] Run all unit/CLI tests against the latest implementation: 28/28 passed.
 - [x] Run all browser tests, including the axe context fix: 5/5 passed.
 - [x] Re-run pilot including lint/typecheck: equivalent after one repair; contract and audit verified.
 - [x] Update README, USAGE, IMPLEMENTATION-STATUS and VALIDATION to match the new delivered scope.
-- [ ] Final lockfile/private-file check and refresh HANDOFF with exact validation results.
-- [ ] Commit the validated checkpoint, as requested by the user.
+- [x] Final lockfile/private-file check: frozen lockfile passed; raw files 0600, directories 0700.
+- [x] Commit the validated checkpoint: `0af541e` (implementation, tests and documentation).
 
 ## Remaining broader scope / environment dependencies
 
@@ -59,4 +59,4 @@ Updated: 2026-09-05. This is the live task checklist. `[x]` means implemented; v
 - [ ] Operational encryption/key rotation, backup retention and externally anchored audit storage.
 - [ ] Human accessibility review and actual approval of any real migration contract. Synthetic fixture approval does not satisfy this.
 
-The user has authorized a checkpoint commit. No remote publication was requested. Preserve the review supplied by the user alongside the implementation.
+Implementation checkpoint: `0af541e`. No remote publication was requested or performed. The remaining items above are intentionally unchecked; the RFC is not being declared production-complete.
