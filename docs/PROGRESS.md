@@ -51,10 +51,20 @@ Updated: 2026-09-05. This is the live task checklist. `[x]` means implemented; v
 - [x] Final lockfile/private-file check: frozen lockfile passed; raw files 0600, directories 0700.
 - [x] Commit the validated checkpoint: `0af541e` (implementation, tests and documentation).
 
+## Assistant-driven integration pivot (2026-09-05)
+
+Decision: the harness does NOT call a model via API. The Transform/Repair "LLM worker" is a human-driven coding assistant (Claude Code, Copilot, codex) driving the CLI with bounded briefs; every submission passes the same deterministic gates. Contract design: `docs/ASSISTANT-INTEGRATION.md`. The RFC §33.II invariant shifts from architectural guarantee to policy + tooling (honest residual-risk statement required).
+
+- [x] Integration contract design (brief format, apply path, boundary model, AGENTS.md spec, llm-worker disposition).
+- [ ] `brief` / `apply-patch` CLI loop (core brief schemas, screenPatchContent, atomic apply, structured APPLY_RESULT).
+- [ ] `AGENTS.md` at repo root per the contract spec.
+- [ ] RFC addendum: restate §33.II/§25 for the policy+tooling boundary model; update USAGE.
+- [ ] Assistant-driven worked example (pilot-assistant) covering both DoD legs.
+- Note: the "external model service with credentials" item is obsolete by design under this pivot; HttpWorkerProvider stays as a demoted optional adapter.
+
 ## Remaining broader scope / environment dependencies
 
-- [ ] Execute DockerSandbox against a real local digest-pinned image. Docker is unavailable in this WSL environment.
-- [ ] Exercise an external model service with actual credentials. The HTTP protocol is tested locally; model reasoning is not.
+- [ ] Execute DockerSandbox against a real local digest-pinned image. Docker is unavailable in this WSL environment. (Still relevant: it bounds harness-side execution of generated code.)
 - [x] Builder-based reactive form groups with statically-normalizable configs: normalized to the literal subset in discovery (`builderInferred` provenance), CODEMOD-routed with byte-identical generation; non-static configs remain explicit unresolved edges.
 - [x] Structured async-validator evidence (bound field, validator symbol, local/imported/unknown scope) and provider-lifetime recording (`providedIn`, component `providers`) on MigrationUnit, feeding the LLM/MANUAL lanes.
 - [ ] Transformations for async validators, FormArray, dynamic controls, ngModel mixing and side-effectful valueChanges (stay LLM/MANUAL), complex provider lifetimes and stream orchestration transformations.
