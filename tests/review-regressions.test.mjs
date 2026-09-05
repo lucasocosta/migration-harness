@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, symlink, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { canonical } from '../packages/core/dist/index.js';
@@ -12,6 +12,7 @@ import { BoundedWorker, fileHash } from '../packages/llm-worker/dist/index.js';
 import { ArtifactStore, runRepairLoop } from '../packages/engine/dist/index.js';
 import { InvariantMiner, synthesizeContract } from '../packages/contract-synthesizer/dist/index.js';
 import { classifyFailure } from '../packages/quality-gates/dist/index.js';
+import { resolveMockFixture } from '../packages/scenario-runner/dist/index.js';
 import { trace, event, contract } from './helpers.mjs';
 
 test('contract hashing shares locale-independent core canonicalization', () => {
@@ -80,4 +81,15 @@ test('raw retention rejects symlinks and deterministic scenario failures do not 
   assert.equal(classifyFailure({ divergences: [{ severity: 'BLOCKING', dimension: 'CONTRACT', code: 'SCENARIO_FAILED' }] }), 'UNKNOWN');
   const failed = await runRepairLoop({ source: trace(), contract: contract(), maxRepairAttempts: 2, captureTarget: async () => { throw new Error('Deterministic missing button'); }, repair: async () => { throw new Error('Should not repair'); } });
   assert.equal(failed.result.status, 'NOT_EQUIVALENT'); assert.equal(failed.attempts, 0); assert.equal(failed.disposition, 'UNKNOWN');
+});
+test('mock fixture resolution rejects paths inside the private artifact store', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'harness-fixture-'));
+  try {
+    await mkdir(join(root, '.migration-private')); await writeFile(join(root, '.migration-private', 'secret.json'), '{}');
+    await writeFile(join(root, 'allowed.json'), '{}');
+    await assert.rejects(resolveMockFixture(root, '.migration-private/secret.json'), /escapes the allowed fixture directory/);
+    await symlink(join(root, '.migration-private'), join(root, 'link'));
+    await assert.rejects(resolveMockFixture(root, 'link/secret.json'), /escapes the allowed fixture directory/);
+    assert.equal(await resolveMockFixture(root, 'allowed.json'), await realpath(join(root, 'allowed.json')));
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

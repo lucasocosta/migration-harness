@@ -16,6 +16,15 @@ export interface ScenarioRunnerOptions {
   viewport?: { width: number; height: number };
 }
 
+/** Resolve a mock fixture inside the allowed base; refuse escapes, symlinks out of root, and private stores. */
+export async function resolveMockFixture(fixtureBaseDir: string, fixturePath: string): Promise<string> {
+  const fixtureBase = await realpath(resolve(fixtureBaseDir));
+  const resolved = await realpath(resolve(fixtureBase, fixturePath));
+  const relativePath = relative(fixtureBase, resolved);
+  if (isAbsolute(relativePath) || relativePath === '..' || relativePath.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || resolved.split(/[\\/]/).includes('.migration-private')) throw new Error('Mock fixture escapes the allowed fixture directory.');
+  return resolved;
+}
+
 export class ScenarioRunner {
   private used = false;
   private controller = new AbortController();
@@ -69,10 +78,7 @@ export class ScenarioRunner {
     }
 
     for (const mock of scenario.preconditions.mockInitialApiResponses ?? []) {
-      const fixtureBase = await realpath(resolve(this.options.fixtureBaseDir ?? process.cwd()));
-      const fixturePath = await realpath(resolve(fixtureBase, mock.fixturePath));
-      const fixtureRelative = relative(fixtureBase, fixturePath);
-      if (isAbsolute(fixtureRelative) || fixtureRelative === '..' || fixtureRelative.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || fixturePath.split(/[\\/]/).includes('.migration-private')) throw new Error('Mock fixture escapes the allowed fixture directory.');
+      const fixturePath = await resolveMockFixture(this.options.fixtureBaseDir ?? process.cwd(), mock.fixturePath);
       const fixture = await readFile(fixturePath, 'utf8');
       const origins = new Set(this.options.allowedOrigins ?? [new URL(scenario.entryUrl).origin]);
       await this.page.route(mock.urlPattern, async (route) => {

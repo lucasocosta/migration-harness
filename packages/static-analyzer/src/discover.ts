@@ -3,17 +3,22 @@ import { resolve, relative, dirname, extname } from 'node:path';
 import { createHash } from 'node:crypto';
 import ts from 'typescript';
 import { parseTemplate, BindingPipe } from '@angular/compiler';
-import type { MigrationUnit, SymbolRef, DependencyEdge } from '@migration-harness/core';
+import type { ComponentInputRef, ComponentOutputRef, MigrationUnit, SymbolRef, DependencyEdge } from '@migration-harness/core';
 import { parseMigrationUnit } from '@migration-harness/core';
+
+export type StreamClassification = 'request-response' | 'event-stream' | 'state-stream' | 'cancellation-sensitive' | 'orchestration';
 
 export interface DiscoveryResult {
   unit: MigrationUnit;
   endpoints: Array<{ symbolId: string; method: string; path: string; dynamic: boolean }>;
-  streams: Array<{ symbolId: string; classification: 'request-response' | 'event-stream' | 'state-stream' | 'cancellation-sensitive' | 'orchestration'; operators: string[] }>;
+  streams: Array<{ symbolId: string; classification: StreamClassification; operators: string[] }>;
   templates: Array<{ filePath: string; bindings: string[]; errors: string[] }>;
   routes: Array<{ path: string; componentId?: string; guardIds: string[]; resolverIds: string[]; redirectTo?: string; dynamic: boolean }>;
   injections: Array<{ ownerId: string; dependencyId?: string; token: string; lifetime: 'root' | 'component' | 'unknown' }>;
 }
+
+const FORM_DIRECTIVES = ['formGroup', 'formControlName', 'formGroupName', 'formArrayName', 'formControl', 'ngModel', 'ngModelGroup', 'ngSubmit'];
+const FORM_SYMBOLS = ['FormGroup', 'FormControl', 'FormArray', 'FormBuilder', 'NonNullableFormBuilder', 'Validators', 'ReactiveFormsModule', 'NgModel'];
 
 export async function discover(sourceRoot: string, entrypoints?: string[]): Promise<DiscoveryResult> {
   const root = await realpath(resolve(sourceRoot));
@@ -41,6 +46,17 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   const pipeSymbols = new Map<string, SymbolRef>();
   const lifetimes = new Map<string, 'root' | 'component' | 'unknown'>();
   const rendered: Array<{ owner: SymbolRef; names: Set<string>; pipes: Set<string> }> = [];
+  const ioInputs: ComponentInputRef[] = [];
+  const ioOutputs: ComponentOutputRef[] = [];
+  interface FormsRecord { formsSymbols: Set<string>; templateDirectives: Set<string>; validators: Set<string>; hasAsyncValidators: boolean; hasFormArray: boolean; hasDynamicControlCreation: boolean; subscriptions: Array<{ source: string; semantics: StreamClassification }> }
+  const formsRecords = new Map<string, FormsRecord>();
+  const formsFor = (symbolId: string): FormsRecord => { let record = formsRecords.get(symbolId); if (!record) formsRecords.set(symbolId, record = { formsSymbols: new Set(), templateDirectives: new Set(), validators: new Set(), hasAsyncValidators: false, hasFormArray: false, hasDynamicControlCreation: false, subscriptions: [] }); return record; };
+  const decoratorName = (decorator: ts.Decorator, file: ts.SourceFile): string => {
+    const expression = ts.isCallExpression(decorator.expression) ? decorator.expression.expression : decorator.expression;
+    const symbol = checker.getSymbolAtLocation(expression);
+    return symbol ? (symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol).getName() : expression.getText(file);
+  };
+  const statementTextOf = (node: ts.Node): string => { let current: ts.Node = node; while (current.parent && !ts.isStatement(current)) current = current.parent; return current.getText(); };
   let loc = 0, branches = 0;
   for (const file of program.getSourceFiles().filter(file => paths.includes(file.fileName))) {
     loc += file.text.split('\n').length;
@@ -48,15 +64,40 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
     for (const node of candidates) {
       if (!(ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) || !node.name || !ts.isIdentifier(node.name)) continue;
       const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
-      const decoratorNames = decorators.map(d => {
-        const expression = ts.isCallExpression(d.expression) ? d.expression.expression : d.expression;
-        const symbol = checker.getSymbolAtLocation(expression);
-        return symbol ? (symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol).getName() : expression.getText(file);
-      });
+      const decoratorNames = decorators.map(decorator => decoratorName(decorator, file));
       const declaredType = ts.isVariableDeclaration(node) ? node.type?.getText(file) ?? '' : '';
       const kind = /Guard$|CanActivateFn/.test(node.name.text + declaredType) ? 'guard' : /Resolver$|ResolveFn/.test(node.name.text + declaredType) ? 'resolver' : decoratorNames.includes('Component') ? 'component' : decoratorNames.includes('Injectable') ? 'service' : decoratorNames.includes('Directive') ? 'directive' : decoratorNames.includes('Pipe') ? 'pipe' : decoratorNames.includes('NgModule') ? 'module' : 'type_definition';
       const symbol: SymbolRef = { id: `${relative(root, file.fileName)}#${node.name.text}`, name: node.name.text, kind, filePath: relative(root, file.fileName), exported: Boolean(ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export), astHash: createHash('sha256').update(node.getText(file)).digest('hex') };
       symbols.push(symbol); declarations.set(node, symbol);
+      if (ts.isClassDeclaration(node) && kind === 'component') {
+        for (const member of node.members) {
+          if (!ts.isPropertyDeclaration(member) || !member.name || !ts.isIdentifier(member.name)) continue;
+          const memberDecorators = ts.canHaveDecorators(member) ? ts.getDecorators(member) ?? [] : [];
+          const decorated = memberDecorators.map(decorator => decoratorName(decorator, file)).find(name => name === 'Input' || name === 'Output');
+          if (!decorated) continue;
+          const aliasNode = memberDecorators.map(decorator => ts.isCallExpression(decorator.expression) ? decorator.expression.arguments[0] : undefined).find(argument => argument !== undefined);
+          const alias = aliasNode && ts.isStringLiteralLike(aliasNode) ? aliasNode.text : undefined;
+          if (decorated === 'Input') {
+            const type = member.type ? member.type.getText(file) : checker.typeToString(checker.getTypeAtLocation(member.name));
+            ioInputs.push({ symbolId: symbol.id, name: member.name.text, ...(alias ? { alias } : {}), type: type || 'unknown' });
+          } else {
+            const typeArguments = (member.initializer && ts.isNewExpression(member.initializer) ? member.initializer.typeArguments : undefined) ?? (member.type && ts.isTypeReferenceNode(member.type) ? member.type.typeArguments : undefined);
+            ioOutputs.push({ symbolId: symbol.id, name: member.name.text, ...(alias ? { alias } : {}), eventType: typeArguments?.[0]?.getText(file) ?? 'void' });
+          }
+        }
+        const classText = node.getText(file);
+        const formSymbolHits = FORM_SYMBOLS.filter(formSymbol => new RegExp(`\\b${formSymbol}\\b`).test(classText));
+        const validatorHits = [...classText.matchAll(/\bValidators\s*\.\s*(\w+)/g)].map(match => match[1] ?? '');
+        const hasAsyncValidators = /\basyncValidators\b/.test(classText);
+        const hasFormArray = /\bFormArray\b/.test(classText);
+        const hasDynamicControlCreation = /\.\s*(?:addControl|setControl|removeControl)\s*\(/.test(classText);
+        if (formSymbolHits.length || validatorHits.length || hasAsyncValidators || hasFormArray || hasDynamicControlCreation) {
+          const record = formsFor(symbol.id);
+          for (const hit of formSymbolHits) record.formsSymbols.add(hit);
+          for (const hit of validatorHits) record.validators.add(hit);
+          record.hasAsyncValidators ||= hasAsyncValidators; record.hasFormArray ||= hasFormArray; record.hasDynamicControlCreation ||= hasDynamicControlCreation;
+        }
+      }
       for (const decorator of decorators) if (ts.isCallExpression(decorator.expression)) {
         const config = decorator.expression.arguments[0];
         if (!config || !ts.isObjectLiteralExpression(config)) continue;
@@ -88,6 +129,8 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
               if (item.children) scan(item.children);
             } };
             scan(parsed.nodes);
+            const formDirectives = FORM_DIRECTIVES.filter(directive => names.has(`[${directive}]`) || bindings.includes(directive));
+            if (formDirectives.length) { const record = formsFor(symbol.id); for (const directive of formDirectives) record.templateDirectives.add(directive); if (formDirectives.includes('formArrayName')) record.hasFormArray = true; }
             templates.push({ filePath: relative(root, templatePath), bindings, errors: parsed.errors?.map(error => error.toString()) ?? [] });
             rendered.push({ owner: symbol, names, pipes });
           }
@@ -148,10 +191,21 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
             const receiverType = checker.typeToString(checker.getTypeAtLocation(node.expression.expression));
             if (/HttpClient/.test(receiverType) || /http/i.test(node.expression.expression.getText(file))) endpoints.push({ symbolId: owner.id, method: method.toUpperCase(), path: ts.isStringLiteralLike(argument) ? argument.text : argument.getText(file), dynamic: !ts.isStringLiteralLike(argument) });
           }
+          const receiverText = node.expression.expression.getText(file);
           if (method === 'pipe' && owner) {
             const operators = node.arguments.map(arg => ts.isCallExpression(arg) ? arg.expression.getText(file) : arg.getText(file));
-            const classification = operators.some(op => ['switchMap', 'takeUntil'].includes(op)) ? 'cancellation-sensitive' : /http/i.test(node.expression.expression.getText(file)) ? 'request-response' : operators.some(op => ['combineLatest', 'mergeMap', 'concatMap'].includes(op)) ? 'orchestration' : 'event-stream';
+            const subscriptionSource = /valueChanges|statusChanges/.test(receiverText) ? (receiverText.includes('statusChanges') ? 'statusChanges' : 'valueChanges') : undefined;
+            const cancellation = operators.some(op => ['switchMap', 'takeUntil'].includes(op));
+            const requesting = /http|fetch\(|\.(?:get|post|put|patch|delete|request)\s*\(/i.test(statementTextOf(node));
+            const orchestrating = operators.some(op => ['combineLatest', 'mergeMap', 'concatMap'].includes(op));
+            const classification: StreamClassification = subscriptionSource ? cancellation ? 'cancellation-sensitive' : requesting ? 'request-response' : orchestrating ? 'orchestration' : 'state-stream' : cancellation ? 'cancellation-sensitive' : /http/i.test(receiverText) ? 'request-response' : orchestrating ? 'orchestration' : 'event-stream';
             streams.push({ symbolId: owner.id, classification, operators });
+            if (subscriptionSource && owner.kind === 'component') formsFor(owner.id).subscriptions.push({ source: subscriptionSource, semantics: classification });
+          }
+          if (method === 'subscribe' && owner?.kind === 'component' && /valueChanges|statusChanges/.test(receiverText) && !receiverText.includes('.pipe(')) {
+            const semantics: StreamClassification = /http|fetch\(|\.(?:get|post|put|patch|delete|request)\s*\(/i.test(statementTextOf(node)) ? 'request-response' : 'state-stream';
+            streams.push({ symbolId: owner.id, classification: semantics, operators: [] });
+            formsFor(owner.id).subscriptions.push({ source: receiverText.includes('statusChanges') ? 'statusChanges' : 'valueChanges', semantics });
           }
         }
         if (owner && node.expression.getText(file) === 'inject' && node.arguments[0]) {
@@ -201,6 +255,8 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   while (changed) { changed = false; for (const edge of edges) if (included.has(edge.fromSymbolId) && !included.has(edge.toSymbolId)) { included.add(edge.toSymbolId); changed = true; } }
   const internal = symbols.filter(s => included.has(s.id));
   const unit: MigrationUnit = { id: internal.find(s => entries.includes(s.id))!.name, version: '1.0.0', runtimeRoutes: routes.filter(route => route.componentId && included.has(route.componentId)).map(route => route.path), symbols: internal, dependencyGraph: edges.filter(e => included.has(e.fromSymbolId) && included.has(e.toSymbolId)),
+    inputs: ioInputs.filter(input => included.has(input.symbolId)), outputs: ioOutputs.filter(output => included.has(output.symbolId)),
+    reactiveForms: [...formsRecords].filter(([symbolId]) => included.has(symbolId)).map(([symbolId, record]) => ({ symbolId, formsSymbols: [...record.formsSymbols].sort(), templateDirectives: [...record.templateDirectives].sort(), validators: [...record.validators].sort(), hasAsyncValidators: record.hasAsyncValidators, hasFormArray: record.hasFormArray, hasDynamicControlCreation: record.hasDynamicControlCreation, subscriptions: record.subscriptions })),
     boundary: { entrypoints: entries, internalSymbols: [...included], externalDependencies: [...external].map(name => ({ name, targetPackage: name, resolvedStrategy: 'keep_external' })) },
     resolutionMetrics: { totalSymbolsIdentified: symbols.length, resolvedSymbolsCount: internal.length, resolutionCoverage: internal.length / Math.max(1, internal.length + unresolved.length), unresolvedSymbols: unresolved, dynamicEdgesCount: unresolved.filter(e => e.reason.startsWith('Dynamic')).length },
     metadata: { loc, cyclomaticComplexity: branches + 1, hasRxjsStreams: streams.length > 0, hasDynamicForms: templates.some(t => t.bindings.some(b => /formArray|ngFor/.test(b))), templateAstComplexityScore: templates.reduce((sum, t) => sum + t.bindings.length, 0) },

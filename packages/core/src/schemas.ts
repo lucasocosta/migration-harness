@@ -115,15 +115,22 @@ export const parseManifest = (value: unknown): TransformationManifest => Transfo
 export const parsePlan = (value: unknown): TransformationPlan => TransformationPlanSchema.parse(value) as TransformationPlan;
 export const parseEquivalenceResult = (value: unknown): EquivalenceResult => EquivalenceResultSchema.parse(value) as EquivalenceResult;
 
+const streamSemantics = z.enum(['request-response', 'event-stream', 'state-stream', 'cancellation-sensitive', 'orchestration']);
 export const MigrationUnitSchema = z.object({ id, version: id, runtimeRoutes: strings,
   symbols: z.array(z.object({ id, name: id, kind: z.enum(['component', 'service', 'directive', 'pipe', 'guard', 'resolver', 'module', 'template_embedded_view', 'type_definition']), filePath: id, exported: z.boolean(), astHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()),
   dependencyGraph: z.array(z.object({ fromSymbolId: id, toSymbolId: id, relation: z.enum(['imports', 'injects', 'renders', 'applies_directive', 'pipes_through', 'guards', 'resolves']), isDynamic: z.boolean() }).strict()),
+  inputs: z.array(z.object({ symbolId: id, name: id, alias: id.optional(), type: id }).strict()),
+  outputs: z.array(z.object({ symbolId: id, name: id, alias: id.optional(), eventType: id }).strict()),
+  reactiveForms: z.array(z.object({ symbolId: id, formsSymbols: strings, templateDirectives: strings, validators: strings, hasAsyncValidators: z.boolean(), hasFormArray: z.boolean(), hasDynamicControlCreation: z.boolean(), subscriptions: z.array(z.object({ source: id, semantics: streamSemantics }).strict()).max(10000) }).strict()),
   boundary: z.object({ entrypoints: strings, internalSymbols: strings, externalDependencies: z.array(z.object({ name: id, targetPackage: id, resolvedStrategy: z.enum(['keep_external', 'polyfilled', 'mocked_in_harness']) }).strict()) }).strict(),
   resolutionMetrics: z.object({ totalSymbolsIdentified: z.number().int().nonnegative(), resolvedSymbolsCount: z.number().int().nonnegative(), resolutionCoverage: z.number().min(0).max(1), unresolvedSymbols: z.array(z.object({ name: id, requestedBy: id, reason: id }).strict()), dynamicEdgesCount: z.number().int().nonnegative() }).strict(),
   metadata: z.object({ loc: z.number().int().nonnegative(), cyclomaticComplexity: z.number().int().nonnegative(), hasRxjsStreams: z.boolean(), hasDynamicForms: z.boolean(), templateAstComplexityScore: z.number().nonnegative() }).strict(),
 }).strict().superRefine((value, ctx) => {
   const ids = new Set(value.symbols.map(s => s.id));
   if (ids.size !== value.symbols.length || [...value.boundary.entrypoints, ...value.boundary.internalSymbols].some(id => !ids.has(id)) || value.dependencyGraph.some(e => !ids.has(e.fromSymbolId) || !ids.has(e.toSymbolId))) ctx.addIssue({ code: 'custom', message: 'Invalid migration boundary or graph reference' });
+  const kinds = new Map(value.symbols.map(s => [s.id, s.kind]));
+  if ([...value.inputs, ...value.outputs, ...value.reactiveForms].some(item => kinds.get(item.symbolId) !== 'component')) ctx.addIssue({ code: 'custom', message: 'Decorated IO and reactive forms must reference component symbols' });
+  if (new Set(value.reactiveForms.map(f => f.symbolId)).size !== value.reactiveForms.length) ctx.addIssue({ code: 'custom', message: 'Duplicate reactive forms record' });
 });
 export const parseMigrationUnit = (value: unknown): MigrationUnit => MigrationUnitSchema.parse(value) as MigrationUnit;
 

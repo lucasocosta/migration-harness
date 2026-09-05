@@ -23,6 +23,7 @@ Updated: 2026-09-05. This is the live task checklist. `[x]` means implemented; v
 - [x] Working CLI discovery, trace, synthesis/review, transformation, comparison, repair and evidence-import commands.
 - [x] Real Angular -> React pilot with intentional PUT -> POST regression and one bounded repair.
 - [x] Remove unused placeholder API files; retain the old browser fixture explicitly as historical material.
+- [x] Angular decorated inputs/outputs and simple synchronous reactive forms: discovery semantics (IO refs, forms symbols/directives, classified valueChanges), planner routing, codemod props/callbacks with explicit field-by-field validate() and submit gating, conservative refusals, manifest mappings (branch `next/angular-forms-and-io`).
 
 ## Review corrections
 
@@ -38,6 +39,7 @@ Updated: 2026-09-05. This is the live task checklist. `[x]` means implemented; v
 - [x] ARIA JSON/YAML from one capture; unique divergence IDs; configurable browser environment.
 - [x] Finalize MF-2 documentation: static scanning is defense in depth; Docker is the execution boundary, never a proof supplied by the scanner.
 - [x] Record the rejected SF-4 suggestion: same-page navigation order is meaningful; do not replace it with a multiset.
+- [x] Dedicated regression test: mock fixture paths resolving inside `.migration-private` are rejected (direct and via symlink).
 
 ## Validated checkpoint
 
@@ -53,7 +55,7 @@ Updated: 2026-09-05. This is the live task checklist. `[x]` means implemented; v
 
 - [ ] Execute DockerSandbox against a real local digest-pinned image. Docker is unavailable in this WSL environment.
 - [ ] Exercise an external model service with actual credentials. The HTTP protocol is tested locally; model reasoning is not.
-- [ ] General Angular reactive forms, complex provider lifetimes and stream orchestration transformations beyond the documented codemod subset.
+- [ ] Angular forms beyond the synchronous codemod subset (async validators, FormArray, dynamic controls, builder-based groups, ngModel mixing, side-effectful valueChanges), complex provider lifetimes and stream orchestration transformations.
 - [ ] Dedicated WebSocket/service-worker scenario adapters and automatic application-wide causal instrumentation.
 - [ ] OpenAPI composed/conditional schemas, external references and arbitrary test-framework extraction beyond structured assertion imports.
 - [ ] Operational encryption/key rotation, backup retention and externally anchored audit storage.
