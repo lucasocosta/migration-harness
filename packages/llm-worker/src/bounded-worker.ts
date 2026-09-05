@@ -77,6 +77,22 @@ function validateImport(name: string, path: string, policy: WorkerPolicy): void 
 export function assertCandidatePath(path: string, allowed: string[]): void {
   if (!allowed.includes(path) || path.includes('\\') || path.startsWith('/') || path.split('/').some(p => p === '..' || p.startsWith('.')) || !/\.tsx?$/.test(path) || /(^|\/)(contracts?|tests?|policy|validation|source|artifacts)(\/|\.)/i.test(path)) throw new Error('Patch path is outside the candidate boundary.');
 }
+
+export interface PatchScreenRefusal { code: 'PSEUDONYM_IN_PATCH' | 'RAW_PATH_REFERENCE'; path: string; message: string; }
+const PSEUDONYM_TOKEN = /p_[0-9a-f]{24}/;
+
+/** Cheap, high-signal content screens for the apply path: trace-derived pseudonyms and raw-domain path references must never enter generated code. */
+export function screenPatchContent(patches: CandidatePatch[], privatePathFragments: readonly string[] = []): PatchScreenRefusal[] {
+  const refusals: PatchScreenRefusal[] = [];
+  for (const patch of patches) {
+    const pseudonym = patch.content.match(PSEUDONYM_TOKEN);
+    if (pseudonym) refusals.push({ code: 'PSEUDONYM_IN_PATCH', path: patch.path, message: `Patch content embeds pseudonymized trace token '${pseudonym[0].slice(0, 10)}…'.` });
+    for (const fragment of ['.migration-private', ...privatePathFragments]) {
+      if (fragment && patch.content.includes(fragment)) { refusals.push({ code: 'RAW_PATH_REFERENCE', path: patch.path, message: `Patch content references the raw artifact domain ('${fragment.slice(0, 64)}').` }); break; }
+    }
+  }
+  return refusals;
+}
 function changedBytes(before: string, after: string): number {
   let start = 0, end = 0;
   while (start < Math.min(before.length, after.length) && before[start] === after[start]) start++;

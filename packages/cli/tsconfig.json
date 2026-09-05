@@ -26,6 +26,9 @@
     },
     {
       "path": "../equivalence-validator"
+    },
+    {
+      "path": "../quality-gates"
     }
   ]
 }

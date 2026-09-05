@@ -77,6 +77,9 @@ importers:
       '@migration-harness/llm-worker':
         specifier: workspace:*
         version: link:../llm-worker
+      '@migration-harness/quality-gates':
+        specifier: workspace:*
+        version: link:../quality-gates
       '@migration-harness/scenario-runner':
         specifier: workspace:*
         version: link:../scenario-runner

@@ -1,53 +1,78 @@
 # Continuation handoff
 
-Checkpoint: 2026-09-05. Implementation commit: `0af541e` (`feat: implement RFC migration pilot and harden validation boundaries`). This is a validated checkpoint, not a completed RFC-wide production delivery.
+Checkpoint: 2026-09-05. Branch: `next/angular-forms-and-io`. This handoff transfers
+continuation from the OpenCode orchestrator back to the codex session. Read
+`docs/ASSISTANT-INTEGRATION.md` first — it is the authoritative design for the pivot
+described below.
 
-## User instructions
+## The pivot (decided, user-confirmed)
 
-1. Implement the remaining RFC work and read every project document.
-2. Evaluate `docs/REVIEW.md`, fix valid findings and continue missing functionality.
-3. Keep completed/pending work marked. Prepare a handoff before reaching the last 5% of the available limit.
-4. Commit the work completed so far; this was explicitly requested after the checklist was created.
+The harness does NOT call a model via API. The Transform/Repair "LLM worker" is a
+human-driven coding assistant (Claude Code, Copilot, codex — i.e. you) driving the CLI
+with bounded briefs. The harness is the oracle/gatekeeper; the assistant is the hands.
+Consequence: RFC §33.II shifts from architectural guarantee to policy + tooling; the
+docs pass below must restate it honestly. The "external model service with
+credentials" item is obsolete by design.
 
-The session has no reliable account-quota percentage indicator. This handoff is maintained proactively; do not claim that a 5% threshold was measured. Continue autonomously. Do not spawn subagents unless the user explicitly requests delegation.
+## Committed state (all green at commit time)
 
-## Workspace
+Branch history (newest first):
+- `ac7694e` feat: dedicated WebSocket scenario adapter (45/45 unit + 9/9 browser at commit)
+- `8d9a96c` docs: assistant-driven worker integration contract and pivot record
+- `3da64fc` feat: builder-group normalization, async-validator evidence and provider scopes
+- `6b3a584` feat: angular decorated IO and synchronous reactive-forms slice
+- `9df23e1` docs: record validated checkpoint and remaining RFC work
+- `0af541e` feat: implement RFC migration pilot and harden validation boundaries
 
-- CWD: `/mnt/c/Users/Lucas/projects/migration-harness`.
-- Bash, Node 20.20.1. pnpm is not on PATH; use `npx --yes pnpm@10.15.0`.
-- All original docs were read in full. `docs/REVIEW.md` was supplied by the user during implementation; preserve it unchanged.
-- The worktree was initially clean. Almost all current changes were made in this task; `docs/REVIEW.md` belongs to the user/other reviewer.
-- No applicable AGENTS.md was found. The user-authorized implementation checkpoint is committed as `0af541e`. Do not reset/clean the worktree.
-- Dependencies and Chromium are installed. The exact Playwright pin is 1.63.0.
-- Docker is not available through this WSL integration. No live external LLM credentials were used.
+Delivered and committed: full RFC core workflow; review corrections (19/20 verified);
+decorated IO + reactive forms slices; provider scopes; WebSocket adapter (opt-in
+routeWebSocket capture, default-block preserved, strict within-connection pairing,
+BLOCKING network-family divergences); `docs/ASSISTANT-INTEGRATION.md` (contract
+design); PROGRESS pivot record.
 
-## What exists now
+## In-flight work (INTENTIONALLY LEFT UNFINISHED — stop request)
 
-Read `PROGRESS.md` for the live checklist. Implemented functionality includes strict schemas; real browser execution; private artifact storage; sanitizer and LLM projection; six-dimensional validation and declared causal graph alignment; contract approval/integrity; observational synthesis; OpenAPI/test-evidence import; Angular discovery/planning/codemod; bounded worker/HTTP transport; repair coordinator; TypeScript, ESLint, axe and coverage gates; CLI; real Angular/React pilot.
+A checkpoint commit follows this handoff containing a PARTIAL implementation of the
+assistant loop. Measured state at handoff: build ✅, 50/50 unit/CLI tests ✅,
+9/9 browser tests ✅, both smokes ✅. UNVERIFIED: `scripts/pilot-assistant.mjs`
+(the worked example was not run to completion).
 
-The pilot uses a deterministic provider and explicitly synthetic approval. It is not evidence that a real model or Docker sandbox ran. Raw artifacts now live under `~/.local/state/migration-harness/<hash-of-public-root>/raw`, because `/mnt/c` exposes mode 0777 even for requested 0600 files. The store verifies private permissions before writing. Earlier task-generated raw fixture directories on `/mnt/c` were removed; sanitized pilot reports remain.
+Present in the tree (committed in the wip checkpoint):
+- `packages/core/src/brief.ts` (new) — brief/submission schemas per design §1
+- `packages/core/src/schemas.ts`, `packages/core/src/index.ts` — HarnessPolicySchema `assistant` block + exports
+- `packages/llm-worker/src/bounded-worker.ts` — `screenPatchContent` export
+- `packages/engine/src/artifacts.ts`, `packages/engine/src/repair-loop.ts` — small support changes
+- `packages/cli/` — `brief` and `apply-patch` commands (+ `quality-gates` dep added to cli/package.json)
+- `AGENTS.md` (new, repo root) — draft per design §4
+- `tests/assistant-loop.test.mjs` — 5 passing tests (partial refusal matrix)
+- `scripts/pilot-assistant.mjs` — worked example, UNVERIFIED/possibly incomplete
 
-## Latest verified changes
+## Next steps for the codex session (ordered)
 
-- `state-machine.contractApproved` only accepts CONTRACT_REVIEW; `synthesisCompleted()` has no misleading argument.
-- Contract hashes use core codepoint canonicalization. Old synthetic artifacts from before this change may have obsolete hashes; generate a fresh pilot, never silently rewrite an approved real contract.
-- Mocks resolve fixtures within the real fixture base and enforce allowed origins themselves.
-- Payload/storage keys default to deny. Pilot policies explicitly allow `email` and `profile.saved`.
-- ARIA YAML is now serialized from the same JSON capture, then regenerated from sanitized JSON. It is structured YAML, not the old Playwright shorthand string.
-- `runId` identifies recorder executions. Mining rejects duplicate execution identities and produces nonblocking storage/navigation/ARIA candidates too.
-- New OpenAPI/test importers return `{invariants, unresolved}`. `synthesize --evidence` rejects unresolved reports and only corroborates operations observed in each scenario.
-- Dynamic-code scanning rejects more common aliases but is NOT a sandbox. Document this explicitly; Docker is the generated-code execution boundary.
-- Discovery now follows tsconfig aliases, constructor DI, route-owned guards/resolvers, selectors and pipes. Multiple components require explicit entrypoints.
-- Added real HTTP provider transport tests, axe adapter/browser test, ESLint 10 fixed trusted configuration and lint test/pilot check.
-- The axe test initially failed because it used `browser.newPage()`. It now uses `browser.newContext()` and passes.
+1. **Run `node scripts/pilot-assistant.mjs`.** Finish/fix it to green per
+   `docs/ASSISTANT-INTEGRATION.md` §6 + checklist item 8 (8 demo requirements:
+   brief hygiene asserts, apply PASS, `run --max-repairs 0` EQUIVALENT, injected
+   regression → NOT_EQUIVALENT NETWORK_METHOD_MISMATCH → REPAIR_BRIEF, repair apply →
+   EQUIVALENT, one deliberate out-of-allowlist submission → REFUSED atomically,
+   contract contentHash unchanged, verifyAudit passes).
+2. **Complete the apply-patch refusal matrix** (design §2): one test per code —
+   PATCH_PATH_OUTSIDE_BOUNDARY, BASELINE_HASH_MISMATCH, AST_FORBIDDEN_CONSTRUCT,
+   IMPORT_NOT_ALLOWED, PSEUDONYM_IN_PATCH, RAW_PATH_REFERENCE, SCHEMA_INVALID,
+   MANIFEST_UNIT_MISMATCH, BRIEF_ID_MISMATCH, EDIT_BUDGET_EXCEEDED — plus
+   brief-generation refusals (raw-domain path, un-sanitized trace, non-APPROVED
+   contract, non-AUTO_REPAIRABLE repair). 5 exist; the matrix is partial.
+3. **Review `AGENTS.md` copy** against design §4 (8 sections; refusal-code table).
+4. **Run the full verification suite** (commands below), then commit.
+5. **Docs pass**: RFC §33.II/§25 restate for the policy+tooling boundary model;
+   update docs/USAGE.md (assistant loop usage); update docs/PROGRESS.md marks and
+   docs/IMPLEMENTATION-STATUS.md (Worker execution row: assistant-driven loop
+   delivered; HttpWorkerProvider demoted to optional adapter).
+6. Then continue the remaining RFC list in docs/PROGRESS.md: service-worker adapter +
+   application-wide causal instrumentation; OpenAPI composed/conditional schemas +
+   external refs; operational encryption/key rotation/backup retention; DockerSandbox
+   live validation (environment-blocked here).
 
-## Validation status
-
-Before the most recent review expansion, build, 16 unit/CLI tests, 3 browser tests and pilot all passed.
-
-After the review expansion, the complete strict build, 28 unit/CLI tests and all 5 browser tests passed. Both smoke scripts passed. The pilot also passed with TypeScript and ESLint checks, EQUIVALENT after exactly one repair, unchanged contract and verified audit at `artifacts/pilot-Th11LX`. Private artifacts are under `/home/lucas/.local/state/migration-harness/31e5a2e610e984de3563d19e`. All test/build/pilot exec sessions have finished; no server needs to remain running.
-
-Verification commands for future changes (do not repeat without new changes or a reason):
+## Verification commands
 
 ```bash
 npx --yes pnpm@10.15.0 build
@@ -56,22 +81,32 @@ node --test tests/browser/*.test.mjs
 node scripts/smoke.mjs
 node scripts/smoke-v02.mjs
 node scripts/pilot.mjs
+node scripts/pilot-assistant.mjs
 git diff --check
 ```
 
-README/USAGE/status docs and `VALIDATION.md` now record the delivered scope. Frozen-lockfile installation and private permission checks passed (raw file 0600; directory 0700). The user-requested implementation commit is `0af541e`; the following documentation commit records its reference and the completed checklist. There are no running tool sessions or fixture servers to resume.
+Do not repeat without new changes or a reason.
 
-## Next implementation choices
+## Workspace / environment
 
-Continue with the unchecked items in `PROGRESS.md`; do not restart completed phases or repeat tests without a new change. General Angular semantics remain the largest code scope. A concrete next slice is decorated inputs/outputs and reactive forms, preserving explicit validation and cancellation behavior through the existing independent validator. Docker execution and live-model inference require environment/service prerequisites that were not available in this session. Keep those as unverified, not as successful checks.
+- CWD: `/mnt/c/Users/Lucas/projects/migration-harness`. Node 20. pnpm NOT on PATH —
+  use `npx --yes pnpm@10.15.0`.
+- Tests import from `dist/`: always `pnpm build` before running tests.
+- Docker unavailable through this WSL integration. No external LLM credentials; none
+  needed — the pivot removed that dependency.
+- Playwright pinned exactly 1.63.0. Private raw artifacts live under
+  `~/.local/state/migration-harness/<hash>/raw` (0700/0600), NOT in-repo; `/mnt/c`
+  cannot hold private modes.
+- All current work is on `next/angular-forms-and-io`; main is untouched since `9df23e1`.
 
-## Review decisions recorded in REVIEW-RESOLUTION.md
+## Invariants you must preserve (do not weaken)
 
-- MF-1/3/4 and most SF items are implemented; regressions were added.
-- MF-2: use the review's documented-boundary alternative. An arbitrary-JavaScript allowlist cannot establish runtime safety. Patch writing is not execution; model code must not be run unsandboxed. Provider adapters are trusted host code; returned patches are untrusted data.
-- SF-4: do NOT turn navigation into a multiset. The RFC's concurrency example concerns independent requests. Main-frame routes/redirects can be causally ordered and changing their order is meaningful. A test ensures identical route sets with different sequences remain divergent.
-- Zero-step scenarios are retained because boot-only scenarios are legitimate and are covered by the mock-boundary browser test.
-- The legacy Python fixture is explicitly historical; deleting it is optional, not a correctness fix.
-- Keep general framework coverage and Docker/live-model validation limits visible. Do not claim all RFC production requirements are finished.
-
-Use `apply_patch` for edits, give concise Portuguese progress updates, and preserve user changes. No running server is intended to remain after tests/pilot; fixture code closes its own servers/browser contexts in finally blocks.
+- The harness is the oracle: only harness output certifies EQUIVALENT/PR_READY.
+- Manifest is hints, never authority. Briefs carry references + hashes, never raw
+  content; generation goes through `projectTraceForLlm` only.
+- `apply-patch` is atomic: any refusal applies NOTHING; reject, never sanitize.
+- Repair-brief emission requires `classifyFailure() == AUTO_REPAIRABLE`.
+- Contract, SourceTrace, scenarios, validation policy and AGENTS.md itself are
+  protected inputs (fingerprints in the repair loop enforce this).
+- Raw traces never reach briefs/results by construction; the assistant's unbounded
+  read access is the documented residual risk (AGENTS.md + purge-raw discipline).

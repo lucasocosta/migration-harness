@@ -146,5 +146,6 @@ export const HarnessPolicySchema = z.object({
   observables: z.object({ volatileQueryParams: strings.optional(), ignoredStorageKeys: strings.optional(), volatileStorageValues: z.array(z.object({ storageType, key: id }).strict()).optional(), ariaSeverity: severity.optional(), navigationAliases: record.optional() }).strict().optional(),
   websockets: z.object({ volatileWebSocketFields: strings.optional() }).strict().optional(),
   sanitization: z.object({ allowedPayloadKeys: strings.optional(), allowedStorageKeys: strings.optional(), sensitiveKeys: strings.optional() }).strict().optional(),
+  assistant: z.object({ allowedPackages: strings, targetConventions: z.record(z.string().max(4096)).optional(), maxBriefBytes: z.number().int().positive().max(4_000_000).optional(), maxSubmissionBytes: z.number().int().positive().max(10_000_000).optional() }).strict().optional(),
   allowedOrigins: z.array(z.string().url()).optional(),
 }).strict();

@@ -90,6 +90,13 @@ function segment(value: string): string {
 export interface AuditEntry { index: number; timestamp: string; action: string; data: unknown; previousHash: string; hash: string; }
 export class AuditTrail {
   private entries: AuditEntry[] = [];
+  /** Rehydrate a persisted chain (callers must have validated it with verifyAudit) so a CLI process can extend it. */
+  static load(entries: AuditEntry[]): AuditTrail {
+    if (!verifyAudit(entries)) throw new Error('Existing audit chain is corrupt.');
+    const trail = new AuditTrail();
+    trail.entries = structuredClone(entries);
+    return trail;
+  }
   record(action: string, data: unknown): void {
     const entry = { index: this.entries.length, timestamp: new Date().toISOString(), action, data: structuredClone(data), previousHash: this.entries.at(-1)?.hash ?? '' };
     this.entries.push({ ...entry, hash: createHash('sha256').update(canonical(entry)).digest('hex') });

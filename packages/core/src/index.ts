@@ -8,3 +8,4 @@ export * from './transformation-plan.js';
 export * from './equivalence-result.js';
 export * from './schemas.js';
 export * from './normalization.js';
+export * from './brief.js';

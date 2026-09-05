@@ -22,6 +22,7 @@
     "@migration-harness/transformation-planner": "workspace:*",
     "@migration-harness/codemods": "workspace:*",
     "@migration-harness/engine": "workspace:*",
-    "@migration-harness/llm-worker": "workspace:*"
+    "@migration-harness/llm-worker": "workspace:*",
+    "@migration-harness/quality-gates": "workspace:*"
   }
 }

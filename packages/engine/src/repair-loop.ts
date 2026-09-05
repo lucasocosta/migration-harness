@@ -1,7 +1,8 @@
 import { canonical, parseContract, parseSanitizedTrace, type BehaviorContract, type SanitizedObservedTrace, type TransformationManifest, type EquivalenceResult, type FailureDisposition } from '@migration-harness/core';
 import { verifyContractIntegrity } from '@migration-harness/contract-review';
 import { EquivalenceValidator, type EquivalenceValidationPolicy } from '@migration-harness/equivalence-validator';
-import { classifyFailure } from '@migration-harness/quality-gates';
+// Subpath import keeps the engine off the eslint/axe-heavy quality-gates index chain; classifyFailure itself only depends on core types.
+import { classifyFailure } from '@migration-harness/quality-gates/dist/evaluate.js';
 import { AuditTrail } from './artifacts.js';
 
 export interface RepairLoopInput {

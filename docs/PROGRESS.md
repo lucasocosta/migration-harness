@@ -56,8 +56,8 @@ Updated: 2026-09-05. This is the live task checklist. `[x]` means implemented; v
 Decision: the harness does NOT call a model via API. The Transform/Repair "LLM worker" is a human-driven coding assistant (Claude Code, Copilot, codex) driving the CLI with bounded briefs; every submission passes the same deterministic gates. Contract design: `docs/ASSISTANT-INTEGRATION.md`. The RFC §33.II invariant shifts from architectural guarantee to policy + tooling (honest residual-risk statement required).
 
 - [x] Integration contract design (brief format, apply path, boundary model, AGENTS.md spec, llm-worker disposition).
-- [ ] `brief` / `apply-patch` CLI loop (core brief schemas, screenPatchContent, atomic apply, structured APPLY_RESULT).
-- [ ] `AGENTS.md` at repo root per the contract spec.
+- [ ] `brief` / `apply-patch` CLI loop — PARTIAL, in-tree checkpoint: brief/submission schemas, screenPatchContent, CLI commands, engine support, 5 refusal tests; build + 50 unit + 9 browser + smokes green at handoff; pilot-assistant unverified. Finish per docs/HANDOFF.md.
+- [ ] `AGENTS.md` at repo root — draft included in the checkpoint; review copy against design §4.
 - [ ] RFC addendum: restate §33.II/§25 for the policy+tooling boundary model; update USAGE.
 - [ ] Assistant-driven worked example (pilot-assistant) covering both DoD legs.
 - Note: the "external model service with credentials" item is obsolete by design under this pivot; HttpWorkerProvider stays as a demoted optional adapter.
