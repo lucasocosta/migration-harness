@@ -15,7 +15,7 @@ interface FrameObservation {
  * connection URL and index within the connection, then compare direction and structural
  * payload shape position-by-position. Reordering WITHIN a connection is therefore a
  * divergence — the same reasoning the review resolution applies to main-frame navigation
- * (REVIEW-RESOLUTION SF-4): independent requests may reorder, a protocol conversation may not.
+ * (REVIEWS.md SF-4): independent requests may reorder, a protocol conversation may not.
  */
 export function buildWebSocketFrames(trace: SanitizedObservedTrace, policy: WebSocketComparisonPolicy = {}): Map<string, FrameObservation[]> {
   const connections = new Map<string, FrameObservation[]>();

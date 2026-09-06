@@ -311,7 +311,7 @@ Same oracle, same gates; only the hands differ.
 8. `scripts/pilot-assistant.mjs` — automated simulation of the section 6 protocol.
    It checks real CLI/browser boundaries but uses a codemod instead of a human-driven
    assistant; the recorded session in section 6.2 remains a separate requirement.
-9. `docs/PROGRESS.md` / pilot README — record both DoD legs (deterministic +
+9. `docs/STATUS.md` / pilot README — record both DoD legs (deterministic +
    assistant-driven).
 
 **Risks to watch during implementation:** brief bloat (enforce the size cap from day

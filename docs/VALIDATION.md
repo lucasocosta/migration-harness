@@ -1,113 +1,102 @@
 # Validation record
 
-## Assistant integration continuation - 2026-09-05
+What was actually executed, and what each run does not prove. Historical entries
+for the pre-dependency, Python-fixture era (v0.2 and v0.2.1) were removed: their
+counts and environment no longer describe this tree. `STATUS.md` holds the
+current status; `REVIEWS.md` holds review decisions.
 
-After inherited checkpoint `a9a7f2d`: strict build PASS; full unit/CLI suite 60/60
-PASS (15 assistant tests); browser suite 9/9 PASS; both smoke scripts PASS;
-`git diff --check` PASS. Coverage includes all 10 refusal codes, recomputed forged
-briefs, stale baselines, protected inputs, private aliases, candidate symlinks, output
-collisions, issued submission caps, manifest screens, aggregate repair budgets,
-configured static gates, locks, multi-file rollback and injected partial writes.
+## Correction set and migration workflow — 2026-09-06
 
-Original pilot: `artifacts/pilot-ZCQfPl/`, EQUIVALENT after one bounded repair.
-Assistant protocol pilot: `artifacts/pilot-assistant-hBzp77/`, real CLI and Chromium,
-typecheck/lint enabled, applied bytes rebuilt, deliberate method regression, repair,
-out-of-scope refusal, unchanged synthetic contract and verified audit. The simulation
-is explicitly labeled `DETERMINISTIC_PROTOCOL_SIMULATION`; integration section 6.2's
-recorded human-driven, brief-only session remains unverified. Docker execution and
-human production/accessibility approval remain outside this validation.
-
-## RFC pilot and review corrections - 2026-09-05
-
-Executed in the shared WSL workspace with Node 20.20.1, TypeScript 5.9.3, pnpm 10.15.0 and pinned Playwright 1.63.0. Dependencies and Chromium were installed successfully; the earlier offline limitation below is historical.
+Tree: commit `3b0fad2` plus the uncommitted corrections for audit findings R1-R9,
+the read-only destination context (`--context-files`), the Portuguese Copilot
+manual, the migration specification template, and the two Copilot migration
+agents with their boundary hook.
 
 | Check | Result |
 | --- | --- |
-| Strict workspace build, all 15 projects | PASS |
-| Unit, CLI, review regression, discovery, importer, HTTP provider and lint tests | 28/28 PASS |
-| Chromium browser tests, including real Angular/React, recorder, mock boundaries and axe | 5/5 PASS |
-| Original and v0.2 smoke scripts | PASS |
-| Real Angular -> generated React pilot with lint/typecheck, regression and repair | PASS |
+| Strict workspace build | PASS |
+| Unit/CLI suite | 92/92 PASS |
+| Chromium suite | 13/13 PASS |
+| `smoke.mjs` and `smoke-v02.mjs` | PASS |
+| Original pilot | PASS, `artifacts/pilot-5ZpYVI`, EQUIVALENT after one bounded repair |
+| Assistant protocol pilot | PASS, `artifacts/pilot-assistant-WSkbqf` |
 | `git diff --check` | PASS |
 
-Latest pilot evidence: `artifacts/pilot-Th11LX/`. The run recorded three source executions, detected `NETWORK_METHOD_MISMATCH` after PUT -> POST, applied exactly one bounded repair, obtained EQUIVALENT, verified the unchanged approved fixture contract, and verified its audit chain. Approval and provider are explicitly synthetic test fixtures; no production contract was approved and no real model reasoning was exercised.
+New coverage in this set: refusal of key pruning that would orphan retained
+backups, with a synthetic restore regression; service-worker one-to-one
+forwarding verification and context-level mock installation, in four focused
+browser tests; reference-document ownership through local aliases and external
+compositions; key mode/type/symlink verification and truncated-envelope
+authentication failure; rejection of a backup root equal to the public root;
+resolved private-domain guards for CLI inputs, audits and importers; exclusive
+locks for key generation, raw lifecycle, audit updates and anchor appends; and
+the read-only destination context, where a context file supports relative imports
+without becoming writable, a patch targeting it is refused, and mutating it
+produces `BASELINE_HASH_MISMATCH`.
 
-Private raw files are in `/home/lucas/.local/state/migration-harness/31e5a2e610e984de3563d19e/raw`. The store enforces 0700 directories and 0600 files. `/mnt/c` was observed to expose 0777 despite requested modes, so private artifacts were moved to the native Linux filesystem. Permission, symlink and retention tests run against native temporary directories.
+The boundary hook for the Copilot agents has eight dedicated regressions
+(`tests/copilot-hook.test.mjs`): fail-closed on unusable input, missing phase and
+missing brief; refusal of the private raw domain, the native private state root
+and credential files, including `~` and `file://` forms; preparation writes
+limited to the tracking directory with no command execution; transformation reads
+limited to brief, `AGENTS.md`, `allowedFiles`, `contextFiles` and the unit's
+artifact root; writes limited to a submission JSON, with direct candidate writes
+refused; oracle commands and git publish commands refused while `apply-patch`,
+`run` and the destination build pass; and a JSONL decision log written as
+evidence.
 
-Coverage includes portable hashes, the actual FSM approval bypass, default-deny payload fields, Unicode/prototype keys, malformed encoded URLs, ARIA URL secrets, mock filesystem/origin boundaries, path/response/storage volatility, replayed execution identities, causal comparison, static-code scan bypass patterns, and worker HTTP error/redirect/size/deadline behavior.
+Not proven by this set: the workflow has never run against a real Angular and
+real React repository pair; the hook is defense in depth on the assistant's tool
+calls, not isolation; and hooks declared in agent files are a Preview VS Code
+feature that requires `chat.useCustomAgentHooks`.
 
-The recorder handles Chromium's bodyless-response ERR_ABORTED case only when an actual 204/304/HEAD response exists. A related upstream behavior is documented in [Playwright issue 26897](https://github.com/microsoft/playwright/issues/26897). Transport errors without a completed bodyless response remain failures.
+## Assistant integration — 2026-09-05
 
-Not verified here: DockerSandbox execution (Docker is unavailable in this WSL), external model inference, and general framework behavior beyond the documented adapters. See `IMPLEMENTATION-STATUS.md`, `REVIEW-RESOLUTION.md` and `PROGRESS.md` for remaining scope. Automated axe results do not replace human accessibility evaluation.
+After checkpoint `a9a7f2d`: build PASS, 60/60 unit/CLI (15 assistant tests), 9/9
+browser, both smokes, `git diff --check` PASS. Coverage included all ten refusal
+codes, recomputed forged briefs, stale baselines, protected inputs, private
+aliases, candidate symlinks, output collisions, issued submission caps, manifest
+screens, aggregate repair budgets, configured static gates, locks, multi-file
+rollback and injected partial writes.
 
-## v0.2 — 2026-08-29
+The assistant protocol pilot ran real CLI and Chromium with typecheck and lint
+enabled, rebuilt the applied bytes, produced a deliberate method regression, a
+repair, an out-of-scope refusal, an unchanged synthetic contract and a verified
+audit. It is explicitly labeled `DETERMINISTIC_PROTOCOL_SIMULATION`: integration
+§6.2's recorded human-driven, brief-only session remains unverified.
 
-Executed in the artifact-generation environment with Node.js 22.16.0 and TypeScript 5.8.3.
+## RFC pilot and review corrections — 2026-09-05
 
-### Passed
+Executed in WSL with Node 20.20.1, TypeScript 5.9.3, pnpm 10.15.0 and Playwright
+pinned to 1.63.0. Build PASS across all 15 projects, 28/28 unit/CLI, 5/5 browser,
+both smokes, the Angular → generated React pilot with lint/typecheck, and
+`git diff --check`.
 
-- Strict TypeScript build for:
-  - `@migration-harness/core`
-  - `@migration-harness/equivalence-validator`
-  - `@migration-harness/engine`
-- `scripts/smoke-v02.mjs`:
-  - PUT source vs PUT target → `EQUIVALENT`
-  - PUT source vs POST target → `NOT_EQUIVALENT`
-  - first divergence → `NETWORK_METHOD_MISMATCH`
-  - FSM repair transition → `REPAIR_PATCH → EQUIVALENCE_VERIFY → PR_READY`
+That pilot recorded three source executions, detected `NETWORK_METHOD_MISMATCH`
+after a `PUT → POST` regression, applied exactly one bounded repair, obtained
+EQUIVALENT, and verified both the unchanged approved fixture contract and its
+audit chain. Approval and provider are synthetic test fixtures: no production
+contract was approved and no model reasoning was exercised.
 
-### Not fully typechecked in this environment
+Coverage included portable hashes, the actual FSM approval bypass, default-deny
+payload fields, Unicode and prototype keys, malformed encoded URLs, ARIA URL
+secrets, mock filesystem and origin boundaries, path/response/storage volatility,
+replayed execution identities, causal comparison, static-scan bypass patterns and
+worker HTTP error/redirect/size/deadline behavior.
 
-`scenario-runner` and `trace-recorder` depend on Playwright. The generation environment does not contain the project Playwright dependency tree, so their full package typecheck was not claimed here.
+## Environment facts that affect interpretation
 
-The project pins Playwright `^1.63.0` because the implementation uses current ARIA snapshot JSON APIs. Run the full validation after installing workspace dependencies:
-
-```bash
-pnpm install
-pnpm build
-pnpm smoke:v02
-```
-
-### Remaining validation work
-
-- browser-backed ScenarioRunner integration test;
-- response body cap/content-type tests;
-- navigation event test;
-- sanitizer adversarial tests;
-- volatile query normalization tests;
-- navigation/storage/ARIA comparator tests;
-- causal ordering tests.
-
-## Browser E2E vertical slice — v0.2.1
-
-A reproducible browser fixture now validates the differential-execution core using real Chromium execution.
-
-Command:
-
-```bash
-bash scripts/e2e-fixture.sh
-```
-
-The fixture executes the same customer-profile scenario against three behavioral implementations:
-
-1. source behavior: `PUT /api/customers/123`;
-2. equivalent target: `PUT /api/customers/123`;
-3. intentionally regressed target: `POST /api/customers/123`.
-
-Observed results:
-
-```text
-source vs target            → EQUIVALENT
-source vs target-regression → NOT_EQUIVALENT
-                              NETWORK_METHOD_MISMATCH
-                              source=PUT
-                              target=POST
-```
-
-Browser evidence includes user interaction, HTTP request/response and ARIA snapshot events. The current `EquivalenceValidator` evaluates the NETWORK dimension; navigation/state/ARIA comparators remain subsequent milestones.
-
-### Environment limitation
-
-The execution environment cannot access npm, so the Node Playwright dependency cannot be installed here. The browser portion of this fixture therefore uses the locally installed Python Playwright binding with `/usr/bin/chromium`; the resulting trace schema is consumed by the real TypeScript `EquivalenceValidator`. This tests the browser→trace→validator vertical slice but does **not** yet prove the TypeScript `ScenarioRunner`/`TemporalTraceRecorder` integration.
-
-The fixture pages intentionally model source/target observable behavior without bundling Angular or React runtimes, because those packages are also unavailable offline. A real Angular/React adapter test remains the next integration milestone.
+- Private raw artifacts live under `~/.local/state/migration-harness/<hash>/raw`,
+  with 0700 directories and 0600 files. `/mnt/c` was observed to expose 0777
+  despite requested modes, so private artifacts must stay on the native Linux
+  filesystem; permission, symlink and retention tests run against native
+  temporary directories.
+- The recorder handles Chromium's bodyless-response `ERR_ABORTED` case only when
+  an actual 204/304/HEAD response exists; see
+  [Playwright issue 26897](https://github.com/microsoft/playwright/issues/26897).
+  Transport errors without a completed bodyless response remain failures.
+- Never verified here: `DockerSandbox` execution (Docker unavailable through this
+  WSL integration), external model inference, and framework behavior beyond the
+  documented adapters.
+- Automated axe results do not replace human accessibility evaluation, and no
+  real migration contract has been approved by a human reviewer.

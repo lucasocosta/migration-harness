@@ -48,9 +48,12 @@ The pilot covers a deliberately small Angular component. Decorated IO and a sync
 
 The primary semantic worker is a human-driven coding assistant consuming harness-issued briefs, with no model API integration required. An HTTP provider remains an optional library adapter. Same-user reads outside the CLI are policy-controlled, not technically isolated. The assistant protocol pilot uses deterministic submissions; a recorded real assistant session remains pending. Container execution requires Docker and a locally available digest-pinned image; it was not verified in this WSL environment.
 
-See [RFC implementation status](docs/IMPLEMENTATION-STATUS.md) for the complete scope and remaining work.
+See [status](docs/STATUS.md) for the complete scope, verification snapshot and remaining work.
 
-The [live checklist](docs/PROGRESS.md), [review resolutions](docs/REVIEW-RESOLUTION.md), and [handoff](docs/HANDOFF.md) record completed work, pending validation and continuation details.
+The [review record](docs/REVIEWS.md) documents accepted and rejected review findings, including two deliberate design rejections.
+
+For migrations into an existing React repository, use the Portuguese
+[Copilot manual](docs/COPILOT-MIGRATION.md) and [migration specification template](docs/templates/MIGRATION-SPEC.md).
 
 ## First milestone
 
@@ -91,9 +94,9 @@ harness compare \
 
 ## Read before continuing implementation
 
-- `docs/research.md` — consolidated research, decisions, invariants and implementation handoff.
+- `docs/research.md` — consolidated research, decisions and invariants (historical record).
 - `docs/ARCHITECTURE.md` — current architecture summary.
-- `docs/MVP-PLAN.md` — recommended implementation sequence.
+- `docs/STATUS.md` — delivered scope, limits, verification snapshot, remaining work and continuation notes.
 - `docs/VALIDATION.md` — validations already executed and environment limitations.
 - `docs/ASSISTANT-INTEGRATION.md` and root `AGENTS.md` — assistant protocol and read/write scope.
 

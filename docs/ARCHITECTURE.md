@@ -46,7 +46,7 @@ SourceTrace + TargetTrace + BehaviorContract + TransformationManifest
 
 The validator now evaluates network, navigation, storage/state, ARIA semantics, declared causal ordering and approved critical contract gates. Runtime JSON is validated at boundaries. The trace-sanitizer owns the raw-to-sanitized boundary and emits a separate structural projection for workers.
 
-The engine provides private artifact storage, an audit chain and a bounded repair coordinator. Workers return data-only patches; DockerSandbox is the explicit adapter for isolated generated-code execution. The pilot uses a conservative codemod and deterministic repair provider with real Angular/React browser execution. See `IMPLEMENTATION-STATUS.md` for remaining production scope.
+The engine provides private artifact storage, an audit chain and a bounded repair coordinator. Workers return data-only patches; DockerSandbox is the explicit adapter for isolated generated-code execution. The pilot uses a conservative codemod and deterministic repair provider with real Angular/React browser execution. See `STATUS.md` for remaining production scope.
 
 The primary semantic workflow is now external composition: harness-issued `brief` ->
 human-driven assistant submission -> `apply-patch` -> `run --max-repairs 0`. Apply

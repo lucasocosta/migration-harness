@@ -57,6 +57,34 @@ node packages/cli/dist/index.js purge-raw \
 
 Retention removes only expired files in that root's private raw domain. Keys and repair backups need a separate operational retention policy. In assistant-driven work, minimize raw retention: once evidence review is complete and raw data is no longer needed, a human can run `purge-raw --retention-hours 0`. Do not read raw files into the assistant context. Same-user filesystem reads outside the CLI cannot be blocked or detected by the harness.
 
+## Operational artifact lifecycle
+
+All of the following default to off; without these flags behavior is byte-identical to plaintext storage.
+
+```bash
+node packages/cli/dist/index.js trace --encrypt --keys-root ~/.local/state/harness-keys \
+  --scenario scenario.json --base-url http://localhost:4200 --artifact-root artifacts/source-run
+
+node packages/cli/dist/index.js purge-raw --artifact-root artifacts/source-run \
+  --retention-hours 0 --backup-root ~/.local/state/harness-backup --backup-generations 5
+
+node packages/cli/dist/index.js rotate-raw-key --store-root artifacts/source-run \
+  --audit artifacts/source-run/audit.json --artifact-root artifacts/source-run
+
+node packages/cli/dist/index.js anchor-audit --audit artifacts/source-run/audit.json \
+  --path ~/.local/state/harness-anchor/chain-head.json --artifact-root artifacts/source-run
+```
+
+`--encrypt` seals private raw writes with AES-256-GCM using a versioned keyring under `--keys-root` (0700/0600 enforced, regular files only, no symlinks); legacy plaintext raw files stay readable. A truncated or damaged envelope reports an authentication failure instead of being read as plaintext.
+
+`--backup-root` archives expired raw files during `purge-raw`, layout-preserving and resealed, capped by `--backup-generations` (default 5). The backup root must be outside the public artifact root and must not equal it.
+
+`rotate-raw-key` re-seals in a fail-closed sweep and records `RAW_KEY_ROTATION` on the hash-chained audit only after the sweep succeeds. It retains older key versions by default; `--prune-key-versions <n>` is opt-in and refuses pruning that would orphan retained backups. Never delete key versions manually without a recovery plan.
+
+`anchor-audit` appends an external append-only copy of the chain head and records `AUDIT_ANCHORED` in the chain. The anchor path must differ from the audit path and must not be inside a private domain. This detects tampering; it is not trusted timestamping.
+
+All four serialize through exclusive locks. After a crash, inspect state before removing stale lock files.
+
 ## Contract review
 
 Synthesis creates nonblocking candidates for network, storage and stable final navigation/ARIA observations. It never creates blocking requirements from repeated runtime observations. Each recorded run has a distinct execution ID; changing runIndex alone does not create a new observation.
@@ -65,12 +93,18 @@ Import external evidence when available:
 
 ```bash
 node packages/cli/dist/index.js import-openapi --input openapi.json --out artifacts/openapi-evidence.json
+node packages/cli/dist/index.js import-openapi --input openapi.json --ref-map artifacts/ref-map.json \
+  --out artifacts/openapi-evidence.json
 node packages/cli/dist/index.js import-test-evidence --input test-report.json --out artifacts/test-evidence.json
 ```
 
 The OpenAPI adapter supports a bounded JSON object-schema subset of versions 3.0/3.1 and local references. It extracts top-level required/optional fields from nested `allOf` object compositions, including local references. Required fields are combined conjunctively; common response obligations are still intersected across statuses. This follows [JSON Schema's allOf semantics](https://json-schema.org/understanding-json-schema/reference/combining), not object-oriented inheritance or a complete JSON Schema validator.
 
-Compositions require an explicit object type somewhere in the conjunction. Closed/constrained objects, differing definitions for overlapping properties, directional readOnly/writeOnly properties, nullable objects, alternative/conditional schemas and semantic `$ref` siblings remain unresolved. Traversal is capped at depth 64, 64 branches per `allOf` and 512 schema visits per payload. External/cyclic references, conditional optional-body requirements and unrepresentable response statuses also require review; no external reference is fetched.
+Alternatives converge conservatively: `oneOf` extracts a field only when every branch agrees, and field-level disagreements become findings; `anyOf` marks a field required only where every branch requires it. Conditionals (`not`, `if`/`then`/`else`, `dependent*`) stay review findings.
+
+`--ref-map` is the only way external references resolve: a JSON object mapping each external document URI to a local file path, checked for containment and realpath and bounded by document/size budgets. No reference is ever fetched over the network. Without a map, external references remain unresolved findings.
+
+Compositions require an explicit object type somewhere in the conjunction. Closed/constrained objects, differing definitions for overlapping properties, directional readOnly/writeOnly properties, nullable objects and semantic `$ref` siblings remain unresolved. Traversal is capped at depth 64, 64 branches per `allOf` and 512 schema visits per payload. Cyclic references, conditional optional-body requirements and unrepresentable response statuses also require review.
 
 Test reports are arrays of `{testId, passed: true, network: HttpEndpointInvariant}` assertions, not free-form test text. Both importers preserve provenance and leave enforcement at WARNING. Pass reviewed reports with `synthesize --evidence report1.json,report2.json`; unresolved reports must be reviewed first. Only operations observed in the scenario are automatically corroborated; reviewers add missing critical obligations explicitly.
 
@@ -153,6 +187,7 @@ node packages/cli/dist/index.js brief \
   --source-trace artifacts/source.sanitized.json --policy artifacts/policy.json \
   --source-root examples/angular-react-pilot/source \
   --candidate-root candidate --candidate-files src/customer-profile.tsx \
+  --context-files candidate/package.json,candidate/src/components/Button.tsx \
   --artifact-root artifacts/assistant-loop --out brief.json
 
 node packages/cli/dist/index.js apply-patch \
@@ -162,7 +197,9 @@ node packages/cli/dist/index.js apply-patch \
   --next-out artifacts/assistant-loop/verify-1.json --out apply.json
 ```
 
-`--source-root` resolves discovered symbol paths into absolute `contextFiles`. `allowedFiles` is relative to `--candidate-root`; its hashes and existence are fixed at issuance. The brief embeds a command with both roots. The assistant creates a public submission JSON `{briefId, patches:[{path,beforeHash,content}], manifest}` without directly editing candidate files. If a baseline changes, obtain a fresh harness-issued brief; changing only `beforeHash` is insufficient.
+`--source-root` resolves discovered symbol paths into absolute `contextFiles`. `--context-files` adds explicitly listed read-only files inside the source or candidate roots — existing destination components, HTTP client, styles, `package.json`, conventions — restricted to `.ts/.tsx/.json/.html/.css/.scss/.md` regular files. They are hash-protected as brief-time inputs: a candidate patch targeting one is refused, and mutating one invalidates the brief with `BASELINE_HASH_MISMATCH`. Destination context files may back relative imports without becoming writable. The same file must not appear in both `--context-files` and `--candidate-files`.
+
+`allowedFiles` is relative to `--candidate-root`; its hashes and existence are fixed at issuance. The brief embeds a command with both roots. The assistant creates a public submission JSON `{briefId, patches:[{path,beforeHash,content}], manifest}` without directly editing candidate files. If a baseline changes, obtain a fresh harness-issued brief; changing only `beforeHash` is insufficient.
 
 `apply-patch` checks the issued record, protected-input fingerprints, file/package boundaries, AST constructs, full repair byte budget and content screens (including manifest). Submission limits and static-gate settings come from issuance, not a replacement apply-time policy. A successful result archives the validated manifest and includes `next.command` for `run --max-repairs 0`, using the original contract/scenario/policy. With multiple scenarios, that command covers the first; execute every required scenario before claiming eligibility.
 
@@ -173,5 +210,7 @@ Briefs are rejected if any section contains pseudonym tokens or private-domain r
 Archives are under `assistant/{issued,briefs,submissions,manifests,results,refusals}` with `assistant/audit.json`. Treat issuance records as harness-only inputs under policy; they are local consistency records, not authenticated provenance. Output paths cannot overwrite protected inputs or non-assistant artifacts. Cooperative writers are serialized using `.harness-assistant.lock` in both roots. After a crash, a human must inspect candidates/audit and confirm no writer remains before removing stale locks and issuing new briefs. Handled failures roll back candidate/artifact writes; crashes and hostile same-user concurrent filesystem mutations are not transactionally isolated.
 
 Run `pnpm pilot:assistant` for the deterministic CLI/browser protocol demonstration. A recorded, brief-only human-driven assistant session remains a separate validation requirement.
+
+For migrations into an existing React repository, `COPILOT-MIGRATION.md` is the operational manual, `templates/MIGRATION-SPEC.md` the per-migration contract, and `.github/agents/` plus `scripts/copilot-boundary-hook.mjs` the tool-level enforcement of the two phases.
 
 Exit codes: `0` success/equivalent, `1` invalid input or I/O failure, `2` invalid contract digest, `3` structured apply refusal (candidate files unchanged), `4` behavioral divergence. Unsafe output locations or persistence failures may return `1` without a new result artifact. EQUIVALENT is not release authorization; use quality gates and reviewed coverage to determine eligibility.

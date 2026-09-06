@@ -1,6 +1,6 @@
 # Migration Harness --- Research & Execution Context
 
-> Implementation update (2026-09-05): this research remains the historical decision record. The scaffold-state and next-task sections below describe the earlier handoff. Read `IMPLEMENTATION-STATUS.md`, `USAGE.md` and the latest `VALIDATION.md` entry for the delivered pilot and remaining scope.
+> Implementation update (2026-09-05): this research remains the historical decision record. The scaffold-state and next-task sections below describe the earlier handoff. Read `STATUS.md`, `USAGE.md` and the latest `VALIDATION.md` entry for the delivered pilot and remaining scope.
 
 **RFC alvo:** v0.2\
 **Adapter inicial:** Angular → React\
