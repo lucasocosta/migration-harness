@@ -1,4 +1,7 @@
 node_modules/
+/apps/
+/migrations/
+.harness-brief-path
 dist/
 artifacts/*
 !artifacts/.gitkeep
