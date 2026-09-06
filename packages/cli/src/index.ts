@@ -1,27 +1,48 @@
 #!/usr/bin/env node
 import { readFile, mkdir, open, rename, unlink, lstat } from 'node:fs/promises';
-import { dirname, resolve, basename, relative } from 'node:path';
+import { dirname, resolve, basename, relative, isAbsolute } from 'node:path';
 import { parseArgs } from 'node:util';
 import { randomBytes } from 'node:crypto';
 import { parseContract, parseRawTrace, parseSanitizedTrace, parseScenario, parseManifest, HarnessPolicySchema, HttpEvidenceBundleSchema, type Invariant, type HttpEndpointInvariant } from '@migration-harness/core';
 import { approveContract, reviewContract, verifyContractIntegrity } from '@migration-harness/contract-review';
 import { sanitizeTrace, synthesizeContract, importOpenApi, importExistingTestEvidence, type SanitizationPolicy } from '@migration-harness/contract-synthesizer';
 import { EquivalenceValidator, parseValidationPolicy } from '@migration-harness/equivalence-validator';
-import { ArtifactStore, runRepairLoop, safeArtifactPath } from '@migration-harness/engine';
+import { anchorAudit, ArtifactStore, AuditTrail, runRepairLoop, safeArtifactPath, type ArtifactStoreOptions, type AuditEntry } from '@migration-harness/engine';
 import { fileHash } from '@migration-harness/llm-worker';
 import { issueAssistantBrief, applyAssistantSubmission } from './assistant.js';
 import { publicPath, readPublicJson } from './assistant-files.js';
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
-  const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'attempt', 'next-out', 'ref-map'];
-  const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const } }, strict: true, allowPositionals: false });
+  const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'attempt', 'next-out', 'ref-map', 'keys-root', 'backup-root', 'backup-generations', 'store-root', 'audit', 'path', 'prune-key-versions'];
+  const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const }, encrypt: { type: 'boolean' as const } }, strict: true, allowPositionals: false });
   const flag = (name: string): string | undefined => (values as Record<string, unknown>)[name] as string | undefined;
   const required = (name: string): string => { const value = flag(name); if (!value) throw new Error(`Required flag --${name} is missing.`); return value; };
   const number = (name: string, fallback: number, min = 0, max = 100): number => { const value = flag(name) === undefined ? fallback : Number(flag(name)); if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`Invalid --${name}.`); return value; };
   const json = async (path: string): Promise<unknown> => JSON.parse(await readFile(path, 'utf8')) as unknown;
   const artifactRoot = resolve(flag('artifact-root') ?? '.');
-  const store = new ArtifactStore(artifactRoot);
+  // Operational storage options; all default OFF/unset so existing behavior stays byte-identical:
+  // --encrypt seals private raw-domain writes (AES-256-GCM, versioned keyring in --keys-root),
+  // --backup-root archives expired raw files during purge-raw outside the public artifact root.
+  const storeOptions: ArtifactStoreOptions = {
+    ...(values.encrypt ? { encryptPrivate: true } : {}),
+    ...(flag('keys-root') ? { keysRoot: required('keys-root') } : {}),
+    ...(flag('backup-root') ? { backup: { root: required('backup-root'), ...(flag('backup-generations') ? { keepGenerations: number('backup-generations', 5, 1, 100) } : {}) } } : {}),
+  };
+  const store = new ArtifactStore(artifactRoot, undefined, storeOptions);
+  const isInside = (base: string, target: string): boolean => { const rel = relative(resolve(base), target); return !!rel && !rel.startsWith('..') && !isAbsolute(rel); };
+  const refusePrivateAuditPath = (value: string): string => {
+    const target = resolve(value);
+    if (target.split(/[\\/]/).includes('.migration-private') || isInside(store.privateRoot, target)) throw new Error('Audit chain file cannot live in the private artifact domain.');
+    return target;
+  };
+  const loadAuditChain = async (path: string): Promise<AuditTrail> => {
+    let parsed: unknown;
+    try { parsed = JSON.parse(await readFile(path, 'utf8')) as unknown; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return new AuditTrail(); throw error; }
+    if (!Array.isArray(parsed)) throw new Error('Audit chain must be an array of hash-chained entries.');
+    return AuditTrail.load(parsed as AuditEntry[]);
+  };
   const policyConfig = HarnessPolicySchema.parse(flag('policy') ? (command === 'brief' || command === 'apply-patch' ? await readPublicJson(required('policy'), store) : await json(required('policy'))) : {});
   const sanitizationPolicy = policyConfig.sanitization as Omit<SanitizationPolicy, 'pseudonymizationKey'> | undefined;
   const validationPolicy = parseValidationPolicy(policyConfig);
@@ -130,6 +151,21 @@ async function main(): Promise<void> {
       await writeJson(required('out'), result); console.log(result.result.status); process.exitCode = result.result.status === 'EQUIVALENT' ? 0 : 4; break;
     }
     case 'purge-raw': console.log(await store.purgeRaw(number('retention-hours', 24, 0, 8760) * 3600000)); break;
+    case 'rotate-raw-key': {
+      const target = new ArtifactStore(resolve(required('store-root')), undefined, storeOptions);
+      const auditPath = refusePrivateAuditPath(required('audit'));
+      const trail = await loadAuditChain(auditPath);
+      // Fail-closed: rotateRawKey records RAW_KEY_ROTATION on the trail only after the full sweep succeeds.
+      const summary = await target.rotateRawKey(trail, flag('prune-key-versions') === undefined ? undefined : number('prune-key-versions', 1, 1, 64));
+      await replaceJson(auditPath, trail.snapshot());
+      console.log(JSON.stringify(summary)); break;
+    }
+    case 'anchor-audit': {
+      const auditPath = refusePrivateAuditPath(required('audit'));
+      const { anchor, entries } = await anchorAudit({ entries: await json(auditPath), externalPath: required('path'), privateRoots: [store.privateRoot] });
+      await replaceJson(auditPath, entries);
+      console.log(JSON.stringify(anchor)); break;
+    }
     case 'brief': {
       const brief = await issueAssistantBrief(values, store, policyConfig.assistant);
       console.log(brief.briefId);
@@ -142,7 +178,7 @@ async function main(): Promise<void> {
       break;
     }
     default:
-      console.log('Migration Harness\nCommands: discover, plan, trace, sanitize-trace, import-openapi, import-test-evidence, synthesize, review-contract, approve-contract, verify-contract, transform, compare, run, brief, apply-patch, purge-raw\nSee docs/USAGE.md and AGENTS.md for command arguments and the assistant protocol.');
+      console.log('Migration Harness\nCommands: discover, plan, trace, sanitize-trace, import-openapi, import-test-evidence, synthesize, review-contract, approve-contract, verify-contract, transform, compare, run, brief, apply-patch, purge-raw, rotate-raw-key, anchor-audit\nSee docs/USAGE.md and AGENTS.md for command arguments and the assistant protocol.');
       if (command && command !== 'help') process.exitCode = 1;
   }
 }
@@ -152,4 +188,10 @@ async function writeText(path: string, value: string): Promise<void> {
   try { await handle.writeFile(value); } finally { await handle.close(); }
 }
 async function writeJson(path: string, value: unknown): Promise<void> { await writeText(path, `${JSON.stringify(value, null, 2)}\n`); }
+/** Operator-chain files (audit.json) are extended in place: exclusive temp write, then an atomic rename. */
+async function replaceJson(path: string, value: unknown): Promise<void> {
+  const temporary = `${path}.${randomBytes(6).toString('hex')}.tmp`;
+  await writeText(temporary, `${JSON.stringify(value, null, 2)}\n`);
+  await rename(temporary, path);
+}
 main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });
