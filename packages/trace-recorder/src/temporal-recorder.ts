@@ -278,6 +278,10 @@ export class TemporalTraceRecorder {
     const duration = timing.requestStart >= 0 && timing.responseEnd >= 0
       ? Math.max(0, timing.responseEnd - timing.requestStart)
       : Math.max(0, Date.now() - meta.startedAtMs);
+    // NON-COMPARABLE EVIDENCE METADATA: response.fromServiceWorker() is Playwright's signal that a service
+    // worker fetch handler fulfilled the response (request.serviceWorker() stays null for page-initiated
+    // requests). Emitted only when true so default traces are unchanged; equivalence never reads this field.
+    const servedByServiceWorker = response.fromServiceWorker();
     const sequenceIndex = this.nextSeq();
     this.pushEvent({
       type: 'HTTP_RESPONSE',
@@ -291,6 +295,7 @@ export class TemporalTraceRecorder {
       headers: response.headers(),
       body,
       requestToResponseEndMs: Math.round(duration),
+      ...(servedByServiceWorker ? { servedByServiceWorker: true } : {}),
       causedByEventIds: [meta.requestEventId],
     });
   }

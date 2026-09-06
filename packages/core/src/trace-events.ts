@@ -41,6 +41,13 @@ export interface HttpResponseEvent extends BaseTraceEvent {
   headers: Record<string, string>;
   body: unknown;
   requestToResponseEndMs: number;
+  /**
+   * NON-COMPARABLE EVIDENCE METADATA — never an equivalence input. True only when Playwright reports the
+   * response as fulfilled by a service worker's fetch handler; absent otherwise. Whether a response came from
+   * a worker is an implementation detail, not observable behavior: equivalence stays on network shapes,
+   * status, storage and ARIA. A schema mutation adding/removing this field must not change any comparison.
+   */
+  servedByServiceWorker?: boolean;
 }
 
 export interface HttpFailedEvent extends BaseTraceEvent {

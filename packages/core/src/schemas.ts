@@ -36,17 +36,24 @@ export const ScenarioDefinitionSchema = z.object({
     mockInitialApiResponses: z.array(z.object({ urlPattern: id, method: id, statusCode: z.number().int().min(100).max(599), fixturePath: id }).strict()).optional(),
   }).strict(),
   steps: z.array(step).max(1000), completionSignal: CompletionSignalSchema.optional(),
+  serviceWorkers: z.enum(['block', 'allow']).optional(),
   testDataProfile: z.enum(['standard', 'edge_case', 'error_flow']),
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.steps.map(item => item.stepId)).size !== value.steps.length) ctx.addIssue({ code: 'custom', message: 'Duplicate stepId' });
   for (const item of value.steps) if (['fill', 'select', 'press'].includes(item.action) && item.inputValue === undefined) ctx.addIssue({ code: 'custom', message: `${item.stepId} requires inputValue` });
+  // 'allow' is meaningless without at least one real http(s) origin for a worker to control; the entry URL is the scenario-carried origin.
+  if (value.serviceWorkers === 'allow') {
+    let protocol = '';
+    try { protocol = new URL(value.entryUrl).protocol; } catch { ctx.addIssue({ code: 'custom', message: 'serviceWorkers allow requires a parseable entryUrl origin' }); }
+    if (protocol && protocol !== 'http:' && protocol !== 'https:') ctx.addIssue({ code: 'custom', message: 'serviceWorkers allow requires at least one http(s) origin' });
+  }
 });
 
 const base = { eventId: id, timestampMs: z.number().finite().nonnegative(), sequenceIndex: z.number().int().nonnegative(), correlationId: id.optional(), causedByEventIds: strings.optional() };
 export const TraceEventSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('USER_INTERACTION'), stepId: id, action, targetAriaRole: id, targetAriaName: text.optional(), inputValue: text.optional() }).strict(),
   z.object({ ...base, type: z.literal('HTTP_REQUEST'), method: id, url: z.string().url(), headers: record, payload: json }).strict(),
-  z.object({ ...base, type: z.literal('HTTP_RESPONSE'), method: id, url: z.string().url(), statusCode: z.number().int().min(100).max(599), headers: record, body: json, requestToResponseEndMs: z.number().nonnegative() }).strict(),
+  z.object({ ...base, type: z.literal('HTTP_RESPONSE'), method: id, url: z.string().url(), statusCode: z.number().int().min(100).max(599), headers: record, body: json, requestToResponseEndMs: z.number().nonnegative(), servedByServiceWorker: z.boolean().optional() }).strict(),
   z.object({ ...base, type: z.literal('HTTP_FAILED'), method: id, url: z.string().url(), errorText: text }).strict(),
   z.object({ ...base, type: z.literal('NAVIGATION'), fromUrl: z.string().url(), toUrl: z.string().url() }).strict(),
   z.object({ ...base, type: z.literal('ARIA_STATE_CHANGE'), triggerEventId: id, rawYamlTree: text, jsonTree: object }).strict(),
