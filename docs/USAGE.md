@@ -10,7 +10,7 @@ pnpm build
 
 When pnpm is unavailable, use `npx --yes pnpm@10.15.0` in its place.
 Commands below use `node packages/cli/dist/index.js`; installing the CLI package also exposes `harness`.
-Output files are created exclusively. Choose a new output path or artifact root for each execution; existing evidence is never overwritten.
+Evidence outputs are created exclusively. Choose a new output path for each verification. The assistant commands may replace their current `--out` brief/apply result; their archived records remain exclusive.
 
 ## Discovery and planning
 
@@ -21,7 +21,7 @@ node packages/cli/dist/index.js plan \
   --source-root examples/angular-react-pilot/source --out artifacts/plan.json
 ```
 
-Use `--entrypoint 'customer-profile.ts#CustomerProfileComponent'` to select a specific symbol. Multiple components require an explicit entrypoint. Discovery follows resolved dependencies, constructor injection, template selectors/pipes and route-owned guards/resolvers; it reads tsconfig aliases. Dynamic and unresolved references remain visible in resolution metrics. Provider lifetime inference is limited to explicit root providers; complex scopes remain unknown.
+Use `--entrypoint 'customer-profile.ts#CustomerProfileComponent'` to select a specific symbol. Multiple components require an explicit entrypoint. Discovery follows resolved dependencies, constructor injection, template selectors/pipes and route-owned guards/resolvers; it reads tsconfig aliases. Dynamic and unresolved references remain visible in resolution metrics. Explicit `providedIn` and component `providers` lifetimes are recorded; complex scopes still require review.
 
 ## Capturing evidence
 
@@ -33,7 +33,7 @@ node packages/cli/dist/index.js trace \
   --artifact-root artifacts/source-run
 ```
 
-The application must already be running. Each run gets a fresh browser context. Storage and mocks are installed before application boot. Fixture paths resolve relative to the scenario file. Only the application origin is allowed by default; additional origins require an explicit policy. WebSockets and service workers are blocked in this adapter.
+The application must already be running. Each run gets a fresh browser context. Storage and mocks are installed before application boot. Fixture paths resolve relative to the scenario file. Only the application origin is allowed by default; additional origins require an explicit policy. WebSockets are blocked unless the scenario explicitly opts into its dedicated adapter; service workers remain blocked.
 
 The public artifact root contains sanitized evidence. Private artifacts use a separate native filesystem directory keyed by the absolute artifact-root path:
 
@@ -55,7 +55,7 @@ node packages/cli/dist/index.js purge-raw \
   --artifact-root artifacts/source-run --retention-hours 24
 ```
 
-Retention removes only expired files in that root's private raw domain. Keys and repair backups need a separate operational retention policy.
+Retention removes only expired files in that root's private raw domain. Keys and repair backups need a separate operational retention policy. In assistant-driven work, minimize raw retention: once evidence review is complete and raw data is no longer needed, a human can run `purge-raw --retention-hours 0`. Do not read raw files into the assistant context. Same-user filesystem reads outside the CLI cannot be blocked or detected by the harness.
 
 ## Contract review
 
@@ -99,7 +99,7 @@ node packages/cli/dist/index.js compare \
   --policy examples/angular-react-pilot/policy.json --out artifacts/result.json
 ```
 
-The codemod supports a single inline standalone component with ordinary TypeScript fields/methods, native elements and supported property/event bindings. It rejects lifecycle hooks, inheritance, decorated members, extra metadata, external dependencies and structural templates. React output must be independently typechecked, built and validated. Manifests record claims; claims do not relax comparisons.
+The codemod supports a single inline standalone component with ordinary TypeScript fields/methods, decorated inputs/outputs, supported property/event bindings and a conservative synchronous reactive-forms subset, including statically-normalizable builder groups. Async validators, dynamic controls, FormArray, mixed ngModel and side-effectful subscriptions require semantic/manual work. Unsupported lifecycle hooks, inheritance, metadata and structural templates are refused. React output must be independently typechecked, built and validated. Manifests record claims; claims do not relax comparisons.
 
 Policy accepts `network.volatileQueryParams`, `network.volatilePayloadFields`, `network.volatileResponseFields`, `network.volatilePathParams` (template -> parameter names), `network.pathTemplates`, shape/status comparison flags, `observables.ariaSeverity`, navigation aliases, ignored storage keys, `observables.volatileStorageValues` (`{storageType,key}` entries), `sanitization` allowlists and `allowedOrigins`. Unknown fields are rejected. Every relaxed comparison is an explicit caller-owned policy choice. Main-frame navigation order remains meaningful; independent network exchanges are compared without strict temporal ordering.
 
@@ -118,8 +118,56 @@ node packages/cli/dist/index.js run \
 
 Both applications must already be running. Target rebuilding/hot reload belongs to the application server. This command invokes only the conservative single-fetch method repair; the library API accepts a bounded worker for semantic patches. Every retry captures a new target trace. A stale target continues failing and exhausts the budget. Unclassified, nondeterministic, security and architectural failures do not enter automatic repair. The command never executes arbitrary build commands on the host.
 
-`BoundedWorker` accepts an injected provider or `HttpWorkerProvider` for a user-configured service. The service receives `{system, data}` and returns `{patches, manifest}`. TS/TSX patches include a path, SHA-256 of the previous content and replacement content. The model has no file or command capabilities. Provider adapters themselves are trusted host code. Static import/dynamic-code checks are defense in depth, not a sandbox or proof of safety. `DockerSandbox` is the separate generated-command execution boundary: it requires a locally installed digest-pinned image and mounts only the candidate directory read-only, with networking disabled, resource limits and a deadline. There is no unsandboxed execution fallback.
+The primary semantic workflow is the assistant loop below, with no model API credentials. `BoundedWorker` and `HttpWorkerProvider` remain optional library adapters for an injected provider or JSON service (`{system,data}` -> `{patches,manifest}`); only that adapter's model has no inherited file/command capabilities. Provider adapters are trusted host code. Static checks are defense in depth, not a sandbox. `DockerSandbox` is the separate generated-command execution boundary: it requires a locally installed digest-pinned image and mounts only the candidate directory read-only, with networking disabled, resource limits and a deadline. There is no unsandboxed execution fallback.
 
 Quality adapters expose `checkTypeScript`, `lintCandidate` (fixed trusted ESLint rules, no repository config loading), `checkAccessibility` (axe, explicit browser context required) and `measureCoverage`. Axe results always retain a manual-review requirement; passing automated checks is not a complete accessibility certification.
 
-Exit codes: `0` success/equivalent, `1` invalid input or execution failure, `2` invalid contract digest, `4` behavioral divergence. EQUIVALENT is a comparison result, not automatic release authorization; use quality gates and reviewed coverage to determine eligibility.
+## Assistant-driven transform and repair
+
+Read root `AGENTS.md` and `ASSISTANT-INTEGRATION.md`. A human prepares reviewed inputs and adds an `assistant` block to the policy:
+
+```json
+{
+  "assistant": {
+    "allowedPackages": ["react"],
+    "targetConventions": { "framework": "react", "language": "typescript" },
+    "maxBriefBytes": 262144,
+    "maxSubmissionBytes": 2000000,
+    "typecheck": true,
+    "lint": true
+  }
+}
+```
+
+The static gates default to false and operate on the candidate overlay before writes. Type resolution requires dependencies accessible from the candidate root. `PASS` only means the configured apply gates passed, never behavioral equivalence.
+
+```bash
+node packages/cli/dist/index.js brief \
+  --unit-id CustomerProfileComponent --unit artifacts/discovery.json \
+  --plan artifacts/plan.json --contract artifacts/contract.approved.json \
+  --scenario examples/angular-react-pilot/scenario.json \
+  --source-trace artifacts/source.sanitized.json --policy artifacts/policy.json \
+  --source-root examples/angular-react-pilot/source \
+  --candidate-root candidate --candidate-files src/customer-profile.tsx \
+  --artifact-root artifacts/assistant-loop --out brief.json
+
+node packages/cli/dist/index.js apply-patch \
+  --brief artifacts/assistant-loop/brief.json --input artifacts/submission.json \
+  --candidate-root candidate --artifact-root artifacts/assistant-loop \
+  --source-url http://localhost:4200 --target-url http://localhost:3000 \
+  --next-out artifacts/assistant-loop/verify-1.json --out apply.json
+```
+
+`--source-root` resolves discovered symbol paths into absolute `contextFiles`. `allowedFiles` is relative to `--candidate-root`; its hashes and existence are fixed at issuance. The brief embeds a command with both roots. The assistant creates a public submission JSON `{briefId, patches:[{path,beforeHash,content}], manifest}` without directly editing candidate files. If a baseline changes, obtain a fresh harness-issued brief; changing only `beforeHash` is insufficient.
+
+`apply-patch` checks the issued record, protected-input fingerprints, file/package boundaries, AST constructs, full repair byte budget and content screens (including manifest). Submission limits and static-gate settings come from issuance, not a replacement apply-time policy. A successful result archives the validated manifest and includes `next.command` for `run --max-repairs 0`, using the original contract/scenario/policy. With multiple scenarios, that command covers the first; execute every required scenario before claiming eligibility.
+
+Run the returned command with the CLI executable prefix. The target server must rebuild the applied bytes. Consume its public `--out` result and disposition. For `AUTO_REPAIRABLE`, repeat the issuance command with `--repair --equivalence <verify-result.json> --attempt 1 --max-repairs 3`; preserve all scope flags. The localized repair currently requires a blocking HTTP-method mismatch in the same scenario. Other dispositions require human review. The attempt counter is caller-supplied, not a persisted global retry budget.
+
+Briefs are rejected if any section contains pseudonym tokens or private-domain references. Never remove data from an approved contract to bypass this: a human must prepare/review a new version. The synthetic protocol pilot chooses its invariant subset before fixture approval.
+
+Archives are under `assistant/{issued,briefs,submissions,manifests,results,refusals}` with `assistant/audit.json`. Treat issuance records as harness-only inputs under policy; they are local consistency records, not authenticated provenance. Output paths cannot overwrite protected inputs or non-assistant artifacts. Cooperative writers are serialized using `.harness-assistant.lock` in both roots. After a crash, a human must inspect candidates/audit and confirm no writer remains before removing stale locks and issuing new briefs. Handled failures roll back candidate/artifact writes; crashes and hostile same-user concurrent filesystem mutations are not transactionally isolated.
+
+Run `pnpm pilot:assistant` for the deterministic CLI/browser protocol demonstration. A recorded, brief-only human-driven assistant session remains a separate validation requirement.
+
+Exit codes: `0` success/equivalent, `1` invalid input or I/O failure, `2` invalid contract digest, `3` structured apply refusal (candidate files unchanged), `4` behavioral divergence. Unsafe output locations or persistence failures may return `1` without a new result artifact. EQUIVALENT is not release authorization; use quality gates and reviewed coverage to determine eligibility.

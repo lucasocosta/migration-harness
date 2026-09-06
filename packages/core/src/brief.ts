@@ -65,6 +65,15 @@ const id = z.string().min(1).max(512);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const json: z.ZodType<unknown> = z.lazy(() => z.union([z.null(), z.boolean(), z.number().finite(), z.string().max(1_000_000), z.array(json), z.record(json)]));
 const time = z.string().datetime({ offset: true });
+const types = z.array(z.enum(['string', 'number', 'boolean', 'null']));
+export const LlmSafeTraceSchema = z.object({ kind: z.literal('LLM_SAFE_TRACE'), events: z.array(z.discriminatedUnion('type', [
+  z.object({ type: z.literal('HTTP_REQUEST'), method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'OTHER']), payloadTypes: types }).strict(),
+  z.object({ type: z.literal('HTTP_RESPONSE'), statusCode: z.number().int().min(100).max(599), bodyTypes: types }).strict(),
+  z.object({ type: z.literal('USER_INTERACTION'), action: z.enum(['click', 'fill', 'select', 'press', 'focus']) }).strict(),
+  z.object({ type: z.literal('STORAGE_DELTA'), storageType: z.enum(['localStorage', 'sessionStorage']), mutationType: z.enum(['SET', 'REMOVE', 'CLEAR']) }).strict(),
+  z.object({ type: z.literal('WEBSOCKET_FRAME'), direction: z.enum(['sent', 'received']), frameTypes: types }).strict(),
+  z.object({ type: z.literal('HTTP_FAILED') }).strict(), z.object({ type: z.literal('NAVIGATION') }).strict(), z.object({ type: z.literal('ARIA_STATE_CHANGE') }).strict(),
+])).max(100000) }).strict();
 
 export const BriefAllowedFileSchema = z.object({ path: id, sha256: hash, exists: z.boolean() }).strict();
 export const TransformBriefSchema = z.object({
@@ -78,7 +87,7 @@ export const TransformBriefSchema = z.object({
   unit: MigrationUnitSchema,
   contract: BehaviorContractSchema,
   scenarios: z.array(z.object({ scenarioId: id, name: id, description: z.string().max(1_000_000), testDataProfile: z.enum(['standard', 'edge_case', 'error_flow']) }).strict()).min(1).max(1000),
-  trace: z.object({ kind: z.literal('LLM_SAFE_TRACE'), events: z.array(json).max(100000) }).strict(),
+  trace: LlmSafeTraceSchema,
   allowedFiles: z.array(BriefAllowedFileSchema).min(1).max(10000),
   contextFiles: z.array(id).max(10000),
   allowedPackages: z.array(id).max(1000),
@@ -86,6 +95,10 @@ export const TransformBriefSchema = z.object({
   submission: z.object({ format: z.object({ patches: z.string().max(10000), manifest: z.string().max(10000), instructions: z.string().max(10000) }).strict(), command: z.string().max(4096) }).strict(),
   repair: z.object({ failure: z.object({ code: id, dimension: z.enum(['NETWORK', 'NAVIGATION', 'STATE', 'ARIA', 'CONTRACT', 'SECURITY']), message: z.string().max(1_000_000), source: json.optional(), target: json.optional() }).strict(), editBudgetBytes: z.number().int().positive().max(65536), attempt: z.number().int().positive(), maxAttempts: z.number().int().positive().max(10) }).strict().optional(),
 }).strict().superRefine((value, ctx) => {
+  if (value.contract.status !== 'APPROVED') ctx.addIssue({ code: 'custom', message: 'Brief contract must be APPROVED' });
+  if (new Set(value.allowedFiles.map(file => file.path)).size !== value.allowedFiles.length) ctx.addIssue({ code: 'custom', message: 'Duplicate allowed file paths' });
+  if (new Set(value.scenarios.map(scenario => scenario.scenarioId)).size !== value.scenarios.length) ctx.addIssue({ code: 'custom', message: 'Duplicate brief scenarios' });
+  if (value.repair && value.repair.attempt > value.repair.maxAttempts) ctx.addIssue({ code: 'custom', message: 'Repair attempt exceeds its budget' });
   if ((value.kind === 'REPAIR_BRIEF') !== (value.task === 'REPAIR') || (value.kind === 'REPAIR_BRIEF') !== (value.repair !== undefined)) ctx.addIssue({ code: 'custom', message: 'kind, task and repair payload must agree' });
   if (value.plan.unitId !== value.unitId || value.unit.id !== value.unitId || value.contract.unitId !== value.unitId) ctx.addIssue({ code: 'custom', message: 'Brief payload unitIds must match the brief unitId' });
   const scenarioIds = new Set(value.scenarios.map(item => item.scenarioId));

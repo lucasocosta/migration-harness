@@ -56,10 +56,15 @@ Updated: 2026-09-05. This is the live task checklist. `[x]` means implemented; v
 Decision: the harness does NOT call a model via API. The Transform/Repair "LLM worker" is a human-driven coding assistant (Claude Code, Copilot, codex) driving the CLI with bounded briefs; every submission passes the same deterministic gates. Contract design: `docs/ASSISTANT-INTEGRATION.md`. The RFC §33.II invariant shifts from architectural guarantee to policy + tooling (honest residual-risk statement required).
 
 - [x] Integration contract design (brief format, apply path, boundary model, AGENTS.md spec, llm-worker disposition).
-- [ ] `brief` / `apply-patch` CLI loop — PARTIAL, in-tree checkpoint: brief/submission schemas, screenPatchContent, CLI commands, engine support, 5 refusal tests; build + 50 unit + 9 browser + smokes green at handoff; pilot-assistant unverified. Finish per docs/HANDOFF.md.
-- [ ] `AGENTS.md` at repo root — draft included in the checkpoint; review copy against design §4.
-- [ ] RFC addendum: restate §33.II/§25 for the policy+tooling boundary model; update USAGE.
-- [ ] Assistant-driven worked example (pilot-assistant) covering both DoD legs.
+- [x] `brief` / `apply-patch` CLI loop: issuance/baseline binding, strict projection, path and protected-input guards, all 10 refusal codes, optional static gates, archived manifests, rollback and audit. Expanded assistant suite: 15/15 passed, including partial-write fault injection.
+- [x] `AGENTS.md` reviewed against design section 4: migration/maintenance scopes, public submission exception, fresh-brief procedure and honest crash limitations.
+- [x] RFC sections 25/33.II and USAGE updated to policy + tooling; HTTP provider demoted to optional adapter.
+- [x] Deterministic assistant-protocol worked example (`pnpm pilot:assistant`) passed with typecheck/lint, actual applied bytes, regression, repair, refusal and audit.
+- [x] Continuation review: read HANDOFF and ASSISTANT-INTEGRATION; reproduce the pilot's incorrect brief-count assertion.
+- [x] Verify issuance lookup, brief-time baseline checks, guarded public paths and protected-input fingerprints.
+- [x] Verify aggregate repair budget, manifest screening, optional static gates and handled-failure rollback.
+- [x] Verify expanded boundary regressions and both pilots: build, 60/60 unit/CLI, 9/9 browser, both smokes and diff check passed. Commit this continuation checkpoint after recording these results.
+- [ ] Record a real brief-only human-driven assistant session. The deterministic protocol pilot is not evidence of this separate DoD requirement.
 - Note: the "external model service with credentials" item is obsolete by design under this pivot; HttpWorkerProvider stays as a demoted optional adapter.
 
 ## Remaining broader scope / environment dependencies

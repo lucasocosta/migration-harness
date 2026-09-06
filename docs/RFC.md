@@ -241,7 +241,9 @@ LLM-safe projection
 
 ### Regra
 
-`RawObservedTrace` nunca pode atravessar a fronteira de um LLM.
+O harness nunca envia `RawObservedTrace` no canal harness -> assistente. No modo
+assistant-driven, leituras diretas pelo mesmo usuário são um risco residual
+controlado por política e tooling, não uma garantia de isolamento (§25 e §33.II).
 
 Nenhum prompt deve receber:
 
@@ -944,18 +946,39 @@ O repair nunca volta para `TRANSFORM`.
 
 ## 25. Segurança do LLM Worker
 
-LLM Transform e LLM Repair executam sob as seguintes restrições:
+Desde o pivot de 2026-09-05, Transform e Repair semânticos são conduzidos por um
+assistente de código operado por uma pessoa. O harness emite briefs e aplica gates;
+não chama um modelo via API no fluxo principal. `HttpWorkerProvider` permanece
+apenas como adapter opcional. O contrato executável está em
+`ASSISTANT-INTEGRATION.md`.
+
+O canal de integração impõe as seguintes restrições:
 
 ```text
-minimum necessary context
-sanitized input only
+bounded brief with structural trace projection
+approved contract and source references only
 package allowlist
 no production secrets
-restricted filesystem
-restricted network
-bounded execution
+candidate write allowlist and brief-time hashes
+protected-input fingerprints
+bounded submissions and repair edit budget
 audit trail
 ```
+
+Os comandos recusam caminhos privados, links de candidato, alterações fora do
+escopo e tokens de traces em patches/manifests. A projeção exclui valores de runtime;
+o brief inteiro é inspecionado antes de sua publicação. Um contrato aprovado
+incompatível com essa higiene exige nova revisão, nunca remoção silenciosa de
+invariantes para viabilizar a transformação.
+
+O assistente ainda tem os acessos do usuário ao filesystem e à rede. `AGENTS.md`
+limita leituras a `contextFiles`/`allowedFiles` e proíbe acesso a raw traces, mas
+esses acessos externos aos comandos não são observáveis nem impedidos pelo harness.
+Retenção mínima de raw traces reduz a exposição. Hashes e o registro local de briefs
+detectam inconsistências; não autenticam um usuário capaz de modificar o registro.
+O sandbox Docker continua sendo a fronteira para comandos de candidato executados
+pelo harness; análise estática não é um sandbox. Escritas em lote têm rollback de
+falhas tratadas, sem garantia transacional entre arquivos diante de crash do processo.
 
 Conteúdo proveniente da aplicação deve ser tratado como dados, nunca como instrução.
 
@@ -1272,7 +1295,11 @@ Transformation e Repair Agents não podem modificar contratos aprovados.
 
 ### II. Zero Raw-Trace Leakage
 
-RawObservedTrace nunca atravessa a fronteira do LLM.
+RawObservedTrace nunca atravessa o canal harness -> assistente por construção.
+O acesso direto e irrestrito do assistente aos arquivos do mesmo usuário é um risco
+residual controlado por política: briefs como entrada exclusiva, retenção mínima
+de raw traces e inspeção de vazamentos nas submissões. Essas medidas não garantem
+que leituras fora do canal sejam impedidas ou detectadas.
 
 ### III. Gate Override Precedence
 

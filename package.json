@@ -12,6 +12,7 @@
     "test": "pnpm build && node --test tests/*.test.mjs",
     "test:browser": "pnpm build && node --test tests/browser/*.test.mjs",
     "pilot": "pnpm build && node scripts/pilot.mjs",
+    "pilot:assistant": "pnpm build && node scripts/pilot-assistant.mjs",
     "e2e:fixture": "bash scripts/e2e-fixture.sh"
   },
   "workspaces": [

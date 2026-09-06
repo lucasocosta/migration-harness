@@ -2,7 +2,8 @@
  * Assistant-driven equivalent of scripts/pilot.mjs (docs/ASSISTANT-INTEGRATION.md §6).
  * The "assistant" here is deterministic in-script logic (the codemod), but every trust
  * boundary is the real one: briefs and applications go through the actual CLI, gates
- * through the actual harness. Asserts all eight demo requirements from §6.
+ * through the actual harness. This tests the protocol, not the recorded human-driven
+ * assistant session required by section 6.2.
  */
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
@@ -37,7 +38,7 @@ const harness = (...args) => exec(process.execPath, [cli, ...args, '--artifact-r
 const save = async (name, value) => { const path = join(root, name); await writeFile(path, JSON.stringify(value)); return path; };
 const read = path => readFile(join(root, path), 'utf8').then(JSON.parse);
 const refused = async run => { try { const ok = await run; return { code: 0, stdout: ok.stdout }; } catch (error) { return { code: error.code, stdout: String(error.stdout) }; } };
-const briefArgs = (out, extra = []) => ['brief', '--unit-id', 'CustomerProfileComponent', '--unit', join(root, 'unit.json'), '--plan', join(root, 'plan.json'), '--contract', join(root, 'contract.json'), '--scenario', join(root, 'scenario.json'), '--source-trace', join(root, 'source-trace.json'), '--policy', join(root, 'policy.json'), '--candidate-files', CANDIDATE, '--candidate-root', join(root, 'work'), ...extra, '--out', out];
+const briefArgs = (out, extra = []) => ['brief', '--unit-id', 'CustomerProfileComponent', '--unit', join(root, 'unit.json'), '--plan', join(root, 'plan.json'), '--contract', join(root, 'contract.json'), '--scenario', join(root, 'scenario.json'), '--source-trace', join(root, 'source-trace.json'), '--policy', join(root, 'policy.json'), '--source-root', resolve('examples/angular-react-pilot/source'), '--candidate-files', CANDIDATE, '--candidate-root', join(root, 'work'), ...extra, '--out', out];
 
 try {
   // Shared fixture setup with the deterministic pilot: discovery, plan, contract, approved baseline.
@@ -52,14 +53,21 @@ try {
     runs.push(sanitizeTrace(raw, sanitizer));
   }
   // Synthetic approval belongs only to this fixture, never to user contracts.
-  const approved = approveContract(reviewContract(synthesizeContract(scenario.unitId, runs, [endpoint()])), 'synthetic-pilot-reviewer');
+  const draft = synthesizeContract(scenario.unitId, runs, [endpoint()]);
+  // This fixture approves only structural/critical invariants, before hashing. Runtime
+  // ARIA observations contain pseudonyms and cannot be sent in assistant briefs.
+  for (const entry of draft.scenarios) {
+    delete entry.invariants.accessibilityAriaYaml;
+    delete entry.invariants.accessibilityAriaJson;
+  }
+  const approved = approveContract(reviewContract(draft), 'synthetic-pilot-reviewer');
   const contractBaseline = JSON.stringify(approved);
   await mkdir(join(root, 'work/src'), { recursive: true });
   await save('unit.json', discovery.unit); await save('plan.json', plan); await save('contract.json', approved);
   await save('scenario.json', scenario); await save('source-trace.json', runs[0]);
   await save('policy.json', {
     sanitization: { allowedPayloadKeys: ['email'], allowedStorageKeys: ['profile.saved'] },
-    assistant: { allowedPackages: ['react'], targetConventions: { framework: 'react', language: 'typescript' }, maxBriefBytes: 262_144, maxSubmissionBytes: 500_000 },
+    assistant: { allowedPackages: ['react'], targetConventions: { framework: 'react', language: 'typescript' }, maxBriefBytes: 262_144, maxSubmissionBytes: 500_000, typecheck: true, lint: true },
   });
   const manifestPath = await save('transformation.manifest.json', fixture.transformed.manifest);
   const applyArgs = (briefFile, submissionFile, out, extra = []) => ['apply-patch', '--brief', join(root, briefFile), '--input', join(root, submissionFile), '--candidate-root', join(root, 'work'), '--policy', join(root, 'policy.json'), '--out', out, ...extra];
@@ -74,10 +82,7 @@ try {
   assert.ok(!brief1Text.includes(store.privateRoot), 'no private root paths in briefs');
   assert.ok(!/\.migration-private/.test(brief1Text), 'no raw-domain references in briefs');
   assert.ok(!brief1Text.includes('"environment"'), 'briefs carry projections, not trace envelopes');
-  // Hygiene, section by section: only the hash-bound approved contract may carry pseudonyms;
-  // generation must not introduce any (design §6.1 refined: the contract is authoritative content).
-  assert.ok(!/p_[0-9a-f]{24}/.test(JSON.stringify(brief1.trace)), 'projection carries no pseudonyms');
-  assert.ok(!/p_[0-9a-f]{24}/.test(JSON.stringify(brief1.unit) + JSON.stringify(brief1.plan) + JSON.stringify(brief1.scenarios)), 'static analysis and metadata carry no pseudonyms');
+  assert.ok(!/p_[0-9a-f]{24}/.test(brief1Text), 'the entire brief carries no pseudonyms');
   assert.ok(verifyBriefId(brief1) && verifyContractIntegrity(brief1.contract));
 
   // (2) The assistant (codemod acting as the assistant) produces patch + manifest from the brief.
@@ -90,7 +95,7 @@ try {
   assert.deepEqual(applied1.appliedFiles, [CANDIDATE]);
   assert.match(applied1.next.command, /^run --scenario .* --max-repairs 0 --out run-2\.json$/);
   assert.equal(await readFile(join(root, 'work', CANDIDATE), 'utf8'), candidate);
-  await fixture.setTarget(candidate);
+  await fixture.setTarget(await readFile(join(root, 'work', CANDIDATE), 'utf8'));
   // (4) run --max-repairs 0 -> EQUIVALENT, harness-issued, disposition surfaced.
   await harness('run', '--scenario', join(root, 'scenario.json'), '--contract', join(root, 'contract.json'), '--source-url', fixture.sourceUrl, '--target-url', fixture.targetUrl, '--manifest', manifestPath, '--policy', join(root, 'policy.json'), '--max-repairs', '0', '--out', join(root, 'run-1.json'));
   const run1 = await read('run-1.json');
@@ -102,8 +107,9 @@ try {
   const brief2 = parseBrief(await read('brief-2.json'));
   await save('submission-2.json', { briefId: brief2.briefId, patches: [{ path: CANDIDATE, beforeHash: fileHash(candidate), content: broken }], manifest: fixture.transformed.manifest });
   assert.equal((await harness(...applyArgs('brief-2.json', 'submission-2.json', 'apply-2.json'))).stdout.trim(), 'PASS');
-  await fixture.setTarget(broken);
-  await harness('run', '--scenario', join(root, 'scenario.json'), '--contract', join(root, 'contract.json'), '--source-url', fixture.sourceUrl, '--target-url', fixture.targetUrl, '--manifest', manifestPath, '--policy', join(root, 'policy.json'), '--max-repairs', '0', '--out', join(root, 'run-2.json')).catch(() => undefined);
+  await fixture.setTarget(await readFile(join(root, 'work', CANDIDATE), 'utf8'));
+  const regression = await refused(harness('run', '--scenario', join(root, 'scenario.json'), '--contract', join(root, 'contract.json'), '--source-url', fixture.sourceUrl, '--target-url', fixture.targetUrl, '--manifest', manifestPath, '--policy', join(root, 'policy.json'), '--max-repairs', '0', '--out', join(root, 'run-2.json')));
+  assert.equal(regression.code, 4);
   const run2 = await read('run-2.json');
   assert.equal(run2.result.status, 'NOT_EQUIVALENT');
   assert.equal(run2.disposition, 'AUTO_REPAIRABLE');
@@ -118,7 +124,7 @@ try {
   const fixed = repairHttpMethod(broken, mismatch.source, mismatch.target);
   await save('submission-3.json', { briefId: repairBrief.briefId, patches: [{ path: CANDIDATE, beforeHash: fileHash(broken), content: fixed }], manifest: fixture.transformed.manifest });
   assert.equal((await harness(...applyArgs('repair-brief.json', 'submission-3.json', 'apply-3.json'))).stdout.trim(), 'PASS');
-  await fixture.setTarget(fixed);
+  await fixture.setTarget(await readFile(join(root, 'work', CANDIDATE), 'utf8'));
   await harness('run', '--scenario', join(root, 'scenario.json'), '--contract', join(root, 'contract.json'), '--source-url', fixture.sourceUrl, '--target-url', fixture.targetUrl, '--manifest', manifestPath, '--policy', join(root, 'policy.json'), '--max-repairs', '0', '--out', join(root, 'run-3.json'));
   assert.equal((await read('run-3.json')).result.status, 'EQUIVALENT');
 
@@ -128,7 +134,7 @@ try {
   assert.notEqual(rogue.code, 0);
   const refusedResult = parseApplyResult(await read('apply-4.json'));
   assert.equal(refusedResult.status, 'REFUSED');
-  assert.equal(refusedResult.refusals[0].code, 'PATCH_PATH_OUTSIDE_BOUNDARY');
+  assert.ok(refusedResult.refusals.some(item => item.code === 'PATCH_PATH_OUTSIDE_BOUNDARY'));
   await assert.rejects(readFile(join(root, 'work/src/outside-bounds.tsx')), /ENOENT/);
 
   // (8) Contract untouched, audit valid, assistant artifacts in the public domain.
@@ -137,9 +143,9 @@ try {
   const audit = await read('assistant/audit.json');
   assert.equal(verifyAudit(audit), true);
   assert.deepEqual(audit.map(entry => entry.action), ['BRIEF_ISSUED', 'APPLY_PASS', 'BRIEF_ISSUED', 'APPLY_PASS', 'BRIEF_ISSUED', 'APPLY_PASS', 'APPLY_REFUSED']);
-  assert.ok((await readdir(join(root, 'assistant/briefs'))).length >= 4);
+  assert.equal((await readdir(join(root, 'assistant/briefs'))).length, 3);
   assert.equal((await readdir(join(root, 'assistant/submissions'))).length, 3);
   assert.equal((await readdir(join(root, 'assistant/refusals'))).length, 1);
   assert.ok((await readdir(join(root, 'assistant/results'))).length >= 4);
-  console.log(JSON.stringify({ result: 'ASSISTANT_LOOP_EQUIVALENT', regression: 'NETWORK_METHOD_MISMATCH', repair: 'REPAIR_BRIEF->PASS', refusal: 'PATCH_PATH_OUTSIDE_BOUNDARY atomic', contractUnchanged: true, auditVerified: true, approval: 'SYNTHETIC_FIXTURE_ONLY', artifacts: root, privateArtifacts: store.privateRoot }, null, 2));
+  console.log(JSON.stringify({ result: 'ASSISTANT_LOOP_EQUIVALENT', assistant: 'DETERMINISTIC_PROTOCOL_SIMULATION', regression: 'NETWORK_METHOD_MISMATCH', repair: 'REPAIR_BRIEF->PASS', refusal: 'PATCH_PATH_OUTSIDE_BOUNDARY atomic', contractUnchanged: true, auditVerified: true, approval: 'SYNTHETIC_FIXTURE_ONLY', artifacts: root, privateArtifacts: store.privateRoot }, null, 2));
 } finally { await browser.close(); await fixture.close(); }

@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, readdir, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { trace, contract } from './helpers.mjs';
-import { parseApplyResult, parseBrief, verifyBriefId } from '../packages/core/dist/index.js';
+import { computeBriefId, parseApplyResult, parseBrief, verifyBriefId, LlmSafeTraceSchema } from '../packages/core/dist/index.js';
+import { approveContract } from '../packages/contract-review/dist/index.js';
+import { applyCandidateBatch, writePublicBatch, withAssistantLock } from '../packages/cli/dist/assistant-files.js';
 import { EquivalenceValidator } from '../packages/equivalence-validator/dist/index.js';
 import { classifyFailure } from '../packages/quality-gates/dist/index.js';
 import { ArtifactStore, verifyAudit } from '../packages/engine/dist/index.js';
@@ -25,6 +27,8 @@ async function workspace() {
   const save = async (name, value) => { const path = join(root, name); await mkdir(resolve(path, '..'), { recursive: true }); await writeFile(path, JSON.stringify(value)); return path; };
   await mkdir(resolve(join(root, CANDIDATE), '..'), { recursive: true });
   await writeFile(join(root, CANDIDATE), INITIAL);
+  await mkdir(join(root, 'examples/fixture'), { recursive: true });
+  await writeFile(join(root, 'examples/fixture/customer-profile.ts'), 'export class CustomerProfileComponent {}');
   const unit = { id: 'CustomerProfileComponent', version: '1.0.0', runtimeRoutes: [], symbols: [{ id: 'examples/fixture/customer-profile.ts#CustomerProfileComponent', name: 'CustomerProfileComponent', kind: 'component', filePath: 'examples/fixture/customer-profile.ts', exported: true, astHash: createHash('sha256').update('unit').digest('hex') }], dependencyGraph: [], inputs: [], outputs: [], reactiveForms: [], providerScopes: [], boundary: { entrypoints: ['examples/fixture/customer-profile.ts#CustomerProfileComponent'], internalSymbols: ['examples/fixture/customer-profile.ts#CustomerProfileComponent'], externalDependencies: [] }, resolutionMetrics: { totalSymbolsIdentified: 1, resolvedSymbolsCount: 1, resolutionCoverage: 1, unresolvedSymbols: [], dynamicEdgesCount: 0 }, metadata: { loc: 10, cyclomaticComplexity: 1, hasRxjsStreams: false, hasDynamicForms: false, templateAstComplexityScore: 0 } };
   const plan = { unitId: 'CustomerProfileComponent', createdAt: '2026-09-05T00:00:00.000Z', items: [{ sourceSymbol: unit.symbols[0].id, targetConcept: 'React component', transformationClass: 'STRUCTURE_CHANGING', mechanism: 'LLM', rationale: 'fixture' }] };
   const scenario = { scenarioId: 'update-customer', unitId: 'CustomerProfileComponent', name: 'update', description: 'fixture scenario', entryUrl: 'http://app.test/customers/123', preconditions: {}, steps: [], testDataProfile: 'standard' };
@@ -36,7 +40,7 @@ async function workspace() {
     sourceTrace: await save('source-trace.json', trace()),
     policy: await save('policy.json', { assistant: { allowedPackages: ['react'], targetConventions: { framework: 'react', language: 'typescript' }, maxBriefBytes: 131072, maxSubmissionBytes: 200000 } }),
   };
-  const runBrief = async (extra = []) => exec(process.execPath, [cli, 'brief', '--unit-id', 'CustomerProfileComponent', '--unit', paths.unit, '--plan', paths.plan, '--contract', paths.contract, '--scenario', paths.scenario, '--source-trace', paths.sourceTrace, '--policy', paths.policy, '--candidate-files', CANDIDATE, '--candidate-root', root, '--artifact-root', root, '--out', 'brief.json', ...extra]);
+  const runBrief = async (extra = []) => exec(process.execPath, [cli, 'brief', '--unit-id', 'CustomerProfileComponent', '--unit', paths.unit, '--plan', paths.plan, '--contract', paths.contract, '--scenario', paths.scenario, '--source-trace', paths.sourceTrace, '--policy', paths.policy, '--candidate-files', CANDIDATE, '--source-root', root, '--candidate-root', root, '--artifact-root', root, '--out', 'brief.json', ...extra]);
   const runApply = async (briefFile, body, extra = []) => { const input = await save('submission.json', body); return exec(process.execPath, [cli, 'apply-patch', '--brief', briefFile, '--input', input, '--artifact-root', root, '--candidate-root', root, '--policy', paths.policy, '--out', 'apply.json', ...extra]); };
   return { root, paths, runBrief, runApply, save };
 }
@@ -57,10 +61,12 @@ test('brief issues a hash-bound, projection-only artifact and refuses unsafe inp
     assert.ok(!brief.repair);
     assert.equal(brief.trace.kind, 'LLM_SAFE_TRACE');
     assert.deepEqual(brief.allowedFiles, [{ path: CANDIDATE, sha256: fileHash(INITIAL), exists: true }]);
-    assert.deepEqual(brief.contextFiles, ['examples/fixture/customer-profile.ts']);
+    assert.deepEqual(brief.contextFiles, [join(root, 'examples/fixture/customer-profile.ts')]);
     assert.deepEqual(brief.allowedPackages, ['react']);
     assert.match(brief.submission.format.instructions, /AGENTS\.md/);
-    assert.match(brief.submission.command, /^apply-patch --brief brief\.json --input <submission\.json>/);
+    assert.ok(brief.submission.command.includes(`--brief ${join(root, 'brief.json')}`));
+    assert.ok(brief.submission.command.includes(`--candidate-root ${root}`));
+    assert.ok(brief.submission.command.includes('--input <submission.json>'));
     // A raw (un-sanitized) trace must never feed a brief.
     const raw = trace(); delete raw.sanitization;
     const rawPath = await save('raw-trace.json', raw);
@@ -171,7 +177,9 @@ test('apply-patch PASS writes exactly the submitted files plus public artifacts 
     assert.equal(applied.status, 'PASS');
     assert.deepEqual(applied.appliedFiles, [CANDIDATE]);
     assert.equal(applied.briefId, brief.briefId);
-    assert.match(applied.next.command, /^run --scenario .* --contract .* --source-url http:\/\/source\.test --target-url http:\/\/target\.test --manifest manifest\.json --max-repairs 0 --out verify\.json$/);
+    assert.match(applied.next.command, /^run --scenario .* --contract .* --source-url http:\/\/source\.test --target-url http:\/\/target\.test --manifest .*assistant\/manifests\/.* --max-repairs 0 --out verify\.json$/);
+    const manifestFiles = await readdir(join(root, 'assistant/manifests'));
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'assistant/manifests', manifestFiles[0]), 'utf8')), manifest());
     assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), after);
     const submissions = (await readdir(join(root, 'assistant/submissions'))).filter(name => name.startsWith(brief.briefId));
     assert.equal(submissions.length, 1);
@@ -210,9 +218,202 @@ test('end-to-end fake assistant loop: brief, apply, verify, repair brief, repair
     assert.notEqual(rogue.code, 0);
     const refused = parseApplyResult(JSON.parse(await readFile(join(root, 'apply.json'), 'utf8')));
     assert.equal(refused.status, 'REFUSED');
-    assert.equal(refused.refusals[0].code, 'PATCH_PATH_OUTSIDE_BOUNDARY');
+    assert.ok(refused.refusals.some(item => item.code === 'PATCH_PATH_OUTSIDE_BOUNDARY'));
     const audit = JSON.parse(await readFile(join(root, 'assistant/audit.json'), 'utf8'));
     assert.equal(verifyAudit(audit), true);
     assert.deepEqual(audit.map(entry => entry.action), ['BRIEF_ISSUED', 'APPLY_PASS', 'BRIEF_ISSUED', 'APPLY_PASS', 'APPLY_REFUSED']);
   } finally { await rm(new ArtifactStore(root).privateRoot, { recursive: true, force: true }); await rm(root, { recursive: true, force: true }); }
+});
+
+test('apply refuses a recomputed forged brief, a stale baseline and changed protected inputs', async () => {
+  const { root, runBrief, runApply, paths, save } = await workspace();
+  try {
+    await runBrief();
+    const briefFile = join(root, 'brief.json');
+    const brief = JSON.parse(await readFile(briefFile, 'utf8'));
+    const good = patchFor(CANDIDATE, 'export const value = 1;', fileHash(INITIAL));
+    const forged = structuredClone(brief);
+    forged.allowedPackages.push('unapproved');
+    forged.briefId = computeBriefId(forged);
+    assert.equal(verifyBriefId(forged), true, 'a hash is not proof of issuance');
+    const forgedPath = await save('forged.json', forged);
+    assert.equal((await refusal(runApply(forgedPath, submission(forged.briefId, [good])))).code, 3);
+    assert.equal((JSON.parse(await readFile(join(root, 'apply.json'), 'utf8'))).refusals[0].code, 'BRIEF_ID_MISMATCH');
+    const changed = INITIAL + '\n// changed by another writer\n';
+    await writeFile(join(root, CANDIDATE), changed);
+    assert.equal((await refusal(runApply(briefFile, submission(brief.briefId, [{ ...good, beforeHash: fileHash(changed) }])))).code, 3);
+    assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), changed);
+    await writeFile(join(root, CANDIDATE), INITIAL);
+    await writeFile(paths.plan, (await readFile(paths.plan, 'utf8')) + '\n');
+    assert.equal((await refusal(runApply(briefFile, submission(brief.briefId, [good])))).code, 3);
+    assert.match(JSON.parse(await readFile(join(root, 'apply.json'), 'utf8')).refusals[0].message, /protected input/);
+    assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), INITIAL);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('brief and apply reject private input aliases, candidate symlinks and output collisions', async () => {
+  const { root, runBrief, runApply, paths, save } = await workspace();
+  try {
+    const privatePath = await save('.migration-private/policy.json', { assistant: { allowedPackages: [] } });
+    const alias = join(root, 'policy-alias.json');
+    await symlink(privatePath, alias);
+    assert.match((await refusal(runBrief(['--policy', alias]))).stderr, /private artifact domain/);
+    await symlink(join(root, '.migration-private'), join(root, 'hidden'));
+    assert.match((await refusal(runBrief(['--unit', join(root, 'hidden/policy.json')]))).stderr, /private artifact domain/);
+    const before = await readFile(paths.contract, 'utf8');
+    assert.notEqual((await refusal(runBrief(['--out', 'contract.json']))).code, 0);
+    assert.equal(await readFile(paths.contract, 'utf8'), before);
+    await runBrief();
+    const briefFile = join(root, 'brief.json'), brief = JSON.parse(await readFile(briefFile, 'utf8'));
+    await unlink(join(root, CANDIDATE));
+    await writeFile(join(root, 'outside.tsx'), INITIAL);
+    await symlink(join(root, 'outside.tsx'), join(root, CANDIDATE));
+    const body = submission(brief.briefId, [patchFor(CANDIDATE, 'export const x = 1;', fileHash(INITIAL))]);
+    assert.equal((await refusal(runApply(briefFile, body))).code, 3);
+    assert.ok(JSON.parse(await readFile(join(root, 'apply.json'), 'utf8')).refusals.some(r => r.code === 'PATCH_PATH_OUTSIDE_BOUNDARY'));
+    assert.equal(await readFile(join(root, 'outside.tsx'), 'utf8'), INITIAL);
+    assert.notEqual((await refusal(runApply(briefFile, body, ['--out', 'brief.json']))).code, 0);
+    assert.equal(verifyBriefId(JSON.parse(await readFile(briefFile, 'utf8'))), true);
+    assert.notEqual((await refusal(runBrief())).code, 0, 'symlinks refused during issuance too');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('brief rejects unsafe approved content, duplicate paths, exhausted and wrong-scenario repairs', async () => {
+  const { root, runBrief, save, paths } = await workspace();
+  try {
+    assert.notEqual((await refusal(runBrief(['--candidate-files', `${CANDIDATE},${CANDIDATE}`]))).code, 0);
+    const mismatch = new EquivalenceValidator().validate({ source: trace('PUT'), target: trace('POST') });
+    const path = await save('failure.json', mismatch);
+    assert.notEqual((await refusal(runBrief(['--repair', '--equivalence', path, '--attempt', '2', '--max-repairs', '1']))).code, 0);
+    const wrong = await save('wrong-failure.json', { ...mismatch, scenarioId: 'another-scenario' });
+    assert.match((await refusal(runBrief(['--repair', '--equivalence', wrong]))).stderr, /another scenario/);
+    const draft = contract(); draft.status = 'REVIEW';
+    draft.scenarios[0].invariants.accessibilityAriaYaml = { id: 'aria', value: 'p_ab12cd34ef56ab78cd90ef12', enforcement: 'INFORMATIONAL', evidenceTrail: [{ source: 'RUNTIME_OBSERVATION', evidenceConfidenceHeuristic: 1 }] };
+    const approved = approveContract(draft, 'synthetic-test');
+    await save('contract.json', approved);
+    const baseline = await readFile(paths.contract, 'utf8');
+    assert.match((await refusal(runBrief())).stderr, /forbidden trace tokens/);
+    assert.equal(await readFile(paths.contract, 'utf8'), baseline, 'never strip an approved contract');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('submission cap is bound to issuance and manifest content is screened', async () => {
+  const { root, runBrief, runApply, save } = await workspace();
+  try {
+    await save('policy.json', { assistant: { allowedPackages: ['react'], maxSubmissionBytes: 2000 } });
+    await runBrief();
+    const briefFile = join(root, 'brief.json'), brief = JSON.parse(await readFile(briefFile, 'utf8'));
+    const generousPolicy = await save('generous.json', { assistant: { allowedPackages: ['react'], maxSubmissionBytes: 1000000 } });
+    const large = submission(brief.briefId, [patchFor(CANDIDATE, INITIAL + '\n//' + 'a'.repeat(2500), fileHash(INITIAL))]);
+    assert.equal((await refusal(runApply(briefFile, large, ['--policy', generousPolicy]))).code, 3);
+    assert.ok(JSON.parse(await readFile(join(root, 'apply.json'), 'utf8')).refusals.some(r => r.code === 'SCHEMA_INVALID'));
+    for (const [code, literal] of [['PSEUDONYM_IN_PATCH', 'p_ab12cd34ef56ab78cd90ef12'], ['RAW_PATH_REFERENCE', '/home/someone/.local/state/migration-harness/another/raw/file.json']]) {
+      const body = submission(brief.briefId, [patchFor(CANDIDATE, INITIAL)]);
+      body.manifest.mappings[0].rationale = literal;
+      assert.equal((await refusal(runApply(briefFile, body))).code, 3);
+      const result = JSON.parse(await readFile(join(root, 'apply.json'), 'utf8'));
+      assert.ok(result.refusals.some(r => r.code === code));
+      assert.ok(!JSON.stringify(result).includes(literal), 'refusals must not echo leaked content');
+    }
+    assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), INITIAL);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('repair edit budget applies to the whole submission, not each file separately', async () => {
+  const { root, runBrief, runApply, save } = await workspace();
+  try {
+    const second = 'src/second.ts';
+    await writeFile(join(root, second), 'export const value = 0;\n');
+    const failure = await save('failure.json', new EquivalenceValidator().validate({ source: trace('PUT'), target: trace('POST') }));
+    await runBrief(['--candidate-files', `${CANDIDATE},${second}`, '--repair', '--equivalence', failure]);
+    const briefFile = join(root, 'brief.json'), brief = JSON.parse(await readFile(briefFile, 'utf8'));
+    const patches = [];
+    for (const path of [CANDIDATE, second]) {
+      const before = await readFile(join(root, path), 'utf8');
+      patches.push(patchFor(path, before + '\n//' + 'a'.repeat(2200), fileHash(before)));
+    }
+    assert.equal((await refusal(runApply(briefFile, submission(brief.briefId, patches)))).code, 3);
+    assert.ok(JSON.parse(await readFile(join(root, 'apply.json'), 'utf8')).refusals.some(r => r.code === 'EDIT_BUDGET_EXCEEDED'));
+    assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), INITIAL);
+    assert.equal(await readFile(join(root, second), 'utf8'), 'export const value = 0;\n');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('configured static gates reject before any application', async () => {
+  const { root, runBrief, runApply, save } = await workspace();
+  try {
+    await save('policy.json', { assistant: { allowedPackages: ['react'], typecheck: true, lint: true } });
+    await runBrief();
+    const briefFile = join(root, 'brief.json'), brief = JSON.parse(await readFile(briefFile, 'utf8'));
+    const body = submission(brief.briefId, [patchFor(CANDIDATE, 'export const value: number = "wrong";', fileHash(INITIAL))]);
+    assert.equal((await refusal(runApply(briefFile, body))).code, 3);
+    assert.match(JSON.parse(await readFile(join(root, 'apply.json'), 'utf8')).refusals[0].message, /TypeScript/);
+    assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), INITIAL);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('candidate and artifact batches roll back handled failures and clean staged files', async () => {
+  const { root } = await workspace();
+  const store = new ArtifactStore(root);
+  try {
+    const second = 'src/new.ts';
+    const patches = [patchFor(CANDIDATE, 'export const changed = 1;', fileHash(INITIAL)), patchFor(second, 'export const added = 1;', fileHash(''))];
+    await writeFile(join(root, 'audit.json'), JSON.stringify({ previous: true }));
+    await mkdir(join(root, 'blocked.json'));
+    await assert.rejects(applyCandidateBatch(root, patches, store, () => writePublicBatch(store, [
+      { path: 'audit.json', value: { success: true }, replace: true },
+      { path: 'result.json', value: { status: 'PASS' } },
+      { path: 'blocked.json', value: { status: 'PASS' }, replace: true },
+    ])));
+    assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), INITIAL);
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'audit.json'), 'utf8')), { previous: true });
+    await assert.rejects(readFile(join(root, second)), /ENOENT/);
+    await assert.rejects(readFile(join(root, 'result.json')), /ENOENT/);
+    assert.deepEqual(await readdir(join(root, 'src')), ['customer-profile.tsx']);
+    await mkdir(join(root, 'blocked'));
+    await writeFile(join(root, 'blocked/parent'), 'not a directory');
+    await assert.rejects(applyCandidateBatch(root, [patches[0], patchFor('blocked/parent/new.ts', 'export {};', fileHash(''))], store, async () => {}));
+    assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), INITIAL);
+    assert.deepEqual(await readdir(join(root, 'src')), ['customer-profile.tsx']);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('assistant lock refuses overlapping writers and is released on errors', async () => {
+  const { root } = await workspace();
+  const store = new ArtifactStore(root);
+  try {
+    await withAssistantLock(store, root, async () => {
+      await assert.rejects(withAssistantLock(store, root, async () => {}), /EEXIST/);
+    });
+    await assert.rejects(withAssistantLock(store, root, async () => { throw new Error('test failure'); }), /test failure/);
+    await withAssistantLock(store, root, async () => {});
+    await assert.rejects(readFile(join(root, '.harness-assistant.lock')), /ENOENT/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('partial artifact writes leave neither successful records nor temporary files', async () => {
+  const { root } = await workspace();
+  class FailingStore extends ArtifactStore {
+    async write(path, value, privateArtifact) {
+      if (path.startsWith('fail.json')) {
+        await writeFile(join(this.root, path), '{"status":"PA');
+        throw new Error('injected partial write');
+      }
+      return super.write(path, value, privateArtifact);
+    }
+  }
+  const store = new FailingStore(root);
+  try {
+    for (const replace of [false, true]) {
+      await assert.rejects(writePublicBatch(store, [{ path: 'fail.json', value: { status: 'PASS' }, replace }]), /injected partial write/);
+      assert.ok(!(await readdir(root)).some(path => path.startsWith('fail.json')));
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('LLM trace schema accepts only the exact structural projection', () => {
+  assert.ok(LlmSafeTraceSchema.safeParse({ kind: 'LLM_SAFE_TRACE', events: [{ type: 'WEBSOCKET_FRAME', direction: 'sent', frameTypes: ['string'] }] }).success);
+  for (const event of [{ type: 'HTTP_REQUEST', method: 'GET', payloadTypes: [], url: 'https://private.test' }, { type: 'NAVIGATION', destination: 'secret' }, { type: 'UNRECOGNIZED' }]) {
+    assert.equal(LlmSafeTraceSchema.safeParse({ kind: 'LLM_SAFE_TRACE', events: [event] }).success, false);
+  }
 });

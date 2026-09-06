@@ -38,14 +38,15 @@ The `TransformationManifest` is evidence/hints only. It cannot make a failing ca
 - trace sanitization, keyed pseudonyms, a structural-only LLM projection, private raw artifacts and retention;
 - TypeScript/Angular discovery with routes, guards/resolvers, DI and template dependencies, transformation planning and a conservative standalone-component codemod;
 - bounded patch workers, package/file allowlists, deadline enforcement and a Docker execution adapter;
+- assistant-driven `brief` / `apply-patch` / `run` workflow with issued boundaries, protected-input hashes, content screens and audited application;
 - OpenAPI/structured-test evidence import, multi-dimension observational synthesis, failure classification, bounded repair, TypeScript/ESLint/axe checks, coverage, eligibility and audit;
 - working CLI commands and an executable real Angular/React regression-and-repair pilot.
 
 ## Scope And Limits
 
-The pilot covers a deliberately small Angular component. Arbitrary Angular applications, dependency-injection lifetimes, reactive forms and asynchronous stream orchestration still require semantic adapters or review. Discovery reports unresolved dependencies instead of inventing mappings. Causal comparison checks declared edges; automatic browser-wide causal inference is not implemented.
+The pilot covers a deliberately small Angular component. Decorated IO and a synchronous reactive-forms subset, including normalized builder groups, are supported. Arbitrary Angular applications, complex DI lifetimes, dynamic forms and asynchronous stream orchestration still require semantic adapters or review. Discovery reports unresolved dependencies instead of inventing mappings. Causal comparison checks declared edges; automatic browser-wide causal inference is not implemented.
 
-The bounded worker accepts a configurable JSON service. Tests use a deterministic provider; no external LLM credentials or inference are required for the pilot. Container execution requires Docker and a locally available image pinned by digest. Docker execution was not verified in the current WSL environment.
+The primary semantic worker is a human-driven coding assistant consuming harness-issued briefs, with no model API integration required. An HTTP provider remains an optional library adapter. Same-user reads outside the CLI are policy-controlled, not technically isolated. The assistant protocol pilot uses deterministic submissions; a recorded real assistant session remains pending. Container execution requires Docker and a locally available digest-pinned image; it was not verified in this WSL environment.
 
 See [RFC implementation status](docs/IMPLEMENTATION-STATUS.md) for the complete scope and remaining work.
 
@@ -76,6 +77,7 @@ pnpm smoke:v02
 pnpm test
 pnpm test:browser
 pnpm pilot
+pnpm pilot:assistant
 ```
 
 Compare two sanitized traces:
@@ -93,6 +95,7 @@ harness compare \
 - `docs/ARCHITECTURE.md` — current architecture summary.
 - `docs/MVP-PLAN.md` — recommended implementation sequence.
 - `docs/VALIDATION.md` — validations already executed and environment limitations.
+- `docs/ASSISTANT-INTEGRATION.md` and root `AGENTS.md` — assistant protocol and read/write scope.
 
 ## Reproducible browser vertical slice
 

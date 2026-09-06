@@ -1,5 +1,22 @@
 # Validation record
 
+## Assistant integration continuation - 2026-09-05
+
+After inherited checkpoint `a9a7f2d`: strict build PASS; full unit/CLI suite 60/60
+PASS (15 assistant tests); browser suite 9/9 PASS; both smoke scripts PASS;
+`git diff --check` PASS. Coverage includes all 10 refusal codes, recomputed forged
+briefs, stale baselines, protected inputs, private aliases, candidate symlinks, output
+collisions, issued submission caps, manifest screens, aggregate repair budgets,
+configured static gates, locks, multi-file rollback and injected partial writes.
+
+Original pilot: `artifacts/pilot-ZCQfPl/`, EQUIVALENT after one bounded repair.
+Assistant protocol pilot: `artifacts/pilot-assistant-hBzp77/`, real CLI and Chromium,
+typecheck/lint enabled, applied bytes rebuilt, deliberate method regression, repair,
+out-of-scope refusal, unchanged synthetic contract and verified audit. The simulation
+is explicitly labeled `DETERMINISTIC_PROTOCOL_SIMULATION`; integration section 6.2's
+recorded human-driven, brief-only session remains unverified. Docker execution and
+human production/accessibility approval remain outside this validation.
+
 ## RFC pilot and review corrections - 2026-09-05
 
 Executed in the shared WSL workspace with Node 20.20.1, TypeScript 5.9.3, pnpm 10.15.0 and pinned Playwright 1.63.0. Dependencies and Chromium were installed successfully; the earlier offline limitation below is historical.

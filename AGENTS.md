@@ -3,6 +3,11 @@
 This file governs a human-driven coding assistant (Claude Code, Copilot, codex) acting
 as the **hands** of the migration harness. Read it fully before producing any submission.
 
+Scope: the brief-only rules below apply to migration candidate work. A user-requested
+task to develop or maintain the harness itself may edit harness code, tests and docs,
+including this protocol; it does not authorize accessing private raw artifacts or
+changing an approved migration contract to make a candidate pass.
+
 ## 1. Role division
 
 - The harness is the oracle. Only the harness emits `EQUIVALENT`, gate results or
@@ -33,8 +38,13 @@ as the **hands** of the migration harness. Read it fully before producing any su
   `{ briefId, patches: [{ path, beforeHash, content }], manifest }` — submitted with
   `harness apply-patch --brief <brief.json> --input <submission.json> --out <result.json>`.
 - `path` must appear in the brief's `allowedFiles`; `beforeHash` is the sha256 of the
-  current bytes on disk (sha256 of the empty string for new files); `content` is the
-  complete replacement file, TypeScript/TSX only.
+  brief-time bytes, which must still match disk (sha256 of the empty string for new
+  files); `content` is the complete replacement file, TypeScript/TSX only. Paths are
+  relative to the candidate root in the brief's submission command; context paths are
+  absolute. Do not edit candidates directly: `apply-patch` owns the writes.
+- Creating the submission JSON at the human-designated public path is the one output
+  exception to `allowedFiles`. Reading the issued brief, AGENTS.md and public harness
+  results is allowed. Do not inspect issuance registry internals or other artifacts.
 - The manifest is evidence, never authority (RFC §33.IV): `preserves` claims are
   assertions the harness will check, not facts you can invoke.
 
@@ -51,8 +61,10 @@ as the **hands** of the migration harness. Read it fully before producing any su
   literal in generated code. Every submission is screened; leaks are refused and logged.
 - Never copy sanitized-trace strings (emails, phone numbers, names, payload values) into
   code — generated behavior must be derived from the source unit, not from observed data.
-- Never run verify commands to self-certify, never reissue or edit briefs, and never
-  submit against a brief whose `briefId` you cannot reproduce exactly.
+- Never run verify commands to self-certify or edit/re-hash briefs. Request new briefs
+  through the harness only under the iteration protocol, preserving the authorized
+  unit, candidate scope, contract, scenarios and policy. Never submit against a brief
+  whose `briefId` you cannot reproduce exactly.
 
 ## 5. Iteration protocol
 
@@ -62,15 +74,16 @@ as the **hands** of the migration harness. Read it fully before producing any su
   `AUTO_REPAIRABLE`, request a repair brief (`harness brief --repair ...`) and produce
   the minimal patch within `repair.editBudgetBytes`. If the disposition is
   `REQUIRES_*` or `NON_DETERMINISTIC`: stop — a human decides.
-- A `REFUSED` apply is zero-cost and atomic (nothing changed); an equivalent regression
-  costs a full verify cycle. Prefer the smallest correct change.
+- A structured `REFUSED` apply changes no candidate bytes. Handled I/O failures roll
+  back writes and exit nonzero; a crash is not a cross-file filesystem transaction.
+  After a crash, stop for human recovery of candidate state, audit and stale locks.
 
 ## 6. Refusal codes → expected action
 
 | Code | Your action |
 | --- | --- |
 | `PATCH_PATH_OUTSIDE_BOUNDARY` | Restrict the patch to `allowedFiles`; drop the change or stop. |
-| `BASELINE_HASH_MISMATCH` | Re-read the current file, recompute `beforeHash`, resubmit (someone else moved the baseline). |
+| `BASELINE_HASH_MISMATCH` | Request a fresh harness-issued brief with unchanged authorized scope; changing only `beforeHash` cannot repair a stale brief. Stop if protected inputs changed unexpectedly. |
 | `AST_FORBIDDEN_CONSTRUCT` | Remove dynamic-code constructs (`eval`, `Function`, `require`, timers with strings, globals access); use static imports. |
 | `IMPORT_NOT_ALLOWED` | Depend only on `allowedPackages` and files inside the boundary. |
 | `PSEUDONYM_IN_PATCH` | Delete the trace-derived token; derive the behavior from source code, not observed data. |
