@@ -88,6 +88,13 @@ Not blocked, real work:
   `templates/MIGRATION-SPEC.md` are written but unproven: no `apps/`,
   no `migrations/`, no filled specification, no real contract. This overlaps
   the §6.2 requirement; one real migration in a clean conversation closes both.
+- [ ] Resolve field-level `inject()` dependencies in discovery. Measured against a
+  real Angular 20 application (`apps/angular`, unit `FilmeEditar`): discovery
+  identified 13 symbols and resolved 1, because every dependency is injected as a
+  field with `inject()` rather than through a constructor. `unit.httpEndpoints` and
+  `unit.routes` come back empty as a consequence, so the assistant's read set has
+  to be assembled by hand with `--context-files`. `inject()` has been the
+  recommended Angular idiom since v14, so this is the common case, not an edge one.
 - [ ] Transformations for async validators, FormArray, dynamic controls, ngModel
   mixing, side-effectful `valueChanges`, complex provider lifetimes and stream
   orchestration. These stay in the LLM/MANUAL lanes today.
