@@ -92,6 +92,24 @@ must-not-break; `allowedFiles` gives the where; `contextFiles` gives where to re
 output contract. Zod-validate the brief itself on generation (`TransformBriefSchema`)
 so the format cannot drift.
 
+## 1.1 Causal-attribution guidance (review-time, carried in briefs)
+
+Decision 2026-09-05 (instrumentation non-goal): the harness does not inject in-page
+observers; causal attribution stays declared. Briefs and assistant iterations must
+carry this guidance:
+
+1. Unprompted requests (boot fetches, timers, streams, WS-push reactions) are compared
+   by exchange pairing, not order. Never "fix" an ordering divergence by mimicking
+   source scheduling; fix observable shapes or request re-declaration.
+2. A genuine causal requirement (B must follow A) is expressed only as a scenario
+   step, a completion signal, or an approved contract invariant. Observed
+   co-occurrence is not a requirement (RFC §33.V).
+3. Never invent `causedByEventIds`/causal claims in candidates or manifests; the
+   comparator consumes only harness-declared edges.
+4. A divergence that hinges only on ordering of autonomous requests within one group
+   is a declaration gap: escalate for scenario/contract re-declaration, not a
+   scheduling change.
+
 ## 2. Apply path
 
 Two CLI additions; the dynamic half reuses `run` as-is. The assistant is the loop
