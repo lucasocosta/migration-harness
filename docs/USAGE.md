@@ -68,7 +68,11 @@ node packages/cli/dist/index.js import-openapi --input openapi.json --out artifa
 node packages/cli/dist/index.js import-test-evidence --input test-report.json --out artifacts/test-evidence.json
 ```
 
-The OpenAPI adapter supports a bounded JSON object-schema subset of versions 3.0/3.1 and local references. Unsupported/external/cyclic references, composed schemas, conditional optional-body requirements and unrepresentable response statuses remain unresolved; no external reference is fetched. Test reports are arrays of `{testId, passed: true, network: HttpEndpointInvariant}` assertions, not free-form test text. Both importers preserve provenance and leave enforcement at WARNING. Pass reviewed reports with `synthesize --evidence report1.json,report2.json`; unresolved reports must be reviewed first. Only operations observed in the scenario are automatically corroborated; reviewers add missing critical obligations explicitly.
+The OpenAPI adapter supports a bounded JSON object-schema subset of versions 3.0/3.1 and local references. It extracts top-level required/optional fields from nested `allOf` object compositions, including local references. Required fields are combined conjunctively; common response obligations are still intersected across statuses. This follows [JSON Schema's allOf semantics](https://json-schema.org/understanding-json-schema/reference/combining), not object-oriented inheritance or a complete JSON Schema validator.
+
+Compositions require an explicit object type somewhere in the conjunction. Closed/constrained objects, differing definitions for overlapping properties, directional readOnly/writeOnly properties, nullable objects, alternative/conditional schemas and semantic `$ref` siblings remain unresolved. Traversal is capped at depth 64, 64 branches per `allOf` and 512 schema visits per payload. External/cyclic references, conditional optional-body requirements and unrepresentable response statuses also require review; no external reference is fetched.
+
+Test reports are arrays of `{testId, passed: true, network: HttpEndpointInvariant}` assertions, not free-form test text. Both importers preserve provenance and leave enforcement at WARNING. Pass reviewed reports with `synthesize --evidence report1.json,report2.json`; unresolved reports must be reviewed first. Only operations observed in the scenario are automatically corroborated; reviewers add missing critical obligations explicitly.
 
 ```bash
 node packages/cli/dist/index.js synthesize \

@@ -1,4 +1,4 @@
-import { HttpEndpointInvariantSchema, type HttpEndpointInvariant, type Invariant } from '@migration-harness/core';
+import { canonical, HttpEndpointInvariantSchema, type HttpEndpointInvariant, type Invariant } from '@migration-harness/core';
 
 export interface ImportedHttpEvidence {
   invariants: Invariant<HttpEndpointInvariant>[];
@@ -14,8 +14,10 @@ export function importOpenApi(input: unknown, sourceReference: string): Imported
   const resolve = (value: unknown): Record<string, unknown> => {
     let current = object(value);
     const visited = new Set<string>();
-    while (typeof current.$ref === 'string') {
+    while (Object.hasOwn(current, '$ref')) {
+      if (typeof current.$ref !== 'string') throw new Error('Invalid reference.');
       const ref = current.$ref;
+      if (Object.keys(current).some(key => !['$ref', 'summary', 'description'].includes(key))) throw new Error('Reference siblings require semantic review.');
       if (!ref.startsWith('#/') || visited.has(ref) || visited.size >= 64) throw new Error('External or cyclic references require review.');
       visited.add(ref);
       let target: unknown = document;
@@ -30,12 +32,50 @@ export function importOpenApi(input: unknown, sourceReference: string): Imported
   };
   const schemaKeys = (value: unknown): { required: string[]; optional: string[] } => {
     if (value === undefined) return { required: [], optional: [] };
-    const schema = resolve(value);
-    if (['allOf', 'oneOf', 'anyOf', 'not', 'if'].some(key => Object.hasOwn(schema, key))) throw new Error('Composed schemas require semantic review.');
-    if (schema.type && schema.type !== 'object') throw new Error('Only object payload schemas are imported.');
-    const required = stringArray(schema.required ?? []);
-    const properties = Object.keys(object(schema.properties ?? {}));
-    return { required, optional: properties.filter(key => !required.includes(key)) };
+    const active = new Set<Record<string, unknown>>();
+    let nodes = 0;
+    type Fields = { required: Set<string>; properties: Map<string, unknown>; objectType: boolean };
+    const visit = (input: unknown, depth: number, inComposition: boolean): Fields => {
+      if (++nodes > 512 || depth > 64) throw new Error('Schema composition exceeds the analysis budget.');
+      const schema = resolve(input);
+      if (active.has(schema)) throw new Error('Cyclic schema composition requires review.');
+      active.add(schema);
+      try {
+        if (['oneOf', 'anyOf', 'not', 'if', 'then', 'else', 'dependentRequired', 'dependentSchemas', 'dependencies'].some(key => Object.hasOwn(schema, key))) throw new Error('Alternative or conditional schemas require semantic review.');
+        if (schema.type !== undefined && schema.type !== 'object') throw new Error('Only object payload schemas are imported.');
+        if (schema.nullable === true) throw new Error('Nullable object requirements require review.');
+        const composed = inComposition || Object.hasOwn(schema, 'allOf');
+        if (composed) {
+          const supported = ['type', 'properties', 'required', 'allOf', 'title', 'description', 'example', 'examples', 'deprecated', 'additionalProperties'];
+          if (Object.keys(schema).some(key => !supported.includes(key)) || (schema.additionalProperties !== undefined && schema.additionalProperties !== true)) throw new Error('Closed or constrained allOf objects require semantic review.');
+        }
+        const fields: Fields = { required: new Set(stringArray(schema.required ?? [])), properties: new Map(Object.entries(object(schema.properties ?? {}))), objectType: schema.type === 'object' };
+        if (composed) for (const definition of fields.properties.values()) {
+          const property = resolve(definition);
+          if (property.readOnly === true || property.writeOnly === true) throw new Error('Directional allOf properties require review.');
+        }
+        if (Object.hasOwn(schema, 'allOf')) {
+          const branches = array(schema.allOf);
+          if (!branches.length || branches.length > 64) throw new Error('allOf requires 1-64 branches.');
+          // Presence obligations are conjunctive. Do not merge incompatible property
+          // definitions or closed objects as if allOf were inheritance.
+          for (const branch of branches) {
+            const child = visit(branch, depth + 1, true);
+            fields.objectType ||= child.objectType;
+            for (const name of child.required) fields.required.add(name);
+            for (const [name, definition] of child.properties) {
+              if (fields.properties.has(name) && canonical(fields.properties.get(name)) !== canonical(definition)) throw new Error('Overlapping allOf property definitions require review.');
+              fields.properties.set(name, definition);
+            }
+          }
+        }
+        return fields;
+      } finally { active.delete(schema); }
+    };
+    const fields = visit(value, 0, false);
+    if (Object.hasOwn(resolve(value), 'allOf') && !fields.objectType) throw new Error('Composed payloads require an explicit object type.');
+    const required = [...fields.required].sort();
+    return { required, optional: [...fields.properties.keys()].filter(key => !fields.required.has(key)).sort() };
   };
   const contentSchema = (value: unknown): unknown => {
     const content = object(value ?? {});

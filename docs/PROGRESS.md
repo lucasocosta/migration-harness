@@ -63,7 +63,7 @@ Decision: the harness does NOT call a model via API. The Transform/Repair "LLM w
 - [x] Continuation review: read HANDOFF and ASSISTANT-INTEGRATION; reproduce the pilot's incorrect brief-count assertion.
 - [x] Verify issuance lookup, brief-time baseline checks, guarded public paths and protected-input fingerprints.
 - [x] Verify aggregate repair budget, manifest screening, optional static gates and handled-failure rollback.
-- [x] Verify expanded boundary regressions and both pilots: build, 60/60 unit/CLI, 9/9 browser, both smokes and diff check passed. Commit this continuation checkpoint after recording these results.
+- [x] Verify expanded boundary regressions and both pilots: build, 60/60 unit/CLI, 9/9 browser, both smokes and diff check passed. Committed as `1871ca9`.
 - [ ] Record a real brief-only human-driven assistant session. The deterministic protocol pilot is not evidence of this separate DoD requirement.
 - Note: the "external model service with credentials" item is obsolete by design under this pivot; HttpWorkerProvider stays as a demoted optional adapter.
 
@@ -75,7 +75,8 @@ Decision: the harness does NOT call a model via API. The Transform/Repair "LLM w
 - [ ] Transformations for async validators, FormArray, dynamic controls, ngModel mixing and side-effectful valueChanges (stay LLM/MANUAL), complex provider lifetimes and stream orchestration transformations.
 - [x] Dedicated WebSocket scenario adapter: WEBSOCKET_FRAME signal + 8th additive trace event, opt-in routeWebSocket capture (default stays blocked), capped/correlated recording, sanitizer default-deny pipeline, structural LLM projection, equivalence pairing by connection with strict within-connection order (direction/payload-shape/missing/unexpected divergences, BLOCKING); dependency-free RFC 6455 echo fixture; 45 unit/CLI + 9 browser tests passing.
 - [ ] Service-worker scenario adapter and automatic application-wide causal instrumentation.
-- [ ] OpenAPI composed/conditional schemas, external references and arbitrary test-framework extraction beyond structured assertion imports.
+- [x] Bounded OpenAPI `allOf` object field extraction with nested local references, conjunctive requirements, response intersection and conservative review findings for ambiguous/closed/directional compositions; focused importer suite 6/6 passed before final malformed-input additions.
+- [ ] OpenAPI alternative/conditional and general composed schemas, external references and arbitrary test-framework extraction beyond structured assertion imports.
 - [ ] Operational encryption/key rotation, backup retention and externally anchored audit storage.
 - [ ] Human accessibility review and actual approval of any real migration contract. Synthetic fixture approval does not satisfy this.
 
