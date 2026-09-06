@@ -14,7 +14,7 @@ import { publicPath, readPublicJson } from './assistant-files.js';
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
-  const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'attempt', 'next-out'];
+  const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'attempt', 'next-out', 'ref-map'];
   const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const } }, strict: true, allowPositionals: false });
   const flag = (name: string): string | undefined => (values as Record<string, unknown>)[name] as string | undefined;
   const required = (name: string): string => { const value = flag(name); if (!value) throw new Error(`Required flag --${name} is missing.`); return value; };
@@ -75,7 +75,9 @@ async function main(): Promise<void> {
       }
       await writeJson(required('out'), synthesizeContract(required('unit-id'), traces, additional)); break;
     }
-    case 'import-openapi': await writeJson(required('out'), importOpenApi(await json(required('input')), required('input'))); break;
+    // --ref-map is an operator-provided JSON object of external-ref-prefix -> local path; the importer validates it
+    // strictly (OpenApiRefMapSchema), refuses private roots and never fetches; unmapped external refs stay review findings.
+    case 'import-openapi': await writeJson(required('out'), importOpenApi(await json(required('input')), required('input'), { ...(flag('ref-map') ? { refMap: await json(required('ref-map')) as Record<string, string> } : {}) })); break;
     case 'import-test-evidence': await writeJson(required('out'), importExistingTestEvidence(await json(required('input')), required('input'))); break;
     case 'transform': {
       const { transformAngularComponent } = await import('@migration-harness/codemods');

@@ -148,6 +148,24 @@ export const MigrationUnitSchema = z.object({ id, version: id, runtimeRoutes: st
 });
 export const parseMigrationUnit = (value: unknown): MigrationUnit => MigrationUnitSchema.parse(value) as MigrationUnit;
 
+/**
+ * Strict OpenAPI ref map: external $ref prefix -> local JSON document or directory, operator-provided.
+ * Keys must name external locations only (URL or relative prefixes ending at a path boundary or a .json
+ * file; internal '#/...' pointers are never mappable). Mapped targets are read from disk — the importer
+ * never fetches — and are refused when they point into a private root.
+ */
+export const OpenApiRefMapSchema = z.record(z.string().min(1).max(512), z.string().min(1).max(4096)).superRefine((value, ctx) => {
+  const add = (message: string): void => ctx.addIssue({ code: 'custom', message });
+  if (Object.keys(value).length > 64) add('Ref map exceeds 64 entries');
+  for (const [prefix, target] of Object.entries(value)) {
+    if (prefix.startsWith('#') || prefix.startsWith('/') || prefix.includes('?') || prefix.includes('\\')) add(`Ref map key '${prefix}' is not an external reference prefix`);
+    else if (prefix.includes(':') && !/^https?:\/\//.test(prefix)) add(`Ref map key '${prefix}' uses an unsupported scheme`);
+    else if (!prefix.endsWith('/') && !prefix.endsWith('.json')) add(`Ref map key '${prefix}' must end at a path boundary or a .json file`);
+    if (target.includes('\0') || target.split(/[\\/]/).includes('.migration-private')) add(`Ref map target '${target}' points into a private root`);
+  }
+});
+export const parseOpenApiRefMap = (value: unknown): Record<string, string> => OpenApiRefMapSchema.parse(value) as Record<string, string>;
+
 export const HarnessPolicySchema = z.object({
   network: z.object({ volatileQueryParams: strings.optional(), volatilePayloadFields: strings.optional(), volatileResponseFields: strings.optional(), volatilePathParams: z.record(strings).optional(), pathTemplates: strings.optional(), comparePayloadShape: z.boolean().optional(), compareStatusCode: z.boolean().optional(), compareResponseShape: z.boolean().optional() }).strict().optional(),
   observables: z.object({ volatileQueryParams: strings.optional(), ignoredStorageKeys: strings.optional(), volatileStorageValues: z.array(z.object({ storageType, key: id }).strict()).optional(), ariaSeverity: severity.optional(), navigationAliases: record.optional() }).strict().optional(),
