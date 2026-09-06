@@ -33,7 +33,9 @@ node packages/cli/dist/index.js trace \
   --artifact-root artifacts/source-run
 ```
 
-The application must already be running. Each run gets a fresh browser context. Storage and mocks are installed before application boot. Fixture paths resolve relative to the scenario file. Only the application origin is allowed by default; additional origins require an explicit policy. WebSockets are blocked unless the scenario explicitly opts into its dedicated adapter; service workers remain blocked.
+The application must already be running. Each run gets a fresh browser context. Storage and mocks are installed before application boot. Fixture paths resolve from the scenario file's own directory and must stay inside it: paths that escape, including through symlinks, are refused. Only the application origin is allowed by default; additional origins require an explicit policy. WebSockets are blocked unless the scenario explicitly opts into its dedicated adapter; service workers remain blocked.
+
+Capture evidence against a served production build rather than a framework dev server: dev servers keep an HMR WebSocket open, and WebSockets are blocked by default.
 
 The public artifact root contains sanitized evidence. Private artifacts use a separate native filesystem directory keyed by the absolute artifact-root path:
 

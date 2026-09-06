@@ -45,7 +45,7 @@ migration-harness/
       SPEC.md                  # especificacao preenchida para esta migracao
       units.md                 # inventario e checklist por unidade
       scenarios/
-      fixtures/                # somente dados sinteticos
+        fixtures/              # somente dados sinteticos, dentro do diretorio do cenario
       contracts/               # documentos revisados pelo responsavel
       policy.json
   artifacts/
@@ -216,7 +216,7 @@ Exemplo de cenario a adaptar aos nomes acessiveis reais das duas aplicacoes:
       "urlPattern": "**/api/customers/123",
       "method": "PUT",
       "statusCode": 200,
-      "fixturePath": "../fixtures/customer-saved.json"
+      "fixturePath": "fixtures/customer-saved.json"
     }]
   },
   "steps": [
@@ -231,6 +231,11 @@ Exemplo de cenario a adaptar aos nomes acessiveis reais das duas aplicacoes:
 A fixture JSON deve existir e representar uma resposta de teste revisada. Prepare
 tambem os dados de carregamento inicial. Veja outro exemplo executavel em
 `examples/angular-react-pilot/scenario.json`.
+
+`fixturePath` e resolvido a partir do diretorio do arquivo de cenario e precisa
+permanecer **dentro** dele. Caminhos que saem do diretorio, inclusive por
+symlink, sao recusados com "Mock fixture escapes the allowed fixture directory".
+Guarde as fixtures em `scenarios/fixtures/` e referencie `fixtures/<arquivo>.json`.
 
 O `run` atual troca a origem (host/porta), mantendo o caminho do `entryUrl`.
 Passar outro caminho dentro de `--target-url` nao remapeia a rota inicial. Quando as
@@ -247,8 +252,8 @@ node packages/cli/dist/index.js trace \
 
 O comando imprime os caminhos dos traces sanitizados. O responsavel usa esses
 caminhos para sintetizar e revisar o contrato; nao os envia inteiros ao agente.
-O brief utiliza uma projecao estrutural. Fixtures de mocks sao relativas ao arquivo
-do cenario, nao ao diretorio do shell.
+O brief utiliza uma projecao estrutural. Fixtures de mocks ficam dentro do
+diretorio do arquivo de cenario, nao no diretorio do shell.
 
 ```bash
 node packages/cli/dist/index.js synthesize \
