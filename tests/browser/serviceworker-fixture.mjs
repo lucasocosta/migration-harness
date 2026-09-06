@@ -11,11 +11,17 @@ self.addEventListener('fetch', event => {
 
 /** Dependency-free service-worker fixture (same shape as websocket-fixture.mjs): serves a page that registers /sw.js
  *  and a fetch-triggering button. All server-side requests are logged so "never registered" is observable, not inferred. */
-export async function serviceWorkerFixture() {
+export async function serviceWorkerFixture(mode = 'passthrough') {
   const requests = [];
   const server = createServer((req, res) => {
     requests.push(req.url);
-    if (req.url === '/sw.js') { res.writeHead(200, { 'content-type': 'application/javascript' }); res.end(SW_SOURCE); return; }
+    if (req.url === '/sw.js') {
+      const action = mode === 'rewrite' ? "fetch(event.request.url, { method: 'POST' })"
+        : mode === 'cache' ? "Promise.resolve(new Response(JSON.stringify({value:42}), {headers:{'content-type':'application/json'}}))"
+        : mode === 'autonomous' ? "Promise.all([fetch(event.request),fetch('/api/background')]).then(([response])=>response)"
+        : 'fetch(event.request)';
+      res.writeHead(200, { 'content-type': 'application/javascript' }); res.end(SW_SOURCE.replace('event.respondWith(fetch(event.request))', `event.respondWith(${action})`)); return;
+    }
     if (req.url === '/api/data') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ value: 42 })); return; }
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SW</title></head><body>

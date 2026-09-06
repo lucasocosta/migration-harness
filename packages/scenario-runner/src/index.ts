@@ -41,7 +41,7 @@ export class ScenarioRunner {
     scenario = parseScenario(scenario);
     if (this.used) throw new Error('Use a fresh BrowserContext and ScenarioRunner for each run.');
     this.used = true;
-    const recorder = this.recorder = new TemporalTraceRecorder(this.page, this.options.traceRecorder);
+    const recorder = this.recorder = new TemporalTraceRecorder(this.page, { ...this.options.traceRecorder, validateServiceWorkerProxy: scenario.serviceWorkers === 'allow' });
     if (this.options.webSocketSink) this.options.webSocketSink.handler = (direction, url, payload, connectionId) => recorder.recordWebSocketFrame(direction, url, payload, connectionId);
     await this.installPreconditions(scenario);
     recorder.start();
@@ -91,7 +91,8 @@ export class ScenarioRunner {
       const fixturePath = await resolveMockFixture(this.options.fixtureBaseDir ?? process.cwd(), mock.fixturePath);
       const fixture = await readFile(fixturePath, 'utf8');
       const origins = new Set(this.options.allowedOrigins ?? [new URL(scenario.entryUrl).origin]);
-      await this.page.route(mock.urlPattern, async (route) => {
+      const router = scenario.serviceWorkers === 'allow' ? this.page.context() : this.page;
+      await router.route(mock.urlPattern, async (route) => {
         if (!origins.has(new URL(route.request().url()).origin)) { await route.abort('blockedbyclient'); return; }
         if (route.request().method().toUpperCase() !== mock.method.toUpperCase()) {
           await route.fallback();

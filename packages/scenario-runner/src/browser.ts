@@ -16,10 +16,8 @@ export async function captureScenario(scenario: ScenarioDefinition, runIndex: nu
     scenario.entryUrl = new URL(`${entry.pathname}${entry.search}${entry.hash}`, options.baseUrl).toString();
   }
   const browser = options.browser ?? await chromium.launch();
-  // Service workers are default-deny: 'block' preserves Playwright's fresh-context default for every scenario
-  // that does not opt in. 'allow' only permits a same-scope worker to REGISTER — SW-served traffic still flows
-  // through the very same context.route request pipeline below, so the origin allowlist remains the single
-  // network gate; opting in adds no bypass for out-of-allowlist origins.
+  // Workers are default-deny. Opted-in worker network traffic is routed at context
+  // level; the recorder separately verifies the bounded transparent-proxy contract.
   const context = await browser.newContext({ viewport: options.viewport ?? { width: 1280, height: 720 }, locale: options.locale ?? options.traceRecorder?.locale ?? 'pt-BR', serviceWorkers: scenario.serviceWorkers ?? 'block', acceptDownloads: false });
   context.setDefaultTimeout(10000);
   const origins = new Set(options.allowedOrigins ?? [new URL(scenario.entryUrl).origin]);

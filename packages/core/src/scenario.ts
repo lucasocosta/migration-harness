@@ -57,7 +57,7 @@ export type CompletionSignal =
       timeoutMs: number;
     };
 
-/** Scenario-level service-worker policy. 'block' (the default when absent, matching Playwright's fresh-context default) refuses registration outright; 'allow' is the explicit opt-in. */
+/** Scenario-level policy. The harness defaults to block; allow supports verified transparent network proxies only. */
 export type ServiceWorkerMode = 'block' | 'allow';
 
 export interface ScenarioDefinition {
@@ -69,7 +69,7 @@ export interface ScenarioDefinition {
   preconditions: ScenarioPrecondition;
   steps: ScenarioInteractionStep[];
   completionSignal?: CompletionSignal;
-  /** Opt-in service-worker registration for this scenario; defaults to 'block'. Registration is bounded by the runner's origin allowlist — SW-served traffic still flows through the same network gate. */
+  /** Opt-in transparent service workers. Cached, rewritten or autonomous exchanges require review. */
   serviceWorkers?: ServiceWorkerMode;
   testDataProfile: 'standard' | 'edge_case' | 'error_flow';
 }

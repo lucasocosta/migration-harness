@@ -11,7 +11,7 @@ import type {
   UserInteractionEvent,
   WebSocketFrameDirection,
 } from '@migration-harness/core';
-import { matchesDeclaredShape, urlPatternMatches, valueShape } from '@migration-harness/core';
+import { canonical, matchesDeclaredShape, urlPatternMatches, valueShape } from '@migration-harness/core';
 
 interface PendingRequestMeta {
   correlationId: string;
@@ -31,10 +31,13 @@ export interface TraceRecorderOptions {
   allowedResponseContentTypes?: readonly string[];
   locale?: string;
   drainTimeoutMs?: number;
+  /** Opted-in workers must be transparent one-to-one network proxies in this adapter. */
+  validateServiceWorkerProxy?: boolean;
 }
 
 export class TemporalTraceRecorder {
   private events: TraceEvent[] = [];
+  private workerEvents: TraceEvent[] = [];
   private sequenceCounter = 0;
   private requestCorrelations = new WeakMap<Request, PendingRequestMeta>();
   private pendingAsyncHandlers = new Set<Promise<void>>();
@@ -66,6 +69,7 @@ export class TemporalTraceRecorder {
   start(): void {
     if (this.listenersInstalled) throw new Error('Trace recorder is already running.');
     this.events = [];
+    this.workerEvents = [];
     this.sequenceCounter = 0;
     this.requestCorrelations = new WeakMap<Request, PendingRequestMeta>();
     this.pendingAsyncHandlers.clear();
@@ -80,6 +84,11 @@ export class TemporalTraceRecorder {
     this.page.on('requestfinished', this.onRequestFinished);
     this.page.on('requestfailed', this.onRequestFailed);
     this.page.on('framenavigated', this.onFrameNavigated);
+    if (this.options.validateServiceWorkerProxy) {
+      this.page.context().on('request', this.onWorkerRequest);
+      this.page.context().on('requestfinished', this.onWorkerRequestFinished);
+      this.page.context().on('requestfailed', this.onWorkerRequestFailed);
+    }
     this.listenersInstalled = true;
   }
 
@@ -87,6 +96,7 @@ export class TemporalTraceRecorder {
     if (!this.listenersInstalled) throw new Error('Trace recorder is not running.');
     try { await this.drainPendingHandlers(); } finally { this.detachListeners(); }
     if (this.handlerErrors.length) throw new Error('Trace capture failed while recording a response.');
+    if (this.options.validateServiceWorkerProxy) this.verifyTransparentWorker();
 
     return {
       scenarioId,
@@ -198,7 +208,7 @@ export class TemporalTraceRecorder {
     const startedAtMs = Date.now();
     this.requestCorrelations.set(request, { correlationId, startedAtMs, requestEventId: `evt_${sequenceIndex}` });
     this.inFlight.add(request);
-    this.pushEvent({
+    this.pushHttpEvent({
       type: 'HTTP_REQUEST',
       eventId: `evt_${sequenceIndex}`,
       timestampMs: startedAtMs,
@@ -208,8 +218,12 @@ export class TemporalTraceRecorder {
       url: request.url(),
       headers: request.headers(),
       payload: parseBody(request.postData()),
-    });
+    }, request);
   };
+
+  private readonly onWorkerRequest = (request: Request): void => { if (request.serviceWorker()) this.onRequest(request); };
+  private readonly onWorkerRequestFinished = (request: Request): void => { if (request.serviceWorker()) this.onRequestFinished(request); };
+  private readonly onWorkerRequestFailed = (request: Request): void => { if (request.serviceWorker()) this.onRequestFailed(request); };
 
   private readonly onRequestFinished = (request: Request): void => {
     const meta = this.requestCorrelations.get(request);
@@ -233,7 +247,7 @@ export class TemporalTraceRecorder {
       return;
     }
     const sequenceIndex = this.nextSeq();
-    this.pushEvent({
+    this.pushHttpEvent({
       type: 'HTTP_FAILED',
       eventId: `evt_${sequenceIndex}`,
       timestampMs: Date.now(),
@@ -243,7 +257,7 @@ export class TemporalTraceRecorder {
       url: request.url(),
       errorText: request.failure()?.errorText ?? 'Unknown request failure',
       causedByEventIds: [meta.requestEventId],
-    });
+    }, request);
   }
 
   private readonly onFrameNavigated = (frame: ReturnType<Page['mainFrame']>): void => {
@@ -267,7 +281,7 @@ export class TemporalTraceRecorder {
     const response = await request.response();
     if (!response) {
       const sequenceIndex = this.nextSeq();
-      this.pushEvent({ type: 'HTTP_FAILED', eventId: `evt_${sequenceIndex}`, timestampMs: Date.now(), sequenceIndex, correlationId: meta.correlationId, method: request.method(), url: request.url(), errorText: 'Response unavailable after request completion', causedByEventIds: [meta.requestEventId] });
+      this.pushHttpEvent({ type: 'HTTP_FAILED', eventId: `evt_${sequenceIndex}`, timestampMs: Date.now(), sequenceIndex, correlationId: meta.correlationId, method: request.method(), url: request.url(), errorText: 'Response unavailable after request completion', causedByEventIds: [meta.requestEventId] }, request);
       return;
     }
     const declaredLength = Number(response.headers()['content-length'] ?? '0');
@@ -283,7 +297,7 @@ export class TemporalTraceRecorder {
     // requests). Emitted only when true so default traces are unchanged; equivalence never reads this field.
     const servedByServiceWorker = response.fromServiceWorker();
     const sequenceIndex = this.nextSeq();
-    this.pushEvent({
+    this.pushHttpEvent({
       type: 'HTTP_RESPONSE',
       eventId: `evt_${sequenceIndex}`,
       timestampMs: Date.now(),
@@ -297,7 +311,7 @@ export class TemporalTraceRecorder {
       requestToResponseEndMs: Math.round(duration),
       ...(servedByServiceWorker ? { servedByServiceWorker: true } : {}),
       causedByEventIds: [meta.requestEventId],
-    });
+    }, request);
   }
 
   private async safeResponseBody(contentType: string, readBody: () => Promise<Buffer>): Promise<unknown> {
@@ -337,6 +351,9 @@ export class TemporalTraceRecorder {
     this.page.off('requestfinished', this.onRequestFinished);
     this.page.off('requestfailed', this.onRequestFailed);
     this.page.off('framenavigated', this.onFrameNavigated);
+    this.page.context().off('request', this.onWorkerRequest);
+    this.page.context().off('requestfinished', this.onWorkerRequestFinished);
+    this.page.context().off('requestfailed', this.onWorkerRequestFailed);
     this.listenersInstalled = false;
   }
 
@@ -356,6 +373,35 @@ export class TemporalTraceRecorder {
   private pushEvent<T extends TraceEvent>(event: T): T {
     this.events.push(event);
     return event;
+  }
+
+  private pushHttpEvent<T extends TraceEvent>(event: T, request: Request): T {
+    if (request.serviceWorker()) { this.workerEvents.push(event); return event; }
+    return this.pushEvent(event);
+  }
+
+  private verifyTransparentWorker(): void {
+    const fingerprint = (events: TraceEvent[], servedOnly: boolean): string[] => {
+      const requests = events.filter(event => event.type === 'HTTP_REQUEST');
+      return events.flatMap(event => {
+        if (event.type !== 'HTTP_RESPONSE' || servedOnly && !event.servedByServiceWorker) return [];
+        const request = requests.find(request => request.correlationId === event.correlationId);
+        if (!request) throw new Error('Incomplete service-worker network evidence.');
+        // Chromium may not expose a worker-owned response body. The page body remains
+        // the observable response checked by the normal validator; forwarding checks
+        // cover outgoing request identity/payload and terminal status independently.
+        return [canonical({ method: request.method, url: request.url, payload: request.payload, status: event.statusCode })];
+      });
+    };
+    const outgoing = fingerprint(this.workerEvents, false);
+    const incoming = fingerprint(this.events, true);
+    if (outgoing.length !== this.workerEvents.filter(event => event.type === 'HTTP_REQUEST').length) throw new Error('Unsupported service-worker traffic: failed or incomplete network exchange.');
+    for (const exchange of incoming) {
+      const index = outgoing.indexOf(exchange);
+      if (index < 0) throw new Error('Unsupported service-worker traffic: only transparent network proxies are supported; cached or rewritten responses require review.');
+      outgoing.splice(index, 1);
+    }
+    if (outgoing.length) throw new Error('Unsupported service-worker traffic: autonomous network requests require review.');
   }
 
   private recordStorageDeltaFor(

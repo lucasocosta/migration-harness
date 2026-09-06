@@ -8,6 +8,12 @@ task to develop or maintain the harness itself may edit harness code, tests and 
 including this protocol; it does not authorize accessing private raw artifacts or
 changing an approved migration contract to make a candidate pass.
 
+A separately user-authorized preparation task may read the application paths listed
+in its migration specification and draft public inventories, scenarios and contract
+proposals for human review. It must not approve its own oracle or modify migration
+candidates. Once acting as the transformation worker, use only the issued brief and
+the read/write scope below. A recorded brief-only proof requires a fresh conversation.
+
 ## 1. Role division
 
 - The harness is the oracle. Only the harness emits `EQUIVALENT`, gate results or
@@ -42,6 +48,8 @@ changing an approved migration contract to make a candidate pass.
   files); `content` is the complete replacement file, TypeScript/TSX only. Paths are
   relative to the candidate root in the brief's submission command; context paths are
   absolute. Do not edit candidates directly: `apply-patch` owns the writes.
+- Explicit target files in `contextFiles` are read-only integration dependencies;
+  relative imports may use them, but this does not permit patching those files.
 - Creating the submission JSON at the human-designated public path is the one output
   exception to `allowedFiles`. Reading the issued brief, AGENTS.md and public harness
   results is allowed. Do not inspect issuance registry internals or other artifacts.

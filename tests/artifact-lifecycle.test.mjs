@@ -55,7 +55,7 @@ test('encryption at rest seals raw writes, survives tampering as a typed error a
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('key rotation re-seals the raw domain, retains old keys, prunes only older versions and is audited', async () => {
+test('key rotation re-seals raw, retains keys and refuses unsafe automatic pruning', async () => {
   const { root, store, keysRoot } = await setup();
   try {
     await store.writeRaw('unit', rawTrace(1));
@@ -72,19 +72,72 @@ test('key rotation re-seals the raw domain, retains old keys, prunes only older 
     const retained = await store.privatePath('raw/retained/update-customer/1.json');
     await writeFile(retained, beforeRotation); await chmod(retained, 0o600);
     assert.ok((await store.readPrivate('raw/retained/update-customer/1.json')).toString().includes('update-customer'), 'v1 decrypts while the v1 key is retained');
-    const second = await store.rotateRawKey(trail, 1);
-    assert.deepEqual(second.prunedKeyVersions, [2, 1], 'prune removes versions older than the last keep');
-    assert.deepEqual(await new KeyRing(keysRoot).versions(), [3], 'the active version is never pruned');
+    await assert.rejects(store.rotateRawKey(trail, 1), /Automatic key pruning is disabled/);
+    assert.deepEqual(await new KeyRing(keysRoot).versions(), [1, 2], 'refusal does not create or delete keys');
+    const second = await store.rotateRawKey(trail);
+    assert.deepEqual(second.prunedKeyVersions, []);
+    assert.deepEqual(await new KeyRing(keysRoot).versions(), [1, 2, 3]);
     assert.ok((await store.readPrivate('raw/unit/update-customer/1.json')).toString().includes('update-customer'), 'the rotated active domain still reads fine');
     // Fail-closed: a sealed-junk sweep target (versioned with the ACTIVE key, bad tag) aborts rotation before any audit entry is recorded.
     await writeFile(retained, Buffer.concat([Buffer.from(MAGIC, 'latin1'), (() => { const view = Buffer.alloc(4); view.writeUInt32BE(3); return view; })(), new Uint8Array(12), new Uint8Array(16), Buffer.from('junk')]));
     const before = trail.snapshot().length;
     await assert.rejects(store.rotateRawKey(trail), ArtifactAuthFailureError);
     assert.equal(trail.snapshot().length, before, 'aborted rotation records nothing');
-    // With the v1 key pruned, a file still sealed with v1 can no longer decrypt.
+    // Retained copies must stay decryptable after rotations and refused pruning.
     const stuck = await store.privatePath('raw/stuck/update-customer/1.json');
     await writeFile(stuck, beforeRotation); await chmod(stuck, 0o600);
-    await assert.rejects(store.readPrivate('raw/stuck/update-customer/1.json'), ArtifactAuthFailureError, 'pruned key versions cannot decrypt');
+    assert.ok((await store.readPrivate('raw/stuck/update-customer/1.json')).length > 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('rotation preserves archived copies and backup root cannot equal the public root', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'harness-backup-rotation-'));
+  try {
+    const publicRoot = join(root, 'public'), privateRoot = join(root, 'private'), backup = join(root, 'backup');
+    assert.throws(() => new ArtifactStore(publicRoot, privateRoot, { backup: { root: publicRoot } }), /public artifact root/);
+    const store = new ArtifactStore(publicRoot, privateRoot, { encryptPrivate: true, backup: { root: backup } });
+    await store.writeRaw('unit', rawTrace(1));
+    const clock = Date.now() + 1000;
+    await store.purgeRaw(0, clock);
+    const archived = await readFile(join(backup, `gen-${clock}/raw/unit/update-customer/1.json`));
+    await store.rotateRawKey(new AuditTrail());
+    await assert.rejects(store.rotateRawKey(new AuditTrail(), 1), /pruning is disabled/);
+    const parts = inspectSeal(archived), key = await new KeyRing(store.keysRoot).at(parts.keyVersion);
+    assert.deepEqual(JSON.parse(openSeal(parts, key.version, key.bytes)), rawTrace(1));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('key reads reject permissive modes and aliases; truncated or damaged seals never become plaintext', async () => {
+  const { root, keysRoot, store } = await setup();
+  try {
+    const file = await store.writeRaw('unit', rawTrace(1));
+    const bytes = await readFile(file), key = join(keysRoot, 'v1.hex');
+    await chmod(key, 0o644);
+    await assert.rejects(store.readPrivate('raw/unit/update-customer/1.json'), ArtifactAuthFailureError);
+    await chmod(key, 0o600);
+    const linkedRoot = join(root, 'linked'); await symlink(keysRoot, linkedRoot);
+    await assert.rejects(new KeyRing(linkedRoot).at(1), /symlink/);
+    await symlink(key, join(keysRoot, 'v2.hex'));
+    await assert.rejects(new KeyRing(keysRoot).at(2), ArtifactAuthFailureError);
+    assert.throws(() => inspectSeal(Buffer.from('MHAES001truncated')), ArtifactAuthFailureError);
+    bytes[0] ^= 1;
+    await writeFile(file, bytes);
+    await assert.rejects(store.readPrivate('raw/unit/update-customer/1.json'), ArtifactAuthFailureError);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('concurrent anchors refuse overlapping writers and retries preserve continuity', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'harness-anchor-concurrency-'));
+  try {
+    const trail = new AuditTrail(); trail.record('TEST', {});
+    const externalPath = join(root, 'anchors.jsonl');
+    const results = await Promise.allSettled([0, 1].map(() => anchorAudit({ entries: trail.snapshot(), externalPath, privateRoots: [] })));
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+    assert.equal(results.filter(result => result.status === 'rejected').length, 1);
+    const first = results.find(result => result.status === 'fulfilled').value;
+    const second = await anchorAudit({ entries: first.entries, externalPath, privateRoots: [] });
+    assert.equal(second.anchor.previousAnchorHash, first.anchor.chainHeadHash);
+    assert.equal((await readFile(externalPath, 'utf8')).trim().split('\n').length, 2);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

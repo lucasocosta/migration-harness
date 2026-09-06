@@ -1,5 +1,6 @@
 import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve as resolvePath, sep } from 'node:path';
+import { isAbsolute, relative, resolve as resolvePath, sep, posix } from 'node:path';
+import { homedir } from 'node:os';
 import { canonical, parseOpenApiRefMap, HttpEndpointInvariantSchema, type HttpEndpointInvariant, type Invariant } from '@migration-harness/core';
 
 export interface ImportedHttpEvidence {
@@ -10,6 +11,7 @@ export interface ImportedHttpEvidence {
 export interface OpenApiImportOptions {
   /** Maps external $ref prefixes to local JSON documents or directories on disk. Resolution happens strictly through this mapping and is never fetched; unmapped external refs stay review findings. */
   refMap?: Record<string, string>;
+  privateRoots?: string[];
 }
 
 /** Imports a bounded OpenAPI 3.0/3.1 subset. External references are never fetched; only ref-mapped ones resolve from disk, under containment and budget guards. */
@@ -20,6 +22,20 @@ export function importOpenApi(input: unknown, sourceReference: string, options: 
   const refMap = options.refMap === undefined ? undefined : parseOpenApiRefMap(options.refMap);
   const result: ImportedHttpEvidence = { invariants: [], unresolved: [] };
   const externalDocuments = new Map<string, Record<string, unknown>>();
+  type DocumentContext = { root: Record<string, unknown>; location: string };
+  const contexts = new WeakMap<object, DocumentContext>();
+  const bindDocument = (root: Record<string, unknown>, location: string): void => {
+    const context = { root, location }, pending: unknown[] = [root];
+    let nodes = 0;
+    while (pending.length) {
+      const value = pending.pop();
+      if (!value || typeof value !== 'object' || contexts.has(value)) continue;
+      if (++nodes > 200000) throw new Error('Reference document exceeds the structure budget.');
+      contexts.set(value, context);
+      for (const child of Object.values(value)) pending.push(child);
+    }
+  };
+  bindDocument(document, sourceReference);
   const pointer = (root: unknown, ref: string, tokens: string[]): Record<string, unknown> => {
     let target: unknown = root;
     for (const token of tokens.map(part => part.replace(/~1/g, '/').replace(/~0/g, '~'))) {
@@ -49,35 +65,45 @@ export function importOpenApi(input: unknown, sourceReference: string, options: 
       if (file !== root && !file.startsWith(root + sep)) throw new Error('Mapped reference escapes its ref-map root.');
     } else if (remainder) throw new Error('Mapped file references cannot carry additional path segments.');
     // The input guards refuse the private artifact domain wherever it resolves, after containment.
-    if (file.split(/[\\/]/).includes('.migration-private')) throw new Error('Mapped references cannot resolve into a private root.');
+    const privateRoots = [resolvePath(homedir(), '.local/state/migration-harness'), ...(options.privateRoots ?? []).map(root => resolvePath(root))];
+    if (file.split(/[\\/]/).includes('.migration-private') || privateRoots.some(root => file === root || file.startsWith(root + sep))) throw new Error('Mapped references cannot resolve into a private root.');
     if (!file.endsWith('.json')) throw new Error('Mapped references must resolve to JSON documents.');
-    const cached = externalDocuments.get(file);
+    const identity = `${file}\n${location}`;
+    const cached = externalDocuments.get(identity);
     if (cached) return cached;
     if (externalDocuments.size >= 64) throw new Error('Mapped references exceed the external document budget.');
     if (statSync(file).size > 4_194_304) throw new Error('Mapped references exceed the document size budget.');
     let parsed: unknown;
     try { parsed = JSON.parse(readFileSync(file, 'utf8')); } catch { throw new Error(`Unreadable mapped reference ${ref}`); }
     const external = object(parsed);
-    externalDocuments.set(file, external);
+    bindDocument(external, location);
+    externalDocuments.set(identity, external);
     return external;
   };
   const resolve = (value: unknown): Record<string, unknown> => {
     let current = object(value);
-    let base: Record<string, unknown> = document;
+    let context = contexts.get(current) ?? { root: document, location: sourceReference };
     const visited = new Set<string>();
     while (Object.hasOwn(current, '$ref')) {
       if (typeof current.$ref !== 'string') throw new Error('Invalid reference.');
       const ref = current.$ref;
       if (Object.keys(current).some(key => !['$ref', 'summary', 'description'].includes(key))) throw new Error('Reference siblings require semantic review.');
-      if (visited.has(ref) || visited.size >= 64) throw new Error('External or cyclic references require review.');
-      visited.add(ref);
-      if (ref.startsWith('#/')) { base = pointer(base, ref, ref.slice(2).split('/')); current = base; continue; }
+      const identity = `${context.location}\n${ref}`;
+      if (visited.has(identity) || visited.size >= 64) throw new Error('External or cyclic references require review.');
+      visited.add(identity);
+      if (ref.startsWith('#/')) { current = pointer(context.root, ref, ref.slice(2).split('/')); continue; }
       if (ref.startsWith('#')) throw new Error('External or cyclic references require review.');
       const separator = ref.indexOf('#');
       const fragment = separator < 0 ? '' : ref.slice(separator + 1);
       if (fragment && !fragment.startsWith('/')) throw new Error('Named reference anchors require review.');
-      base = loadMapped(separator < 0 ? ref : ref.slice(0, separator), ref);
-      current = fragment.startsWith('/') && fragment !== '/' ? pointer(base, ref, fragment.slice(1).split('/')) : object(base);
+      let location = separator < 0 ? ref : ref.slice(0, separator);
+      if (!refMap || !Object.keys(refMap).some(prefix => location.startsWith(prefix))) {
+        try { location = new URL(location, context.location).toString(); }
+        catch { location = posix.normalize(posix.join(posix.dirname(context.location), location)); }
+      }
+      const root = loadMapped(location, ref);
+      context = contexts.get(root)!;
+      current = fragment.startsWith('/') ? pointer(root, ref, fragment.slice(1).split('/')) : root;
     }
     return current;
   };

@@ -8,7 +8,7 @@ import { projectTraceForLlm } from '@migration-harness/trace-sanitizer';
 export interface CandidatePatch { path: string; beforeHash: string; content: string; }
 export interface WorkerResult { patches: CandidatePatch[]; manifest: TransformationManifest; }
 export interface WorkerProvider { complete(request: { system: string; data: string }, signal: AbortSignal): Promise<unknown>; }
-export interface WorkerPolicy { allowedFiles: string[]; allowedPackages: string[]; maxFiles: number; maxInputBytes: number; maxOutputBytes: number; timeoutMs: number; }
+export interface WorkerPolicy { allowedFiles: string[]; allowedImportFiles?: string[]; allowedPackages: string[]; maxFiles: number; maxInputBytes: number; maxOutputBytes: number; timeoutMs: number; }
 export interface WorkerInput { plan: TransformationPlan; files: Record<string, string>; trace?: SanitizedObservedTrace; failure?: { code: string; expectedMethod: string; actualMethod: string }; }
 const patchSchema = z.object({ patches: z.array(z.object({ path: z.string().min(1), beforeHash: z.string(), content: z.string() }).strict()).min(1), manifest: z.unknown() }).strict();
 export const fileHash = (content: string): string => createHash('sha256').update(content).digest('hex');
@@ -71,7 +71,7 @@ export function validatePatches(patches: CandidatePatch[], files: Record<string,
 function validateImport(name: string, path: string, policy: WorkerPolicy): void {
   if (name.startsWith('.')) {
     const target = posix.normalize(posix.join(posix.dirname(path), name));
-    if (!policy.allowedFiles.some(file => [target, `${target}.ts`, `${target}.tsx`, `${target}/index.ts`].includes(file))) throw new Error('Relative import escapes candidate file allowlist.');
+    if (![...policy.allowedFiles, ...(policy.allowedImportFiles ?? [])].some(file => [target, `${target}.ts`, `${target}.tsx`, `${target}/index.ts`, `${target}/index.tsx`].includes(file))) throw new Error('Relative import escapes candidate file allowlist.');
   } else if (!policy.allowedPackages.some(pkg => name === pkg || name.startsWith(`${pkg}/`))) throw new Error(`Package is not allowed: ${name}`);
 }
 export function assertCandidatePath(path: string, allowed: string[]): void {

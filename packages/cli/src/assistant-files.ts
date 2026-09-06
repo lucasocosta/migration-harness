@@ -11,7 +11,7 @@ const inside = (root: string, path: string): boolean => { const rel = relative(r
 /** Check both lexical and resolved paths before reading any assistant-facing input. */
 export async function publicPath(path: string, store: ArtifactStore): Promise<string> {
   const check = (value: string): void => {
-    if (value.split(/[\\/]/).includes('.migration-private') || inside(store.privateRoot, value) || inside(join(homedir(), '.local/state/migration-harness'), value)) throw new Error('Assistant-facing paths cannot resolve inside the private artifact domain.');
+    if (value.split(/[\\/]/).includes('.migration-private') || [store.privateRoot, store.keysRoot, ...(store.options.backup ? [resolve(store.options.backup.root)] : []), join(homedir(), '.local/state/migration-harness')].some(root => inside(root, value))) throw new Error('Assistant-facing paths cannot resolve inside the private artifact domain.');
   };
   const target = resolve(path);
   check(target);

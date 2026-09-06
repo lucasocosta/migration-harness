@@ -417,3 +417,28 @@ test('LLM trace schema accepts only the exact structural projection', () => {
     assert.equal(LlmSafeTraceSchema.safeParse({ kind: 'LLM_SAFE_TRACE', events: [event] }).success, false);
   }
 });
+
+test('existing React context permits read-only imports without expanding the write boundary', async () => {
+  const { root, runBrief, runApply } = await workspace();
+  try {
+    const context = join(root, 'src/Button.tsx');
+    const before = 'export const Button = () => null;\n';
+    await writeFile(context, before);
+    await runBrief(['--context-files', context]);
+    const briefFile = join(root, 'brief.json');
+    const brief = parseBrief(JSON.parse(await readFile(briefFile, 'utf8')));
+    assert.ok(brief.contextFiles.includes(context));
+    assert.ok(!brief.allowedFiles.some(file => file.path === 'src/Button.tsx'));
+    const body = submission(brief.briefId, [patchFor(CANDIDATE, "import { Button } from './Button'; export const CustomerProfileComponent = Button;", fileHash(INITIAL))]);
+    assert.equal((await runApply(briefFile, body)).stdout.trim(), 'PASS');
+    assert.equal(await readFile(context, 'utf8'), before);
+    await runBrief(['--context-files', context]);
+    const next = parseBrief(JSON.parse(await readFile(briefFile, 'utf8')));
+    assert.equal((await refusal(runApply(briefFile, submission(next.briefId, [patchFor('src/Button.tsx', 'export const Button = 1;', fileHash(before))])))).code, 3);
+    assert.equal(await readFile(context, 'utf8'), before);
+    await writeFile(context, before + '// changed\n');
+    const current = await readFile(join(root, CANDIDATE), 'utf8');
+    assert.equal((await refusal(runApply(briefFile, submission(next.briefId, [patchFor(CANDIDATE, current)])))).code, 3);
+    assert.ok(JSON.parse(await readFile(join(root, 'apply.json'), 'utf8')).refusals.some(item => item.code === 'BASELINE_HASH_MISMATCH'));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

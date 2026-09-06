@@ -7,14 +7,14 @@ import { parseContract, parseRawTrace, parseSanitizedTrace, parseScenario, parse
 import { approveContract, reviewContract, verifyContractIntegrity } from '@migration-harness/contract-review';
 import { sanitizeTrace, synthesizeContract, importOpenApi, importExistingTestEvidence, type SanitizationPolicy } from '@migration-harness/contract-synthesizer';
 import { EquivalenceValidator, parseValidationPolicy } from '@migration-harness/equivalence-validator';
-import { anchorAudit, ArtifactStore, AuditTrail, runRepairLoop, safeArtifactPath, type ArtifactStoreOptions, type AuditEntry } from '@migration-harness/engine';
+import { anchorAudit, ArtifactStore, AuditTrail, runRepairLoop, safeArtifactPath, withFileLock, type ArtifactStoreOptions, type AuditEntry } from '@migration-harness/engine';
 import { fileHash } from '@migration-harness/llm-worker';
 import { issueAssistantBrief, applyAssistantSubmission } from './assistant.js';
-import { publicPath, readPublicJson } from './assistant-files.js';
+import { publicPath, readPublicJson, withAssistantLock } from './assistant-files.js';
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
-  const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'attempt', 'next-out', 'ref-map', 'keys-root', 'backup-root', 'backup-generations', 'store-root', 'audit', 'path', 'prune-key-versions'];
+  const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'context-files', 'attempt', 'next-out', 'ref-map', 'keys-root', 'backup-root', 'backup-generations', 'store-root', 'audit', 'path', 'prune-key-versions'];
   const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const }, encrypt: { type: 'boolean' as const } }, strict: true, allowPositionals: false });
   const flag = (name: string): string | undefined => (values as Record<string, unknown>)[name] as string | undefined;
   const required = (name: string): string => { const value = flag(name); if (!value) throw new Error(`Required flag --${name} is missing.`); return value; };
@@ -30,15 +30,9 @@ async function main(): Promise<void> {
     ...(flag('backup-root') ? { backup: { root: required('backup-root'), ...(flag('backup-generations') ? { keepGenerations: number('backup-generations', 5, 1, 100) } : {}) } } : {}),
   };
   const store = new ArtifactStore(artifactRoot, undefined, storeOptions);
-  const isInside = (base: string, target: string): boolean => { const rel = relative(resolve(base), target); return !!rel && !rel.startsWith('..') && !isAbsolute(rel); };
-  const refusePrivateAuditPath = (value: string): string => {
-    const target = resolve(value);
-    if (target.split(/[\\/]/).includes('.migration-private') || isInside(store.privateRoot, target)) throw new Error('Audit chain file cannot live in the private artifact domain.');
-    return target;
-  };
   const loadAuditChain = async (path: string): Promise<AuditTrail> => {
     let parsed: unknown;
-    try { parsed = JSON.parse(await readFile(path, 'utf8')) as unknown; }
+    try { parsed = await readPublicJson(path, store); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return new AuditTrail(); throw error; }
     if (!Array.isArray(parsed)) throw new Error('Audit chain must be an array of hash-chained entries.');
     return AuditTrail.load(parsed as AuditEntry[]);
@@ -98,7 +92,7 @@ async function main(): Promise<void> {
     }
     // --ref-map is an operator-provided JSON object of external-ref-prefix -> local path; the importer validates it
     // strictly (OpenApiRefMapSchema), refuses private roots and never fetches; unmapped external refs stay review findings.
-    case 'import-openapi': await writeJson(required('out'), importOpenApi(await json(required('input')), required('input'), { ...(flag('ref-map') ? { refMap: await json(required('ref-map')) as Record<string, string> } : {}) })); break;
+    case 'import-openapi': await writeJson(required('out'), importOpenApi(await readPublicJson(required('input'), store), required('input'), { privateRoots: [store.privateRoot, store.keysRoot, ...(store.options.backup ? [store.options.backup.root] : [])], ...(flag('ref-map') ? { refMap: await readPublicJson(required('ref-map'), store) as Record<string, string> } : {}) })); break;
     case 'import-test-evidence': await writeJson(required('out'), importExistingTestEvidence(await json(required('input')), required('input'))); break;
     case 'transform': {
       const { transformAngularComponent } = await import('@migration-harness/codemods');
@@ -153,18 +147,24 @@ async function main(): Promise<void> {
     case 'purge-raw': console.log(await store.purgeRaw(number('retention-hours', 24, 0, 8760) * 3600000)); break;
     case 'rotate-raw-key': {
       const target = new ArtifactStore(resolve(required('store-root')), undefined, storeOptions);
-      const auditPath = refusePrivateAuditPath(required('audit'));
+      const auditPath = await publicPath(await publicPath(required('audit'), target), store);
+      await withAssistantLock(store, target.root, () => withFileLock(`${auditPath}.lock`, async () => {
       const trail = await loadAuditChain(auditPath);
       // Fail-closed: rotateRawKey records RAW_KEY_ROTATION on the trail only after the full sweep succeeds.
       const summary = await target.rotateRawKey(trail, flag('prune-key-versions') === undefined ? undefined : number('prune-key-versions', 1, 1, 64));
       await replaceJson(auditPath, trail.snapshot());
-      console.log(JSON.stringify(summary)); break;
+      console.log(JSON.stringify(summary));
+      })); break;
     }
     case 'anchor-audit': {
-      const auditPath = refusePrivateAuditPath(required('audit'));
-      const { anchor, entries } = await anchorAudit({ entries: await json(auditPath), externalPath: required('path'), privateRoots: [store.privateRoot] });
+      const auditPath = await publicPath(required('audit'), store);
+      const externalPath = await publicPath(required('path'), store);
+      if (externalPath === auditPath) throw new Error('Audit and anchor paths must differ.');
+      await withAssistantLock(store, store.root, () => withFileLock(`${auditPath}.lock`, async () => {
+      const { anchor, entries } = await anchorAudit({ entries: await readPublicJson(auditPath, store), externalPath, privateRoots: [store.privateRoot] });
       await replaceJson(auditPath, entries);
-      console.log(JSON.stringify(anchor)); break;
+      console.log(JSON.stringify(anchor));
+      })); break;
     }
     case 'brief': {
       const brief = await issueAssistantBrief(values, store, policyConfig.assistant);
@@ -191,7 +191,8 @@ async function writeJson(path: string, value: unknown): Promise<void> { await wr
 /** Operator-chain files (audit.json) are extended in place: exclusive temp write, then an atomic rename. */
 async function replaceJson(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.${randomBytes(6).toString('hex')}.tmp`;
-  await writeText(temporary, `${JSON.stringify(value, null, 2)}\n`);
-  await rename(temporary, path);
+  await safeArtifactPath(dirname(path), basename(path));
+  try { await writeText(temporary, `${JSON.stringify(value, null, 2)}\n`); await rename(temporary, path); }
+  finally { await unlink(temporary).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; }); }
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });

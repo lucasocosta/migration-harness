@@ -5,12 +5,39 @@ import { captureScenario } from '../../packages/scenario-runner/dist/index.js';
 import { sanitizeTrace } from '../../packages/trace-sanitizer/dist/index.js';
 import { EquivalenceValidator } from '../../packages/equivalence-validator/dist/index.js';
 import { serviceWorkerFixture } from './serviceworker-fixture.mjs';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const policy = { pseudonymizationKey: 'browser-test-key'.repeat(3), allowedPayloadKeys: ['value'], allowedStorageKeys: ['sw-controlled', 'sw-uncontrolled', 'data-loaded'] };
 const scenario = (scenarioId, extra) => ({
   scenarioId, unitId: 'sw', name: scenarioId, description: '', entryUrl: '/app', preconditions: {}, testDataProfile: 'standard',
   steps: [{ stepId: 'fetch-data', action: 'click', targetRole: 'button', targetName: 'Fetch', completionSignal: { type: 'STORAGE_KEY_SET', storageType: 'localStorage', storageKey: 'data-loaded', timeoutMs: 20000 } }],
   ...extra,
+});
+
+test('service-worker rewrites, cached responses and autonomous requests fail closed', { timeout: 60000 }, async () => {
+  const browser = await chromium.launch();
+  try {
+    for (const mode of ['rewrite', 'cache', 'autonomous']) {
+      const fixture = await serviceWorkerFixture(mode);
+      try {
+        await assert.rejects(captureScenario(scenario(`sw-${mode}`, { entryUrl: `${fixture.url}/app`, serviceWorkers: 'allow' }), 1, { browser }), /Unsupported service-worker traffic/);
+      } finally { await fixture.close(); }
+    }
+  } finally { await browser.close(); }
+});
+
+test('service-worker passthrough honors declared mocks without contacting the backend', { timeout: 60000 }, async () => {
+  const fixture = await serviceWorkerFixture(), browser = await chromium.launch();
+  const root = await mkdtemp(join(tmpdir(), 'harness-sw-mocks-'));
+  try {
+    await writeFile(join(root, 'mock.json'), '{"value":777}');
+    const definition = scenario('sw-mocked', { entryUrl: `${fixture.url}/app`, serviceWorkers: 'allow', preconditions: { mockInitialApiResponses: [{ urlPattern: '**/api/data', method: 'GET', statusCode: 200, fixturePath: 'mock.json' }] } });
+    const captured = await captureScenario(definition, 1, { browser, fixtureBaseDir: root });
+    assert.equal(apiResponses(captured)[0].body.value, 777);
+    assert.equal(fixture.requests.includes('/api/data'), false);
+  } finally { await browser.close(); await fixture.close(); await rm(root, { recursive: true, force: true }); }
 });
 const storageKeys = captured => captured.events.filter(e => e.type === 'STORAGE_DELTA' && e.mutationType === 'SET').map(e => e.key);
 const apiResponses = captured => captured.events.filter(e => e.type === 'HTTP_RESPONSE' && e.url.endsWith('/api/data'));

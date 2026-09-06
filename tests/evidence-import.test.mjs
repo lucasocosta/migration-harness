@@ -102,6 +102,25 @@ const refSpec = schema => ({ openapi: '3.1.0', paths: { '/customers': { post: {
 } } } });
 const importedReason = imported => { assert.deepEqual(imported.invariants, []); assert.equal(imported.unresolved.length, 1); return imported.unresolved[0].reason; };
 
+test('OpenAPI references preserve their document scope through aliases and nested external compositions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'harness-ref-scope-'));
+  try {
+    const main = refSpec({ $ref: '#/components/schemas/Alias' });
+    main.components = { schemas: { Alias: { $ref: '#/components/schemas/Customer' }, Customer: objectSchema(['main']) } };
+    assert.deepEqual(importOpenApi(main, 'main.json').invariants[0].value.payloadRequirements.requiredFields, ['main']);
+    await writeFile(join(root, 'external.json'), JSON.stringify({ components: { schemas: {
+      Customer: objectSchema(['external']), Wrapper: { allOf: [{ $ref: '#/components/schemas/Customer' }] },
+    } } }));
+    await writeFile(join(root, 'wrapper.json'), JSON.stringify({ $ref: 'external.json#/components/schemas/Wrapper' }));
+    main.paths['/customers'].post.requestBody.content['application/json'].schema = { $ref: 'https://schemas.example/wrapper.json' };
+    const result = importOpenApi(main, 'main.json', { refMap: { 'https://schemas.example/': root } });
+    assert.deepEqual(result.unresolved, []);
+    assert.deepEqual(result.invariants[0].value.payloadRequirements.requiredFields, ['external']);
+    const refused = importOpenApi(main, 'main.json', { refMap: { 'https://schemas.example/': root }, privateRoots: [root] });
+    assert.match(importedReason(refused), /private root/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('OpenAPI oneOf extracts only when every branch yields the same observable invariant set', () => {
   const agreed = { oneOf: [objectSchema(['email'], ['nickname']), objectSchema(['email'], ['nickname'])] };
   const imported = importOpenApi(specFor(agreed), 'agree.json');

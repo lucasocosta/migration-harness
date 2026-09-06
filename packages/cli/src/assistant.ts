@@ -1,5 +1,5 @@
 import { readFile, lstat } from 'node:fs/promises';
-import { resolve, relative } from 'node:path';
+import { resolve, relative, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { canonical, computeBriefId, parseApplyResult, parseBrief, parseContract, parseEquivalenceResult, parseMigrationUnit, parsePlan, parseSanitizedTrace, parseScenario, parseSubmission, verifyBriefId, type ApplyRefusal, type ApplyRefusalCode, type ApplyResult, type Submission, type TransformBrief } from '@migration-harness/core';
 import { verifyContractIntegrity } from '@migration-harness/contract-review';
@@ -59,8 +59,17 @@ export async function issueAssistantBrief(flags: Flags, store: ArtifactStore, po
     try { sanitized = parseSanitizedTrace(sourceTrace); } catch { throw new Error('Brief requires a sanitized source trace.'); }
     if (!scenarios.some(item => item.scenarioId === sanitized.scenarioId)) throw new Error('Source trace scenario is outside this brief.');
     const sourceRoot = resolve(option(flags, 'source-root', '.'));
-    const contextFiles = [...new Set(unit.symbols.map(symbol => resolve(sourceRoot, symbol.filePath)))].sort();
-    for (const path of contextFiles) { await publicPath(await safeArtifactPath(sourceRoot, relative(sourceRoot, path)), store); if (!(await lstat(path)).isFile()) throw new Error('Context file must be a regular source file.'); }
+    const sourceFiles = unit.symbols.map(symbol => resolve(sourceRoot, symbol.filePath));
+    const extras = option(flags, 'context-files', '').split(',').filter(Boolean).map(path => resolve(path));
+    const contextFiles = [...new Set([...sourceFiles, ...extras])].sort();
+    for (const path of contextFiles) {
+      const inside = (root: string): boolean => { const rel = relative(root, path); return !!rel && !isAbsolute(rel) && rel !== '..' && !rel.startsWith('../'); };
+      const root = inside(sourceRoot) ? sourceRoot : inside(candidateRoot) ? candidateRoot : undefined;
+      if (!root || !/\.(?:tsx?|json|html|css|scss|md)$/.test(path)) throw new Error('Context files must be explicit source/text files inside source or candidate roots.');
+      await publicPath(await safeArtifactPath(root, relative(root, path)), store);
+      const stat = await lstat(path);
+      if (!stat.isFile() || stat.nlink !== 1) throw new Error('Context file must be an unlinked regular file.');
+    }
     const protectedPaths = [...new Set([required(flags, 'unit'), required(flags, 'plan'), required(flags, 'contract'), required(flags, 'source-trace'), ...scenarioPaths, ...(flags.policy ? [required(flags, 'policy')] : []), ...contextFiles, resolve('AGENTS.md')])];
     const protectedFiles = [];
     for (const path of protectedPaths) {
@@ -163,7 +172,8 @@ export async function applyAssistantSubmission(flags: Flags, store: ArtifactStor
         } catch { fail('PATCH_PATH_OUTSIDE_BOUNDARY', 'Candidate path is not a safe regular file.', allowed.path); }
       }
       for (const patch of submission.patches) {
-        try { validatePatches([patch], files, { allowedFiles: brief.allowedFiles.map(file => file.path), allowedPackages: brief.allowedPackages, maxFiles: brief.allowedFiles.length, maxInputBytes: 1, maxOutputBytes: issued.maxSubmissionBytes, timeoutMs: 1 }, brief.task === 'REPAIR'); }
+        const allowedImportFiles = brief.contextFiles.map(path => relative(candidateRoot, path).replace(/\\/g, '/')).filter(path => path && !isAbsolute(path) && path !== '..' && !path.startsWith('../'));
+        try { validatePatches([patch], files, { allowedFiles: brief.allowedFiles.map(file => file.path), allowedImportFiles, allowedPackages: brief.allowedPackages, maxFiles: brief.allowedFiles.length, maxInputBytes: 1, maxOutputBytes: issued.maxSubmissionBytes, timeoutMs: 1 }, brief.task === 'REPAIR'); }
         catch (error) { const code = workerCode((error as Error).message); fail(code, `Candidate rejected by ${code}.`, patch.path); }
       }
       if (brief.repair && submission.patches.reduce((sum, patch) => sum + changedBytes(files[patch.path] ?? '', patch.content), 0) > brief.repair.editBudgetBytes) fail('EDIT_BUDGET_EXCEEDED', 'The entire repair exceeds its edit budget.');

@@ -71,10 +71,9 @@ test('CLI rotates raw encryption keys and anchors the audit chain, refusing unsa
     assert.equal(inspectSeal(await readFile(await derived.privatePath('raw/unit/update-customer/1.json'))).keyVersion, 2, 'the store sees the CLI-rotated version');
     let chain = JSON.parse(await readFile(auditPath, 'utf8'));
     assert.equal(chain.at(-1).action, 'RAW_KEY_ROTATION'); assert.equal(verifyAudit(chain), true);
-    const pruned = await exec(process.execPath, [cli, 'rotate-raw-key', '--store-root', storeRoot, '--encrypt', '--keys-root', keysRoot, '--audit', auditPath, '--prune-key-versions', '1']);
-    assert.deepEqual(JSON.parse(pruned.stdout).prunedKeyVersions, [2, 1]);
+    await assert.rejects(exec(process.execPath, [cli, 'rotate-raw-key', '--store-root', storeRoot, '--encrypt', '--keys-root', keysRoot, '--audit', auditPath, '--prune-key-versions', '1']), /Automatic key pruning is disabled/);
     chain = JSON.parse(await readFile(auditPath, 'utf8'));
-    assert.equal(chain.filter(e => e.action === 'RAW_KEY_ROTATION').length, 2);
+    assert.equal(chain.filter(e => e.action === 'RAW_KEY_ROTATION').length, 1, 'refused pruning does not mutate audit or key state');
     assert.equal(verifyAudit(chain), true, 'rotation extends the persisted hash chain in place');
     const external = join(root, 'anchor.log');
     await exec(process.execPath, [cli, 'anchor-audit', '--artifact-root', storeRoot, '--audit', auditPath, '--path', external]);

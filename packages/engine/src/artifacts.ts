@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { canonical, parseRawTrace, parseSanitizedTrace, type RawObservedTrace, type SanitizedObservedTrace } from '@migration-harness/core';
-import { inspectSeal, KeyRing, openSeal, replaceFileAtomically, seal } from './sealing.js';
+import { ArtifactAuthFailureError, inspectSeal, KeyRing, openSeal, replaceFileAtomically, seal, withFileLock } from './sealing.js';
 
 export interface ArtifactBackupOptions {
   /** Separate archive root for expired raw files. Never inside the public artifact root, the raw root, or containing it. */
@@ -37,7 +37,7 @@ export class ArtifactStore {
     if (this.options.backup) {
       const backup = resolve(this.options.backup.root);
       if (!Number.isSafeInteger(this.options.backup.keepGenerations) || this.options.backup.keepGenerations < 1) throw new Error('Invalid backup generation budget.');
-      if (inside(this.root, backup)) throw new Error('Backup root cannot live inside the public artifact root.');
+      if (backup === resolve(this.root) || inside(this.root, backup)) throw new Error('Backup root cannot live inside the public artifact root.');
       if (backup === rawRoot || inside(rawRoot, backup) || inside(backup, rawRoot)) throw new Error('Backup root must be separate from the raw artifact domain.');
     }
   }
@@ -66,11 +66,20 @@ export class ArtifactStore {
   }
   async write(path: string, value: unknown, privateArtifact = false): Promise<string> {
     privateArtifact = privateArtifact || path.startsWith('.migration-private/');
+    if (privateArtifact && path.replace(/^\.migration-private\//, '').startsWith('raw/')) {
+      return withFileLock(await this.privatePath('.lifecycle.lock'), () => this.writeArtifact(path, value, true));
+    }
+    return this.writeArtifact(path, value, privateArtifact);
+  }
+  private async writeArtifact(path: string, value: unknown, privateArtifact: boolean): Promise<string> {
     if (!privateArtifact && containsRawTrace(value)) throw new Error('Raw traces cannot be written to the public artifact domain.');
     const relativePath = path.replace(/^\.migration-private\//, '');
     const target = privateArtifact ? await this.privatePath(relativePath) : await safeArtifactPath(this.root, path);
     await mkdir(dirname(target), { recursive: true, mode: privateArtifact ? 0o700 : 0o755 });
     await safeArtifactPath(privateArtifact ? this.privateRoot : this.root, privateArtifact ? relativePath : path);
+    const payload = `${JSON.stringify(value, null, 2)}\n`;
+    const bytes = privateArtifact && this.options.encryptPrivate && relativePath.startsWith('raw/')
+      ? seal(await this.keyRing().active(), Buffer.from(payload)) : payload;
     const file = await open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, privateArtifact ? 0o600 : 0o644);
     try {
       const resolved = await realpath(target), linked = await lstat(target), opened = await file.stat();
@@ -78,9 +87,7 @@ export class ArtifactStore {
       if (privateArtifact && (await file.stat()).mode & 0o077) throw new Error('Private artifact filesystem must enforce mode 0600.');
       // Sealing covers the raw subtree of the private domain only when opted in; everything else keeps the
       // existing byte-exact plaintext behavior (keys never live under raw, so a seal can never key itself).
-      const payload = `${JSON.stringify(value, null, 2)}\n`;
-      await file.writeFile(privateArtifact && this.options.encryptPrivate && relativePath.startsWith('raw/')
-        ? seal(await this.keyRing().active(), Buffer.from(payload)) : payload);
+      await file.writeFile(bytes);
     } finally { await file.close(); }
     return target;
   }
@@ -90,7 +97,10 @@ export class ArtifactStore {
   }
   private async unsealBytes(bytes: Buffer): Promise<Buffer> {
     const sealed = inspectSeal(bytes);
-    if (!sealed) return bytes;
+    if (!sealed) {
+      try { JSON.parse(bytes.toString('utf8')); } catch { throw new ArtifactAuthFailureError('Unrecognized raw artifact: expected sealed content or legacy JSON.'); }
+      return bytes;
+    }
     const key = await this.keyRing().at(sealed.keyVersion);
     return openSeal(sealed, key.version, key.bytes);
   }
@@ -117,6 +127,10 @@ export class ArtifactStore {
    */
   async rotateRawKey(audit: AuditTrail, pruneKeep?: number): Promise<{ activeKeyVersion: number; resealed: number; skipped: number; prunedKeyVersions: number[] }> {
     if (!this.options.encryptPrivate) throw new Error('Key rotation requires an encryption-enabled store.');
+    // A key can still protect retained backups, other stores or offline copies. Without
+    // a complete reference ledger automatic pruning cannot establish safe deletion.
+    if (pruneKeep !== undefined) throw new Error('Automatic key pruning is disabled: retained backups or other stores may still require old versions.');
+    return withFileLock(await this.privatePath('.lifecycle.lock'), async () => {
     const active = await this.keyRing().generate();
     let resealed = 0, skipped = 0;
     for (const file of await this.privateFiles('raw')) {
@@ -126,9 +140,10 @@ export class ArtifactStore {
       await replaceFileAtomically(file.absolute, seal(active, await this.unsealBytes(bytes)), 0o600);
       resealed++;
     }
-    const prunedKeyVersions = pruneKeep === undefined ? [] : await this.keyRing().prune(pruneKeep);
+    const prunedKeyVersions: number[] = [];
     audit.record('RAW_KEY_ROTATION', { activeKeyVersion: active.version, resealed, skipped, prunedKeyVersions });
     return { activeKeyVersion: active.version, resealed, skipped, prunedKeyVersions };
+    });
   }
   /**
    * Raw retention. With a backup root configured, expired files move into a per-purge generation
@@ -140,6 +155,7 @@ export class ArtifactStore {
     if (!Number.isFinite(retentionMs) || retentionMs < 0) throw new Error('Invalid raw retention.');
     const backup = this.options.backup;
     if (backup && !Number.isSafeInteger(now)) throw new Error('Backup generations require an integer retention clock.');
+    return withFileLock(await this.privatePath('.lifecycle.lock'), async () => {
     const rawRoot = await this.privatePath('raw');
     const generation = backup ? join(await this.backupRoot(), `gen-${now}`) : undefined;
     let removed = 0;
@@ -173,9 +189,10 @@ export class ArtifactStore {
         if (/^gen-\d+$/.test(entry.name)) generations.push(entry.name);
         else throw new Error('Unexpected entry in backup root.');
       }
-      for (const stale of generations.sort((a, b) => b.localeCompare(a)).slice(backup.keepGenerations)) await rm(join(root, stale), { recursive: true, force: true });
+      for (const stale of generations.sort((a, b) => Number(b.slice(4)) - Number(a.slice(4))).slice(backup.keepGenerations)) await rm(join(root, stale), { recursive: true, force: true });
     }
     return removed;
+    });
   }
   private async backupRoot(): Promise<string> {
     const root = resolve(this.options.backup!.root);
@@ -249,7 +266,7 @@ export async function anchorAudit(input: { entries: unknown; externalPath: strin
   const trail = AuditTrail.load(structuredClone(input.entries) as AuditEntry[]);
   const chainHeadHash = (input.entries as AuditEntry[]).at(-1)?.hash ?? '';
   const externalPath = resolve(input.externalPath);
-  if (externalPath.split(/[\\/]/).includes('.migration-private') || input.privateRoots.some(base => { const root = resolve(base); return externalPath === root || (relative(root, externalPath) !== '' && !relative(root, externalPath).startsWith('..') && !isAbsolute(relative(root, externalPath))); })) throw new Error('Audit anchor target cannot live in the private artifact domain.');
+  if (externalPath.split(/[\\/]/).includes('.migration-private') || [join(homedir(), '.local/state/migration-harness'), ...input.privateRoots].some(base => { const root = resolve(base); return externalPath === root || (relative(root, externalPath) !== '' && !relative(root, externalPath).startsWith('..') && !isAbsolute(relative(root, externalPath))); })) throw new Error('Audit anchor target cannot live in the private artifact domain.');
   for (let current = externalPath; ;) {
     const stat = await lstat(current).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });
     if (stat?.isSymbolicLink()) throw new Error('Audit anchor target cannot be a symlink.');
@@ -258,6 +275,7 @@ export async function anchorAudit(input: { entries: unknown; externalPath: strin
     current = parent;
   }
   await mkdir(dirname(externalPath), { recursive: true });
+  return withFileLock(`${externalPath}.lock`, async () => {
   const existing = await readFile(externalPath, 'utf8').catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return ''; throw error; });
   let previousAnchorHash: string | undefined;
   const lastLine = existing.split('\n').filter(line => line.trim()).at(-1);
@@ -272,4 +290,5 @@ export async function anchorAudit(input: { entries: unknown; externalPath: strin
   try { await handle.writeFile(`${JSON.stringify(anchor)}\n`); } finally { await handle.close(); }
   trail.record('AUDIT_ANCHORED', { ...anchor });
   return { anchor, entries: trail.snapshot() };
+  });
 }
