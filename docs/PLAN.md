@@ -1,8 +1,8 @@
 # Plano de implementacao - validacao primeiro
 
-Atualizado: 2026-09-07. P1/P2 concluidas como biblioteca; P3 parcial com preflight,
-checks nativos, builds estaticos e captura de suite com reset, sem verificacao comportamental
-consolidada. Autoridade: [RFC v0.3](RFC.md).
+Atualizado: 2026-09-07. P0-P3 concluidas: P1/P2 como bibliotecas e P3 como operacao
+consolidada `prepare-migration`/`verify-migration` com exemplo executavel. Ainda sem
+migracao real verificada por ela. Autoridade: [RFC v0.3](RFC.md).
 Inventario entregue: [STATUS.md](STATUS.md). Nao confundir decisao com entrega.
 
 ## Objetivo e ordem
@@ -20,14 +20,14 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 | P0 - Realinhar documentos | Concluido | 21 documentos/49 links conferidos; hook 8/8; VALIDATION.md |
 | P1 - Contratos de operacao e referencia | Concluido | Configuracao/relatorio/adaptacao e lifecycle da referencia implementados e testados |
 | P2 - Precisao da comparacao | Concluido | Valores, assertivas por unidade/checkpoint, bindings aplicados, read-back de persistencia e repetibilidade source/source |
-| P3 - Verificacao consolidada | Parcial | Checks, builds e captura de suite com reset/estabilidade; faltam referencia/comparacao/CLI integradas |
+| P3 - Verificacao consolidada | Concluido | Operacao prepare/verify com referencia verificada, comparacao, requisitos, checks nativos e relatorio agregado |
 | P4 - Iteracao autonoma | Pendente | Reparos sem brief, historico persistente e limites respeitados |
 | P5 - Cinema ponta a ponta | Pendente | Sessao real, relatorio final e regressao React |
 | P6 - Componente e varias unidades | Pendente | Host de componente e regressao integrada |
 
-Commits de implementacao (2026-09-07): P1/P2 em `c4f319b`; incremento P3 em
-`5079579`; servidores estaticos em `378d730`. A retomada seguinte acrescenta reset
-e captura de suite, detalhados abaixo. Commit nao fecha itens pendentes; P3 continua parcial.
+Commits de implementacao (2026-09-07): P1/P2 em `c4f319b`; P3 em `5079579`,
+`378d730` e `adc61d4`, mais o incremento consolidado desta entrada. Commit nao
+substitui evidencia; aceites registrados em VALIDATION.md.
 
 ## P0 - Documentacao e transicao
 
@@ -206,9 +206,9 @@ diff-check PASS.
 
 Pacotes: cli, engine, scenario-runner, quality-gates.
 
-- [ ] Escolher nomes de comandos e publicar help/configuracao executavel; nao
+- [x] Escolher nomes de comandos e publicar help/configuracao executavel; nao
   reaproveitar silenciosamente flags/resultados existentes com outro significado.
-- [ ] Preflight de ambiente/raizes/portas/fixtures e checks da baseline antes de
+- [x] Preflight de ambiente/raizes/portas/fixtures e checks da baseline antes de
   atribuir erros preexistentes a migracao. Falha preexistente nao satisfaz gate.
 - [x] Executar build/typecheck/lint/testes com configuracao nativa do destino,
   substituindo o compilador isolado como gate principal do perfil padrao.
@@ -220,11 +220,11 @@ Pacotes: cli, engine, scenario-runner, quality-gates.
   nos dois lados com bindings, contextos novos e estabilidade source/source real.
 - [x] Registrar capturas completas, falhas e nao executadas, ligadas ao build e
   com evidencia sanitizada; concluir cleanup antes de gravar o resultado final.
-- [ ] Integrar identidade do build a referencia e ao relatorio da suite efetivamente
+- [x] Integrar identidade do build a referencia e ao relatorio da suite efetivamente
   executada; recusar cache de referencia invalido na operacao consolidada.
-- [ ] Rodar todos os cenarios obrigatorios e regressao do destino; agregar
+- [x] Rodar todos os cenarios obrigatorios e regressao do destino; agregar
   checks/cobertura, requisitos, preservacao, avisos e lacunas em JSON e resumo legivel.
-- [ ] Classificar problema operacional, evidencia insuficiente e regressao com
+- [x] Classificar problema operacional, evidencia insuficiente e regressao com
   diagnosticos localizados; reter tentativas falhas sem mascarar seu resultado.
 
 Aceite: testes CLI/browser de multiplos cenarios, porta ocupada, build obsoleto,
@@ -306,13 +306,29 @@ sem reset, a origem e detectada como instavel. Regressao final 178/178 PASS
 Pilotos separados e builds reais do Cinema nao reexecutados. VALIDATION.md registra
 tambem a execucao anterior e a verificacao apos adiar o carregamento do navegador.
 
-Proxima tarefa P3: vincular esta evidencia a uma referencia versionada valida,
-comparar preservacao/requisitos/regressao do destino, agregar checks e diagnosticos
-seguros e publicar uma operacao CLI com JSON e resumo legivel. Nenhum candidato
-do Cinema foi alterado por estes incrementos.
-Ao integrar a referencia, a estabilidade global deve cobrir o inventario inteiro,
-nao apenas copiar as observacoes do primeiro cenario; capturas ausentes nao aprovam
-essa referencia. Artefatos de outra invocacao nao compartilham a chave efemera.
+Quarto incremento P3 (consolidado): `prepare-migration` estabelece a baseline fixa —
+preflight de ambiente/builds/portas/Chromium, captura source-only da suite com reset
+declarado e uma referencia versionada verificada com evidencia source e chave
+privada propria, tudo em um diretorio de artefatos exclusivo. `verify-migration`
+reconfere essa preparacao contra o destino atual: checks nativos em fase candidate
+comparados a baseline, suite completa nova, comparacao de preservacao, assertivas de
+requisitos, contrato critico opcional e `MIGRATION_REPORT` agregado com resumo
+legivel (`summarizeMigration`). Enfraquecimento de criterio segue exigindo decisao
+do responsavel; a estabilidade global cobre o inventario inteiro e capturas ausentes
+nao verificam a referencia. Evidencia adulterada, build divergente ou origem
+alterada resultam INCONCLUSIVE/FAIL, nunca aprovacao. O exemplo executavel
+`examples/validation-first/` cobre prepare PASS -> verify PASS -> regressao
+controlada FAIL (BEHAVIOR_DIVERGENCE) -> restaurar -> verify PASS.
+
+Verificacao focada: build PASS; 7/7 unitarios (tests/migration-operations.test.mjs)
+e 1/1 browser (tests/browser/migration-verify.test.mjs) novos. Regressao completa
+186/186 (165 unit/CLI + 21 browser), ambos os smokes e diff-check PASS. Pilotos e
+builds reais do Cinema nao reexecutados. Limites: nenhuma migracao real verificada
+por esta operacao; porta ocupada/build obsoleto/timeout no nivel da operacao dependem
+dos testes da biblioteca de builds; iteracao normal do assistente e orcamentos
+persistentes sao a P4. Evidencia em VALIDATION.md.
+
+Proxima etapa: P4, iteracao autonoma do assistente com reparos sem brief.
 
 ## P4 - Assistente ponta a ponta e reparos
 

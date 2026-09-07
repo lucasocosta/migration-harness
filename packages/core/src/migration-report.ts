@@ -11,8 +11,13 @@ export const VerificationIdentitySchema = z.object({
 export const MigrationDiagnosticSchema = z.object({
   code: z.enum(['MISSING_SCENARIO', 'MISSING_REQUIREMENT', 'MISSING_CHECK', 'STALE_EVIDENCE',
     'DUPLICATE_EVIDENCE', 'UNKNOWN_EVIDENCE', 'REFERENCE_UNVERIFIED', 'REFERENCE_MISMATCH', 'CONFIGURATION_MISMATCH',
-    'LEGACY_DIVERGENCE', 'LEGACY_WARNING', 'LEGACY_LIMITED_EVIDENCE', 'EXECUTION_INCOMPLETE', 'MOCKED_COVERAGE', 'CRITICAL_CONTRACT_UNVERIFIED']),
+    'LEGACY_DIVERGENCE', 'LEGACY_WARNING', 'LEGACY_LIMITED_EVIDENCE', 'EXECUTION_INCOMPLETE', 'MOCKED_COVERAGE', 'CRITICAL_CONTRACT_UNVERIFIED',
+    'BEHAVIOR_DIVERGENCE', 'STANDARD_WARNING', 'REQUIREMENT_VIOLATED', 'REQUIREMENT_NOT_EVALUABLE',
+    'NATIVE_CHECK_FAILED', 'NATIVE_CHECK_INCONCLUSIVE', 'BASELINE_RESOLVED', 'SOURCE_UNSTABLE', 'OPERATION_FAILED', 'CRITICAL_CONTRACT_VIOLATED']),
   scenarioId: MigrationIdSchema.optional(), requirementId: MigrationIdSchema.optional(), checkId: MigrationIdSchema.optional(),
+  side: z.enum(['source', 'target']).optional(), stepId: MigrationIdSchema.optional(),
+  category: z.enum(['IMPLEMENTATION', 'OPERATIONAL', 'EVIDENCE', 'BASELINE']).optional(),
+  detailCode: z.string().regex(/^[A-Z][A-Z0-9_]*$/).max(160).optional(),
 }).strict();
 const result = z.object({
   status: VerificationStatusSchema,
@@ -21,7 +26,7 @@ const result = z.object({
 }).strict();
 // Disclosures may accompany a pass; anything else contradicts it.
 const consistentResult = (value: z.infer<typeof result>): boolean => value.status !== 'PASS'
-  || value.diagnostics.every(item => ['LEGACY_WARNING', 'MOCKED_COVERAGE'].includes(item.code));
+  || value.diagnostics.every(item => ['LEGACY_WARNING', 'MOCKED_COVERAGE', 'STANDARD_WARNING', 'BASELINE_RESOLVED'].includes(item.code));
 export const ScenarioVerificationSchema = result.extend({
   identity: VerificationIdentitySchema,
   scenarioId: MigrationIdSchema,
@@ -38,6 +43,8 @@ export const MigrationReportInputSchema = z.object({
   reference: ReferenceVerificationSchema.optional(),
   scenarios: z.array(ScenarioVerificationSchema).max(10000),
   checks: z.array(ProjectCheckVerificationSchema).max(10000),
+  criticalContractStatus: VerificationStatusSchema.optional(),
+  executionDiagnostics: z.array(MigrationDiagnosticSchema).max(10000).optional(),
 }).strict();
 export const MigrationReportSchema = z.object({
   kind: z.literal('MIGRATION_REPORT'), version: z.literal('1'),
@@ -56,11 +63,13 @@ export const MigrationReportSchema = z.object({
   diagnostics: z.array(MigrationDiagnosticSchema).max(10000),
   scenarios: z.array(ScenarioVerificationSchema).max(10000),
   checks: z.array(ProjectCheckVerificationSchema).max(10000),
+  criticalContractStatus: VerificationStatusSchema.optional(),
 }).strict().superRefine((value, ctx) => {
   const issue = (): void => ctx.addIssue({ code: 'custom', message: 'Report status contradicts required evidence' });
   if ([...value.scenarios, ...value.checks].some(item => canonical(item.identity) !== canonical(value.identity))) issue();
   for (const coverage of Object.values(value.requiredCoverage)) if (coverage.received > coverage.expected) issue();
-  if (value.status === 'FAIL' && ![value.preservation, value.requirements, value.projectChecks].includes('FAIL')) issue();
+  if (value.status === 'FAIL' && ![value.preservation, value.requirements, value.projectChecks, value.criticalContractStatus].includes('FAIL')) issue();
+  if (value.status === 'PASS' && value.criticalContractStatus && value.criticalContractStatus !== 'PASS') issue();
   if (value.status === 'PASS' && (value.preservation !== 'PASS' || value.projectChecks !== 'PASS'
     || !['PASS', 'NOT_APPLICABLE'].includes(value.requirements)
     || !value.requiredCoverage.scenarios.expected || !value.requiredCoverage.checks.expected

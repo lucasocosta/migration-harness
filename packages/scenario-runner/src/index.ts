@@ -24,6 +24,12 @@ export interface WebSocketFrameSink {
   handler?: ((direction: WebSocketFrameDirection, url: string, payload: string | Buffer, connectionId: string) => void) | undefined;
 }
 
+export class ScenarioExecutionError extends Error {
+  constructor(readonly code: 'STEP_FAILED' | 'COMPLETION_FAILED' | 'BOOT_FAILED' | 'BUILD_IDENTITY_MISMATCH', readonly stepId?: string) {
+    super(code === 'BUILD_IDENTITY_MISMATCH' ? 'SERVED_BUILD_MISMATCH' : code); this.name = 'ScenarioExecutionError';
+  }
+}
+
 /** Resolve a mock fixture inside the allowed base; refuse escapes, symlinks out of root, and private stores. */
 export async function resolveMockFixture(fixtureBaseDir: string, fixturePath: string): Promise<string> {
   const fixtureBase = await realpath(resolve(fixtureBaseDir));
@@ -49,22 +55,26 @@ export class ScenarioRunner {
     recorder.start();
     const responseCompletion = scenario.completionSignal?.type === 'RESPONSE_RECEIVED' ? this.armCompletionSignal(scenario.completionSignal) : undefined;
     void responseCompletion?.catch(() => undefined);
+    let activeStep: string | undefined;
+    let stage: 'BOOT_FAILED' | 'STEP_FAILED' | 'COMPLETION_FAILED' = 'BOOT_FAILED';
     try {
       const navigation = await this.page.goto(scenario.entryUrl);
       if (this.options.expectedBuild && (!navigation || navigation.status() !== 200 || navigation.fromServiceWorker()
         || new URL(navigation.url()).origin !== this.options.expectedBuild.origin
         || navigation.headers()['x-migration-build'] !== this.options.expectedBuild.buildHash)) {
-        throw new Error('SERVED_BUILD_MISMATCH');
+        throw new ScenarioExecutionError('BUILD_IDENTITY_MISMATCH');
       }
       let beforeStorage = await recorder.captureStorage();
       await recorder.captureAria('initial_mount');
 
       for (const step of scenario.steps) {
+        stage = 'STEP_FAILED'; activeStep = step.stepId;
         await this.executeStep(step, recorder);
         const afterStep = await recorder.captureStorage();
         recorder.recordStorageDeltas(beforeStorage, afterStep);
         beforeStorage = afterStep;
       }
+      stage = 'COMPLETION_FAILED'; activeStep = undefined;
       if (responseCompletion) await responseCompletion;
       else if (scenario.completionSignal) await this.waitForCompletionSignal(scenario.completionSignal);
 
@@ -74,7 +84,7 @@ export class ScenarioRunner {
       return { ...await recorder.finish(scenario.scenarioId, runIndex), completion: { status: 'COMPLETED', completedStepIds: scenario.steps.map(step => step.stepId) } };
     } catch (error) {
       await recorder.abort();
-      throw error;
+      throw error instanceof ScenarioExecutionError || !this.options.expectedBuild ? error : new ScenarioExecutionError(stage, activeStep);
     } finally {
       this.controller.abort();
       if (this.options.webSocketSink) this.options.webSocketSink.handler = undefined;

@@ -15,7 +15,7 @@ function combined(statuses: VerificationStatus[]): VerificationStatus {
 export function buildMigrationReport(configuration: unknown, evidence: unknown): MigrationReport {
   const config = parseMigrationConfig(configuration);
   const input = MigrationReportInputSchema.parse(evidence);
-  const diagnostics: MigrationDiagnostic[] = [];
+  const diagnostics: MigrationDiagnostic[] = [...input.executionDiagnostics ?? []];
   let invalid = false;
   const invalidate = (code: MigrationDiagnostic['code']): void => { diagnostics.push({ code }); invalid = true; };
   if (input.identity.configurationHash !== migrationConfigHash(config) || input.identity.migrationId !== config.migrationId) invalidate('CONFIGURATION_MISMATCH');
@@ -70,7 +70,8 @@ export function buildMigrationReport(configuration: unknown, evidence: unknown):
   const preservation = combined(preservationStates);
   const requirements = requiredRequirements.length ? combined(requirementStates) : 'NOT_APPLICABLE';
   const projectChecks = combined(checkStates);
-  const status = invalid ? 'INCONCLUSIVE' : combined([preservation, projectChecks, ...(requirements === 'NOT_APPLICABLE' ? [] : [requirements])]);
+  const status = invalid ? 'INCONCLUSIVE' : combined([preservation, projectChecks, ...(requirements === 'NOT_APPLICABLE' ? [] : [requirements]),
+    ...(input.criticalContractStatus ? [input.criticalContractStatus] : [])]);
   return MigrationReportSchema.parse({
     kind: 'MIGRATION_REPORT', version: '1', identity: input.identity, evaluatedAt: input.evaluatedAt,
     status, preservation, requirements, projectChecks, referenceStatus: reference?.status ?? 'DECLARED',
@@ -79,7 +80,7 @@ export function buildMigrationReport(configuration: unknown, evidence: unknown):
       requirements: { expected: requiredRequirements.length, received: requiredRequirements.filter(item => scenarios.some(result => result.scenarioId === item.scenarioId && result.requirements.some(result => result.requirementId === item.id))).length },
       checks: { expected: requiredChecks.length, received: requiredChecks.filter(item => checks.some(result => result.checkId === item.id)).length },
     },
-    diagnostics, scenarios, checks,
+    diagnostics, scenarios, checks, ...(input.criticalContractStatus ? { criticalContractStatus: input.criticalContractStatus } : {}),
   });
 }
 

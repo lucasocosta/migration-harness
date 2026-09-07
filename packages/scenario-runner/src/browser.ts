@@ -4,6 +4,10 @@ import { parseScenario, urlPatternMatches, type CompletionSignal, type RawObserv
 import { ScenarioRunner, type ScenarioRunnerOptions, type WebSocketFrameSink } from './index.js';
 
 type WebSocketCompletionSignal = Extract<CompletionSignal, { type: 'WEBSOCKET_FRAME' }>;
+export async function preflightBrowser(): Promise<void> {
+  const browser = await chromium.launch({ timeout: 10000 });
+  await browser.close();
+}
 export function webSocketCompletionSignals(scenario: ScenarioDefinition): WebSocketCompletionSignal[] {
   return [scenario.completionSignal, ...scenario.steps.map(step => step.completionSignal)]
     .filter((signal): signal is WebSocketCompletionSignal => signal?.type === 'WEBSOCKET_FRAME');

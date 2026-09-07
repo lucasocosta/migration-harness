@@ -1,12 +1,14 @@
 # CLI usage
 
-Reference for **implemented commands**, not the future RFC v0.3 workflow.
-See [PLAN.md](PLAN.md) for the consolidated standard operation still to be built.
-No profile flag or aggregate verification command is available yet. Versioned
-config/report schemas and aggregation are available as library APIs only.
+Reference for **implemented commands**. The consolidated standard verification
+operation exists; a full standard agent workflow (normal edits/budgets) remains P4.
+See [PLAN.md](PLAN.md) for the ordered checklist. The restricted profile below is
+unchanged and must not be bypassed. An executable standard example is in
+examples/validation-first/README.md.
 
 | Need | Available operation | Limit |
 | --- | --- | --- |
+| Standard verification (prepare + verify) | `prepare-migration`, `verify-migration` | Declared suite only; not yet exercised by a real migration |
 | Preflight and native build/typecheck/lint/test | `check-projects` | Project-check report only, not behavioral equivalence |
 | Capture a running application | `trace` | One scenario; caller serves the app |
 | Compare sanitized evidence | `compare` | Contract/manifest optional; payloads compared by shape |
@@ -15,9 +17,10 @@ config/report schemas and aggregation are available as library APIs only.
 | Optional assistance | `discover`, `plan`, `transform`, importers | Not universal prerequisites |
 
 Do not simulate the proposed standard profile by disabling restricted checks.
-Managed builds and suite capture are available through the library APIs below;
-consolidated comparison/reference/CLI integration is still pending. Raw-input examples are operator-only;
-they do not authorize an assistant to read private traces or keys.
+Preparation PASS is not migration success; verify PASS applies only to the declared
+suite, requirements and native checks against an unchanged prepared reference.
+Raw-input examples are operator-only; they do not authorize an assistant to read
+private traces or keys.
 
 Install and build:
 
@@ -31,7 +34,7 @@ When pnpm is unavailable, use `npx --yes pnpm@10.15.0` in its place.
 Commands below use `node packages/cli/dist/index.js`; installing the CLI package also exposes `harness`.
 Evidence outputs are created exclusively. Choose a new output path for each verification. The assistant commands may replace their current `--out` brief/apply result; their archived records remain exclusive.
 
-## Native project checks (P3 partial)
+## Native project checks (P3)
 
 Use a version-1 MigrationConfig (examples in tests/project-checks.test.mjs). The
 agent can prepare it from the approved scope; the owner need not type JSON or
@@ -80,6 +83,38 @@ is a separate library operation described below.
 Exit codes: 0 project checks passed; 4 required native check failed; 5 inconclusive;
 1 invalid config/output/I/O. Project PASS is NOT migration success. APIs:
 preflightProjectChecks and runProjectChecks from engine/project-checks.js.
+
+## Consolidated standard verification (P3)
+
+`prepare-migration` establishes the fixed baseline: environment/build preflight,
+source-only suite capture with declared resets, and a verified, hashed versioned
+reference plus source evidence in one exclusive artifact directory. It requires
+`--allow-project-commands` unless `--preflight-only`. `verify-migration` re-verifies
+that same preparation against the current destination: native required checks
+(candidate phase, baseline-compared), a fresh full suite, preservation comparison,
+requirement assertions, optional critical contract and a consolidated
+`MIGRATION_REPORT` with a readable summary. The preparation must come from
+`prepare-migration`; tampering, stale evidence, build mismatch or source drift
+yield INCONCLUSIVE/FAIL, never a pass.
+
+```bash
+node packages/cli/dist/index.js prepare-migration --help
+node packages/cli/dist/index.js prepare-migration --config examples/validation-first/migration.json \
+  --workspace-root . --artifact-path artifacts/example-baseline --allow-project-commands
+node packages/cli/dist/index.js verify-migration --config examples/validation-first/migration.json \
+  --workspace-root . --artifact-path artifacts/example-verify \
+  --preparation artifacts/example-baseline/preparation.json --allow-project-commands
+```
+
+Reference updates require `prepare-migration --previous <preparation.json>`; an
+owner decision reference is accepted only with `--previous`, and weakened criteria
+are refused (`REFERENCE_CHANGE_REQUIRES_OWNER_DECISION`). Raw traces and the shared
+pseudonymization key stay inside the artifact store private area; summaries carry
+codes and structural locations only. Exit codes: 0 PASS; 4 FAIL; 5 INCONCLUSIVE;
+1 invalid input/output or refused reference change. APIs: preflightMigration,
+prepareMigration, verifyMigration and summarizeMigration from
+engine/migration-operations.js. A runnable walkthrough including a controlled
+regression is in examples/validation-first/README.md.
 
 ## Managed static builds (P3 library)
 

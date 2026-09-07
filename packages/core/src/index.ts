@@ -15,3 +15,4 @@ export * from './migration-reference.js';
 export * from './migration-report.js';
 export * from './project-check.js';
 export * from './served-build.js';
+export * from './migration-preparation.js';

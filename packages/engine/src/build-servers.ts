@@ -4,7 +4,7 @@ import { lstat, open, readdir, realpath, rm } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  canonical, parseMigrationConfig, MigrationPathSchema, ServedBuildIdentitySchema,
+  canonical, parseMigrationConfig, parseProjectCheckReport, MigrationPathSchema, ServedBuildIdentitySchema,
   type MigrationConfig, type ProjectCheckReport, type ServedBuildIdentity,
 } from '@migration-harness/core';
 import { preflightProjectChecks, runProjectChecks } from './project-checks.js';
@@ -16,9 +16,9 @@ const MAX_FILES = 5000;
 type Side = 'source' | 'target';
 type BuildErrorCode = 'SERVING_CONFIG_MISSING' | 'UNSAFE_BUILD_DIRECTORY' | 'PORT_IN_USE' | 'SERVER_START_FAILED'
   | 'BUILD_CHECK_FAILED' | 'BUILD_OUTPUT_MISSING' | 'BUILD_OUTPUT_UNSAFE' | 'BUILD_OUTPUT_TOO_LARGE'
-  | 'BUILD_INPUT_CHANGED' | 'BUILD_DISK_CHANGED' | 'HEALTHCHECK_FAILED' | 'ABORTED' | 'SESSION_TIMEOUT' | 'EXECUTION_NOT_AUTHORIZED';
+  | 'BUILD_INPUT_CHANGED' | 'BUILD_DISK_CHANGED' | 'HEALTHCHECK_FAILED' | 'ABORTED' | 'SESSION_TIMEOUT' | 'EXECUTION_NOT_AUTHORIZED' | 'BASELINE_MISMATCH';
 export class ProjectBuildError extends Error {
-  constructor(readonly code: BuildErrorCode, readonly side?: Side) { super(code); this.name = 'ProjectBuildError'; }
+  constructor(readonly code: BuildErrorCode, readonly side?: Side, readonly checks?: ProjectCheckReport) { super(code); this.name = 'ProjectBuildError'; }
 }
 const hash = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 interface Snapshot { files: Map<string, Buffer>; buildHash: string; totalBytes: number; }
@@ -166,9 +166,24 @@ export interface BuildServerSession {
   signal: AbortSignal;
 }
 
+/** Probe declared static output paths and reserve/release ports without cleaning or running project commands. */
+export async function preflightBuildServers(input: { config: unknown; workspaceRoot: string }): Promise<void> {
+  const config = parseMigrationConfig(input.config);
+  if ((await preflightProjectChecks(input)).status !== 'PASS') throw new ProjectBuildError('BUILD_INPUT_CHANGED');
+  const workspace = await realpath(resolve(input.workspaceRoot));
+  const servers: BuildServer[] = [];
+  try {
+    for (const side of ['source', 'target'] as const) {
+      await buildDirectory(workspace, config, side);
+      servers.push(await reserveServer(servingUrl(config[side].baseUrl, side), side));
+    }
+  } finally { await Promise.all(servers.map(server => server.close())); }
+}
+
 /** Builds from clean declared output directories and serves immutable snapshots only for the callback lifetime. */
 export async function withProjectBuildServers<T>(input: {
   config: unknown; workspaceRoot: string; allowProjectCommands?: boolean; signal?: AbortSignal;
+  phase?: 'baseline' | 'candidate'; baseline?: unknown;
 }, use: (session: BuildServerSession) => Promise<T>): Promise<{
   value: T; builds: { source: ServedBuildIdentity; target: ServedBuildIdentity }; checks: ProjectCheckReport;
 }> {
@@ -186,16 +201,24 @@ export async function withProjectBuildServers<T>(input: {
     checkAbort();
     const preflight = await preflightProjectChecks(input);
     if (preflight.status !== 'PASS') throw new ProjectBuildError('BUILD_INPUT_CHANGED');
+    const baseline = input.baseline === undefined ? undefined : parseProjectCheckReport(input.baseline);
+    if (baseline && (input.phase === 'baseline' || baseline.phase !== 'baseline' || baseline.configurationHash !== preflight.configurationHash
+      || baseline.workspaceHash !== preflight.workspaceHash || baseline.preflight.status !== 'PASS'
+      || baseline.inputHashAfter !== baseline.preflight.inputHash || baseline.findings.length)) throw new ProjectBuildError('BASELINE_MISMATCH');
     const workspace = await realpath(resolve(input.workspaceRoot));
     const paths = { source: await buildDirectory(workspace, config, 'source'), target: await buildDirectory(workspace, config, 'target') };
     const urls = { source: servingUrl(config.source.baseUrl, 'source'), target: servingUrl(config.target.baseUrl, 'target') };
     for (const side of ['source', 'target'] as const) { checkAbort(); servers.push(await reserveServer(urls[side], side)); }
     // Both ports are now owned. Never reuse an unrelated server or its preexisting output.
     for (const side of ['source', 'target'] as const) { checkAbort(); await buildDirectory(workspace, config, side); await rm(paths[side], { recursive: true, force: true }); }
-    const checks = await runProjectChecks({ config, workspaceRoot: workspace, phase: 'candidate', allowProjectCommands: true, signal: controller.signal });
+    const checks = await runProjectChecks({ config, workspaceRoot: workspace, phase: input.phase ?? 'candidate',
+      ...(baseline ? { baseline } : {}), allowProjectCommands: true, signal: controller.signal });
     checkAbort();
-    if (checks.status !== 'PASS') throw new ProjectBuildError('BUILD_CHECK_FAILED');
-    if (checks.preflight.inputHash !== preflight.inputHash || checks.inputHashAfter !== preflight.inputHash) throw new ProjectBuildError('BUILD_INPUT_CHANGED');
+    if (checks.preflight.inputHash !== preflight.inputHash || checks.inputHashAfter !== preflight.inputHash) throw new ProjectBuildError('BUILD_INPUT_CHANGED', undefined, checks);
+    if (checks.findings.length || (['source', 'target'] as const).some(side =>
+      checks.checks.some(check => check.side === side && check.commandId === config[side].build!.commandId && check.status !== 'PASS'))) {
+      throw new ProjectBuildError('BUILD_CHECK_FAILED', undefined, checks);
+    }
     const builds = {} as { source: ServedBuildIdentity; target: ServedBuildIdentity };
     for (const [index, side] of (['source', 'target'] as const).entries()) {
       await buildDirectory(workspace, config, side);

@@ -1,10 +1,12 @@
 # Status
 
 Updated: 2026-09-07. Harness branch: `next/angular-forms-and-io`.
-Base of the v0.3 transition: `c663b40`. P1/P2 libraries committed as `c4f319b`.
-P3 native project checks committed as `5079579`. No merge or push performed.
-RFC v0.3 direction is agreed; its standard workflow is **not implemented**.
-[PLAN.md](PLAN.md) is the single ordered implementation checklist.
+Base of the v0.3 transition: `c663b40`. P1/P2 libraries committed as `c4f319b`;
+P3 committed as `5079579` (native checks), `378d730` (managed builds) and
+`adc61d4` (suite capture), plus the consolidated verification operation in the
+latest commit. No merge or push performed.
+RFC v0.3 direction is agreed; P0-P3 are implemented and the standard agent
+iteration (P4) is **not**. [PLAN.md](PLAN.md) is the single ordered checklist.
 
 P1 is complete as a library: versioned configuration and report schemas, config
 fingerprints, a versioned reference with real working-tree input fingerprints and its
@@ -109,26 +111,40 @@ Browser modules load only when capture is requested, not during native-only comm
 Final verification: build, 178/178 tests (158 unit/CLI + 20 browser), both smokes
 and diff check PASS. Standalone pilots and Cinema native builds were not rerun.
 
+The consolidated operation completes P3: `prepare-migration` fixes a verified
+versioned reference from a source-only capture with declared resets, exclusive
+artifacts and an owned private pseudonymization key; `verify-migration` re-checks
+that preparation against the destination (native candidate checks compared to the
+baseline, a fresh full suite, preservation, requirement assertions, optional
+critical contract) and emits a consolidated `MIGRATION_REPORT` with a readable
+summary. Stale evidence, build mismatch, source drift or tampering fail closed;
+weakening criteria still requires an explicit owner decision.
+`examples/validation-first/` is an executable standard example: prepare PASS ->
+verify PASS -> controlled regression FAIL (`BEHAVIOR_DIVERGENCE`) -> restore ->
+verify PASS. Verification: build PASS; 7/7 new unit and 1/1 new browser tests;
+full regression 186/186 (165 unit/CLI + 21 browser); both smokes;
+`git diff --check` PASS. No real migration has been verified by this operation yet.
+
 ## Current product state
 
 | Area | Delivered | Remaining for the standard flow |
 | --- | --- | --- |
-| Execution | Typed scenarios, fresh Chromium contexts, pre-boot mocks/storage, explicit completion, recorder draining, managed suite capture with bindings, declared resets, cancellation and observed source repeatability | Consolidated verification CLI |
-| Comparison | Network shapes/status/params/query/transport, selected payload/response values, unit-scoped semantic assertions with per-application scope, persistence read-back, mocked-coverage disclosure, navigation, storage, ARIA, declared causality, structural diagnostics | Consolidated verification operation |
-| Requirements | Mining, evidence import, approved immutable contracts, critical gates, machine-checkable requirement assertions | Optional contract integration with distinct preservation/requirement outcomes |
-| Evidence | Sanitization, private raw storage for legacy captures, hashes/audit, versioned reference, source stability observations, build-linked suite capture records | Binding comparison/report to a valid reference and the executed suite |
-| Project checks | Native commands via check-projects, baseline comparisons, timeout/cleanup, input preflight and managed builds/reset/capture; restricted gates retained | Baseline/native results in the consolidated migration report |
+| Execution | Typed scenarios, fresh Chromium contexts, pre-boot mocks/storage, explicit completion, recorder draining, managed suite capture with bindings, declared resets, cancellation and observed source repeatability, and the consolidated prepare/verify CLI with managed builds | Real-migration exercise (Cinema, P5) |
+| Comparison | Network shapes/status/params/query/transport, selected payload/response values, unit-scoped semantic assertions with per-application scope, persistence read-back, mocked-coverage disclosure, navigation, storage, ARIA, declared causality, structural diagnostics | Real-migration exercise (P5) |
+| Requirements | Mining, evidence import, approved immutable contracts, critical gates, machine-checkable requirement assertions | Real-migration exercise (P5); no contract weakening without owner decision |
+| Evidence | Sanitization, private raw storage for legacy captures, hashes/audit, versioned reference, source stability observations, build-linked suite capture records, consolidated report bound to a verified reference and the executed suite | Real-migration exercise (P5) |
+| Project checks | Native commands via check-projects, baseline comparisons, timeout/cleanup, input preflight and managed builds/reset/capture; baseline/native results integrated in the consolidated migration report; restricted gates retained | Real-migration exercise (P5) |
 | Agent workflow | Restricted issued briefs, TS/TSX patch submissions, read-only context, hook and audit | Normal scoped edits and end-to-end standard agent without mandatory briefs |
 | Repair | HTTP-method repair and restricted classifier/briefs | Semantic corrections, persistent budgets and implementation versus infrastructure diagnosis |
 | Optional adapters | Angular discovery, partial IO/synchronous forms codemods, OpenAPI/structured-test import, HTTP/Docker worker adapters | Not prerequisites for first standard migration |
 | Documentation | P0 complete: v0.3 RFC, plan, manual/template, scoped handoff and 21 documents reconciled | Keep availability synchronized as each milestone is verified |
 
-No `--profile` or aggregate verify command exists. `compare` already accepts
-optional contract/manifest, but `run` still requires an approved contract and
-handles one scenario with apps already running. Apply PASS is not equivalence.
-The reference library reads project files but starts no build, server or browser;
-the separate check-projects operation runs native checks, not servers. Managed
-servers are currently exposed through the engine library only.
+The consolidated `prepare-migration`/`verify-migration` commands exist with exit
+codes 0 PASS / 4 FAIL / 5 INCONCLUSIVE. The restricted profile is unchanged:
+`compare` accepts optional contract/manifest, `run` still requires an approved
+contract and one scenario with apps already running, and apply PASS is not
+equivalence. Preparation PASS fixes the baseline and approves no migration.
+No profile flag exists, and restricted commands keep their checks.
 
 ## Latest recorded implementation verification
 
@@ -187,10 +203,9 @@ Missing SPEC coverage includes 401, 400-save and other load/save errors.
 
 ## Priorities and deferred scope
 
-Next: finish P3 with preservation/requirement comparison and aggregate evidence
-bound to the captured suite, managed builds and a valid reference, followed by normal
-agent iteration and the Cinema proof. Detailed checkboxes and acceptance are only in
-PLAN.md.
+Next: P4 normal agent iteration (scoped edits, persistent budgets, semantic
+repair), then the Cinema proof through the consolidated operation in P5.
+Detailed checkboxes and acceptance are only in PLAN.md.
 
 Deferred: more Angular codemods/inject() discovery, conditional OpenAPI and arbitrary
 test extraction, broader SW/WS/instrumentation and additional artifact operations.

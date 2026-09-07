@@ -1,5 +1,53 @@
 # Validation record
 
+## P3 consolidated verification operation - 2026-09-07
+
+Based on adc61d4 (managed suite capture). Added the consolidated standard
+operation: `prepare-migration` and `verify-migration` CLI commands,
+`MIGRATION_PREPARATION` (core/migration-preparation.ts) and engine
+migration-operations (`preflightMigration`, `prepareMigration`, `verifyMigration`,
+`summarizeMigration`). `captureProjectSuite` gained an owned shared
+pseudonymization key, baseline/candidate phases, source-only mode and structured
+`ScenarioExecutionError` step/stage codes surfaced on capture records. The
+validation-first example (synthetic Angular source, real-shell React target with
+the candidate implemented) exercises the whole flow, including the documented
+regression recipe.
+
+- Workspace build PASS.
+- Focused new tests: 7/7 unit (tests/migration-operations.test.mjs) and 1/1
+  browser (tests/browser/migration-verify.test.mjs) PASS.
+- Full serial regression PASS: 186/186 (165 unit/CLI + 21 browser), no
+  failures/skips. Commands run separately, wall time about 28.4 min and 3.8 min
+  on /mnt/c: `node --test --test-concurrency=1 tests/*.test.mjs` and
+  `node --test --test-concurrency=1 tests/browser/*.test.mjs`.
+- Both smokes PASS. `git diff --check` PASS. examples/validation-first left
+  byte-identical after the mutation/restore regression.
+- Standalone pilots and Cinema native builds were not rerun in this increment.
+
+Coverage: preparation schema strictness; authorization refusals before any
+artifact write; unsafe artifact/output overlap and private-workspace refusals;
+tampered preparation hash refusal; unreadable pseudonymization key and stale
+evidence fail closed (report INCONCLUSIVE with STALE_EVIDENCE, never PASS);
+preflight-only discipline (preflight.json/started.json without
+preparation.json); CLI option validation and help; and the full example
+lifecycle: prepare PASS -> verify PASS -> controlled candidate regression FAIL
+(BEHAVIOR_DIVERGENCE on the save scenario, exit 4) -> restore -> verify PASS,
+with ports 43120/43153 owned and released by the harness.
+
+Reference integration: the preparation fixes a verified reference and verify
+re-checks it before and after capture, refuses an invalid cache, requires
+complete source evidence (every scenario x run, matching trace hashes, unique
+run IDs) and computes global source stability over the whole inventory; missing
+captures never verify a reference. Served baseline/source-build identity is tied
+to the candidate capture (SOURCE_BUILD_MISMATCH). Report status integrates
+preservation, requirements, native checks and optional critical-contract state;
+PASS requires complete required coverage.
+
+Remaining: no real migration has been verified by this operation yet (Cinema is
+pending P5); operation-level occupied-port/stale-build/timeout behavior relies on
+the managed-build library tests; normal agent iteration and persistent budgets
+are P4.
+
 ## P3 reset and suite capture - 2026-09-07
 
 Based on 378d730 (managed static builds). Added `runProjectReset` and

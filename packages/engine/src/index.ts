@@ -6,3 +6,4 @@ export * from './migration-reference.js';
 export * from './project-checks.js';
 export * from './build-servers.js';
 export * from './capture-suite.js';
+export * from './migration-operations.js';

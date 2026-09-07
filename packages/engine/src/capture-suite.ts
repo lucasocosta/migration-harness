@@ -21,6 +21,7 @@ export interface SuiteCapture {
   reset?: ProjectResetResult;
   buildRunId?: string; buildHash?: string; bindingHash: string;
   traceRunId?: string; traceHash?: string; evidencePath?: string;
+  stepId?: string; executionCode?: string;
 }
 export interface CaptureSuiteResult {
   kind: 'CAPTURE_SUITE'; version: '1'; suiteId: string; configurationHash: string;
@@ -38,6 +39,9 @@ export async function captureProjectSuite(input: {
   config: unknown; workspaceRoot: string;
   /** A new, public workspace-relative directory, outside apps and evaluation inputs. */
   artifactPath: string; allowProjectCommands?: boolean; signal?: AbortSignal;
+  phase?: 'baseline' | 'candidate'; baseline?: unknown; sourceOnly?: boolean;
+  /** Harness-owned shared key for versioned reference comparison; omitted keys remain invocation-local. */
+  pseudonymizationKey?: string;
 }): Promise<CaptureSuiteResult> {
   const config = parseMigrationConfig(input.config);
   if (input.allowProjectCommands !== true) throw new Error('EXECUTION_NOT_AUTHORIZED');
@@ -56,6 +60,7 @@ export async function captureProjectSuite(input: {
   const report: CaptureSuiteResult = { kind: 'CAPTURE_SUITE', version: '1', suiteId: randomUUID(),
     configurationHash: migrationConfigHash(config), status: 'INCONCLUSIVE', captures: [], stability: [] };
   for (const item of config.scenarios) for (const side of ['source', 'target'] as const) {
+    if (input.sourceOnly && side === 'target') continue;
     for (let runIndex = 0; runIndex < (side === 'source' ? config.limits.sourceRuns : 1); runIndex++) {
       report.captures.push({ scenarioId: item.definition.scenarioId, unitId: item.definition.unitId, required: item.required,
         side, runIndex, status: 'NOT_RUN', reason: 'NOT_RUN', bindingHash: digest(scenarioBindingProjection(item, side)) });
@@ -63,11 +68,12 @@ export async function captureProjectSuite(input: {
   }
   await store.write('started.json', report);
   // Raw events stay in memory. A single ephemeral key makes this invocation comparable without retaining raw files or keys.
-  const key = randomBytes(32).toString('hex');
+  const key = input.pseudonymizationKey ?? randomBytes(32).toString('hex');
+  if (key.length < 32) throw new Error('INVALID_PSEUDONYMIZATION_KEY');
   const policy = migrationComparisonPolicy(config.policy);
   let work: Promise<void> | undefined;
   const capture = async (session: BuildServerSession): Promise<void> => {
-    const { captureScenario } = await import('@migration-harness/scenario-runner');
+    const { captureScenario, ScenarioExecutionError } = await import('@migration-harness/scenario-runner');
     report.builds = { source: session.source, target: session.target };
     for (const item of config.scenarios) {
       const runs: SanitizedObservedTrace[] = [];
@@ -99,8 +105,12 @@ export async function captureProjectSuite(input: {
             record.traceRunId = trace.runId; record.traceHash = digest(trace);
             record.status = 'COMPLETED'; delete record.reason;
             if (record.side === 'source') runs.push(trace);
-          } catch {
+          } catch (error) {
             record.status = 'INCONCLUSIVE'; record.reason = session.signal.aborted ? 'ABORTED' : 'CAPTURE_FAILED';
+            if (error instanceof ScenarioExecutionError) {
+              record.executionCode = error.code;
+              if (error.stepId && MigrationIdSchema.safeParse(error.stepId).success) record.stepId = error.stepId;
+            }
           }
         }
         await store.write(`captures/${record.scenarioId}/${record.side}/${record.runIndex}.json`, record);
@@ -112,11 +122,13 @@ export async function captureProjectSuite(input: {
   };
   try {
     const result = await withProjectBuildServers({ config, workspaceRoot: workspace,
+      ...(input.phase ? { phase: input.phase } : {}), ...(input.baseline ? { baseline: input.baseline } : {}),
       allowProjectCommands: true, ...(input.signal ? { signal: input.signal } : {}) }, session => work = capture(session));
     report.builds = result.builds; report.checks = result.checks;
     report.status = report.captures.every(record => record.status === 'COMPLETED') ? 'COMPLETED' : 'INCONCLUSIVE';
   } catch (error) {
     report.failureCode = error instanceof ProjectBuildError ? error.code : 'SUITE_EXECUTION_FAILED';
+    if (error instanceof ProjectBuildError && error.checks) report.checks = error.checks;
   } finally {
     // The managed server deadline may win its callback race; await our cooperative capture cleanup before persisting the result.
     await work?.catch(() => undefined);
