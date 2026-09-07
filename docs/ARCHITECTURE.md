@@ -55,8 +55,12 @@ and PASS/FAIL/INCONCLUSIVE report schemas, a library aggregator and reference
 collection/verification over real project inputs. P2 added selected value comparison,
 unit-scoped semantic assertions, per-application bindings, persistence read-back and
 source repeatability, all with structural diagnostics. P3 now adds check-projects
-for input/cwd preflight and native commands with bounded process cleanup. Server
-coordination, browser-suite orchestration and served-build identity remain pending.
+for input/cwd preflight and native commands with bounded process cleanup, plus
+`withProjectBuildServers` for clean static builds, reserved loopback ports, bounded
+immutable file snapshots, healthchecks and callback-scoped server cleanup.
+`SERVED_BUILD` binds that session to configuration, declared inputs and served bytes;
+build metadata participates in reference environment identity. The complete operation
+still needs reset, browser-suite orchestration and reference/build/report integration.
 
 ## Trust and evidence boundaries
 

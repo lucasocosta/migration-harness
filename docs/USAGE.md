@@ -74,11 +74,70 @@ PROJECT_CHECK_REPORT records native exit codes, safe reasons, byte counts (not r
 stdout/stderr), declared input hashes and baseline comparisons. BASELINE_CHECK_FAILED
 says the same check failed before, not that the root cause is identical; it still
 fails. Input changes, timeouts and launch failure are INCONCLUSIVE. Compiler-message
-parsing, served-build identity and scenario-suite integration remain pending.
+parsing and scenario-suite integration remain pending. Managed served-build identity
+is a separate library operation described below.
 
 Exit codes: 0 project checks passed; 4 required native check failed; 5 inconclusive;
 1 invalid config/output/I/O. Project PASS is NOT migration success. APIs:
 preflightProjectChecks and runProjectChecks from engine/project-checks.js.
+
+## Managed static builds (P3 library)
+
+`withProjectBuildServers` from engine/build-servers.js builds and serves both SPAs
+for the lifetime of an async callback. It is not a new CLI command or a migration
+verdict. Add this optional object to each project in MigrationConfig:
+
+```json
+"build": { "commandId": "build", "outputDir": "dist", "cleanOutput": true }
+```
+
+The referenced command must be kind build and appear as a required check on that
+side. `outputDir` is project-relative and **exclusively generated/disposable**:
+`cleanOutput: true` authorizes removing it before building, without backup/rollback
+of old generated output. Never point it at source code or user work. Declared
+inputs/scope/fixtures/contract and src/public/node_modules output roots are protected.
+Use the actual directory containing index.html, e.g. dist/cinema-web/browser for
+an Angular static browser build. Both baseUrls need distinct explicit non-default HTTP
+ports on 127.0.0.1, localhost or [::1], with no path prefix/query/fragment.
+
+```js
+import { withProjectBuildServers } from '@migration-harness/engine';
+
+const result = await withProjectBuildServers({
+  config, workspaceRoot, allowProjectCommands: true,
+}, async ({ source, target, signal }) => {
+  // Run authorized browser work using these origins and honor cancellation.
+  return await captureBoth({ source, target, signal });
+});
+// result.value: callback result; result.builds: identities; result.checks: native report.
+```
+
+`captureBoth` is caller code, not an implemented harness API. Executable synthetic
+examples: tests/build-servers.test.mjs and tests/browser/build-servers.test.mjs.
+Use fresh browser contexts, the declared service-worker policy and close browser
+resources in finally. The helper owns servers, not arbitrary callback resources;
+callbacks must honor the provided AbortSignal. No reset/scenario suite is implicit.
+
+Both ports are reserved before cleaning or executing commands; an occupied port is
+refused without touching its listener. Native checks finish before apps are served;
+tests needing these origins belong in the callback/scenario stage. Required native
+checks must pass. Each build
+needs nonempty index.html; symlinks, hard-linked files, credential paths and .pem/.key
+artifacts are refused. Limits per side: 8 MiB/file, 64 MiB total, 5000 files and
+10000 entries. Supported static MIME types are served from immutable memory with
+no-store and x-migration-build; source maps/unknown types are fingerprinted but not
+served. Extensionless HTML navigation gets SPA fallback, missing JS does not.
+
+`/__migration_harness_health__` exposes a public SERVED_BUILD descriptor (run UUID,
+origin, configuration/input/build hashes, byte/file counts). Health and disk/input
+hashes are checked again after the callback. Changed output/inputs refuse the result;
+owned servers close on success, error, cancellation and timeout. Errors expose a
+ProjectBuildError code and, when attributable, side. Hashes are consistency evidence
+over declared inputs, not authenticated provenance or a sandbox. Build declarations
+affect the versioned reference environment hash. SSR, custom server commands, proxies,
+HTTPS and automatic port reassignment are not supported by this static adapter.
+Outputs must contain public test assets only: filename checks do not detect secrets
+embedded in compiled JavaScript or other otherwise valid assets.
 
 ## Optional discovery and planning
 

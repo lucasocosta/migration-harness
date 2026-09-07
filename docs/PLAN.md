@@ -1,7 +1,8 @@
 # Plano de implementacao - validacao primeiro
 
-Atualizado: 2026-09-06. P1/P2 concluidas como biblioteca; P3 parcial com preflight
-e checks nativos, sem verificacao comportamental consolidada. Autoridade: [RFC v0.3](RFC.md).
+Atualizado: 2026-09-07. P1/P2 concluidas como biblioteca; P3 parcial com preflight,
+checks nativos e servidores de builds estaticos, sem verificacao comportamental
+consolidada. Autoridade: [RFC v0.3](RFC.md).
 Inventario entregue: [STATUS.md](STATUS.md). Nao confundir decisao com entrega.
 
 ## Objetivo e ordem
@@ -19,7 +20,7 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 | P0 - Realinhar documentos | Concluido | 21 documentos/49 links conferidos; hook 8/8; VALIDATION.md |
 | P1 - Contratos de operacao e referencia | Concluido | Configuracao/relatorio/adaptacao e lifecycle da referencia implementados e testados |
 | P2 - Precisao da comparacao | Concluido | Valores, assertivas por unidade/checkpoint, bindings aplicados, read-back de persistencia e repetibilidade source/source |
-| P3 - Verificacao consolidada | Parcial | check-projects: preflight/baseline/checks nativos; falta servidor/build/cenarios |
+| P3 - Verificacao consolidada | Parcial | Checks nativos e servidores de builds estaticos; faltam reset/suite/relatorio integrado |
 | P4 - Iteracao autonoma | Pendente | Reparos sem brief, historico persistente e limites respeitados |
 | P5 - Cinema ponta a ponta | Pendente | Sessao real, relatorio final e regressao React |
 | P6 - Componente e varias unidades | Pendente | Host de componente e regressao integrada |
@@ -210,10 +211,12 @@ Pacotes: cli, engine, scenario-runner, quality-gates.
   atribuir erros preexistentes a migracao. Falha preexistente nao satisfaz gate.
 - [x] Executar build/typecheck/lint/testes com configuracao nativa do destino,
   substituindo o compilador isolado como gate principal do perfil padrao.
-- [ ] Coordenar comandos declarados, inicializacao/healthcheck e cleanup apenas
-  dos processos pertencentes a execucao, com cwd/argv/timeouts e ambiente autorizado.
-- [ ] Servir o build atual e vincular resultado aos bytes efetivamente testados;
-  rejeitar servidor antigo, entrada alterada durante run e cache de referencia invalido.
+- [x] Coordenar builds declarados e servidores estaticos de SPA com portas reservadas,
+  healthcheck e cleanup proprio, usando cwd/argv/timeouts e ambiente autorizado.
+- [x] Servir snapshots imutaveis de builds novos e identificar os bytes servidos;
+  rejeitar porta ocupada, output antigo e alteracoes durante a sessao.
+- [ ] Integrar identidade do build a referencia e ao relatorio da suite efetivamente
+  executada; recusar cache de referencia invalido na operacao consolidada.
 - [ ] Rodar todos os cenarios obrigatorios e regressao do destino; agregar
   checks/cobertura, requisitos, preservacao, avisos e lacunas em JSON e resumo legivel.
 - [ ] Classificar problema operacional, evidencia insuficiente e regressao com
@@ -235,8 +238,8 @@ da mesma causa. `PROJECT_CHECK_REPORT` nao e `MIGRATION_REPORT`: PASS aqui nao e
 equivalencia. `npm run build` e `npm run lint` reais de apps/react passaram pelo
 executor, sem alterar a API nem desativar checks. O gate isolado restrito fica intacto.
 
-Faltam: servidores/healthcheck/portas, reset executado entre cenarios, identidade
-do build servido, suite source/target completa, adaptacao dos checks ao relatorio
+Pendencias apos aquele incremento: servidores/healthcheck/portas, reset executado
+entre cenarios, identidade do build servido, suite source/target, checks no relatorio
 de migracao e diagnosticos operacionais mais localizados. Executor POSIX/Linux/WSL,
 sem sandbox; processos que escapam deliberadamente do grupo nao sao isolados.
 Este comando nao captura estabilidade nem aprova referencia. Evidencia: VALIDATION.md.
@@ -244,6 +247,34 @@ Este comando nao captura estabilidade nem aprova referencia. Evidencia: VALIDATI
 Verificacao deste incremento: build PASS, unit/CLI 143/143 serializado (11 testes
 novos de checks), ambos os smokes, links/diff-check PASS. Baseline real do React:
 build/lint PASS e arvore limpa. Browser/pilotos nao reexecutados nesta retomada.
+
+Segundo incremento P3: `withProjectBuildServers` (engine/build-servers.ts) executa
+checks nativos e serve os dois builds estaticos somente durante um callback. A
+configuracao opcional `build` declara o comando, outputDir e `cleanOutput: true`:
+consentimento para remover aquele diretorio exclusivamente gerado antes do build.
+As duas portas sao reservadas antes de qualquer limpeza/execucao; porta ocupada
+recusa sem reutilizar servidor ou encerrar processo alheio. Outputs nao podem
+sobrepor inputs/escopo/fixtures/contrato; links e artefatos sensiveis sao recusados.
+
+`SERVED_BUILD` registra UUID, origem, hashes de configuracao/inputs e manifesto dos
+arquivos. O servidor entrega snapshot em memoria, no-store e cabecalho de build;
+healthcheck reconfere identidade. Mutacao de inputs/output invalida o retorno,
+mesmo que os bytes em memoria continuem corretos. Sucesso, erro, abort e timeout
+encerram os servidores proprios. Metadados de build entram no hash de ambiente
+da referencia; configuracoes anteriores sem build mantem a projecao anterior.
+
+Limites: biblioteca para SPA estatica em HTTP loopback, sem SSR/dev-server/proxy;
+nao executa reset/cenarios nem emite MIGRATION_REPORT. O callback deve usar contextos
+novos, respeitar AbortSignal e fechar seus recursos. Hashes cobrem inputs declarados,
+nao autenticam o build nem isolam codigo hostil. Nao preserva output gerado anterior.
+Verificacao: build PASS; 11/11 unitarios novos e 1/1 teste Chromium focado; regressao
+completa 168/168 (154 unit/CLI + 14 browser), ambos os smokes e diff-check PASS.
+Teste Chromium novo cobre ambos os lados e viewports desktop/mobile. VALIDATION.md
+registra comandos/limites; pilotos separados e builds reais do Cinema nao reexecutados.
+
+Proxima tarefa P3: executar reset entre runs, ligar ScenarioRunner e estabilidade
+source/source aos servidores, executar suite source/target e regressao, vincular
+referencia/build/evidencia e agregar diagnosticos seguros em uma operacao CLI.
 
 ## P4 - Assistente ponta a ponta e reparos
 

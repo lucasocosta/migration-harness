@@ -140,7 +140,10 @@ function criteriaWithoutFixtures(config: MigrationConfig, contract?: ReferenceCo
         digest: digestOf({ side: item.side, commandId: command.id, kind: command.kind, argv: command.argv, cwd: command.cwd, timeoutMs: command.timeoutMs }),
       };
     }),
-    policyHash: digestOf(config.policy), environmentHash: digestOf(config.environment), limitsHash: digestOf(config.limits),
+    policyHash: digestOf(config.policy),
+    environmentHash: digestOf(config.source.build || config.target.build
+      ? { environment: config.environment, builds: { source: config.source.build ?? null, target: config.target.build ?? null } }
+      : config.environment), limitsHash: digestOf(config.limits),
     ...(contract ? { criticalContract: contract } : {}),
   };
 }

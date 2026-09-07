@@ -77,11 +77,22 @@ execution, annotates prior failing checks without making them pass and omits raw
 
 PROJECT_PREFLIGHT / PROJECT_CHECK_REPORT are not migration equivalence. Cinema's
 actual React build and lint passed through this executor, without changes to its
-source/API or the restricted isolated TypeScript gate. Server/port/healthcheck,
-served-build identity, reset and browser-suite coordination remain P3 work.
+source/API or the restricted isolated TypeScript gate. Reset and browser-suite
+coordination remain P3 work.
 
 Verification of this increment: build PASS, unit/CLI 143/143 serial, both smokes
 PASS; actual React build/lint PASS. Browser/pilots not rerun here. See VALIDATION.md.
+
+The next P3 increment adds `withProjectBuildServers`: native required builds from
+explicitly disposable output directories, loopback ports reserved before cleaning,
+immutable static SPA snapshots, healthchecks and owned-server cleanup. `SERVED_BUILD`
+identifies configuration, declared inputs and served files. Disk/input changes
+invalidate the session. This is a library, not the consolidated CLI; it does not
+execute scenarios/reset or issue migration success. Static builds only, not SSR.
+Focused verification: 11/11 new unit tests and 1/1 Chromium test across both sides
+and desktop/mobile viewports. Full regression: 168/168 PASS (154 unit/CLI + 14
+browser), build and both smokes PASS. No standalone pilot or Cinema build rerun
+in this increment. Evidence is in VALIDATION.md.
 
 ## Current product state
 
@@ -90,8 +101,8 @@ PASS; actual React build/lint PASS. Browser/pilots not rerun here. See VALIDATIO
 | Execution | Typed scenarios, fresh Chromium contexts, pre-boot mocks/storage, explicit completion, recorder draining, per-side resolved scenarios, source repeatability check | Suite/process coordination and reset execution |
 | Comparison | Network shapes/status/params/query/transport, selected payload/response values, unit-scoped semantic assertions with per-application scope, persistence read-back, mocked-coverage disclosure, navigation, storage, ARIA, declared causality, structural diagnostics | Consolidated verification operation |
 | Requirements | Mining, evidence import, approved immutable contracts, critical gates, machine-checkable requirement assertions | Optional contract integration with distinct preservation/requirement outcomes |
-| Evidence | Sanitization, private raw storage, hashes/audit, optional encryption/rotation/backup/anchor, versioned reference with real input fingerprints and change lifecycle, source stability observations | Binding results to the actually served candidate/build |
-| Project checks | Native commands via check-projects, baseline comparisons, timeout/cleanup and input preflight; restricted isolated gates retained | Integration with served build and behavioral suite |
+| Evidence | Sanitization, private raw storage, hashes/audit, versioned reference, source stability observations, immutable served-build identities | Binding the full scenario suite/report to reference and served build |
+| Project checks | Native commands via check-projects, baseline comparisons, timeout/cleanup, input preflight and managed static SPA builds/servers; restricted gates retained | Integration with reset and behavioral suite |
 | Agent workflow | Restricted issued briefs, TS/TSX patch submissions, read-only context, hook and audit | Normal scoped edits and end-to-end standard agent without mandatory briefs |
 | Repair | HTTP-method repair and restricted classifier/briefs | Semantic corrections, persistent budgets and implementation versus infrastructure diagnosis |
 | Optional adapters | Angular discovery, partial IO/synchronous forms codemods, OpenAPI/structured-test import, HTTP/Docker worker adapters | Not prerequisites for first standard migration |
@@ -101,7 +112,8 @@ No `--profile` or aggregate verify command exists. `compare` already accepts
 optional contract/manifest, but `run` still requires an approved contract and
 handles one scenario with apps already running. Apply PASS is not equivalence.
 The reference library reads project files but starts no build, server or browser;
-the separate check-projects operation runs native checks, not servers.
+the separate check-projects operation runs native checks, not servers. Managed
+servers are currently exposed through the engine library only.
 
 ## Latest recorded implementation verification
 
@@ -160,8 +172,8 @@ Missing SPEC coverage includes 401, 400-save and other load/save errors.
 
 ## Priorities and deferred scope
 
-Next: finish P3 with server/port/healthcheck and served-build identity, then reset,
-full scenario execution and aggregate evidence, followed by normal
+Next: finish P3 with reset, full scenario execution and aggregate evidence bound
+to managed builds and a valid reference, followed by normal
 agent iteration and the Cinema proof. Detailed checkboxes and acceptance are only in
 PLAN.md.
 

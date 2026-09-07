@@ -1,5 +1,44 @@
 # Validation record
 
+## P3 managed static builds - 2026-09-07
+
+Added `withProjectBuildServers`, optional disposable-output build configuration and
+`SERVED_BUILD` identities. The preceding commits are c4f319b (P1/P2), 5079579
+(native checks) and ea769c0 (documentation); this increment is separate.
+
+- Workspace build PASS.
+- Focused new tests: 11/11 unit tests and 1/1 Chromium integration test PASS.
+- Full serial regression PASS: 168/168, comprising 154 unit/CLI and 14 browser
+  tests, no failures/skips, about 535 seconds. Command:
+  `node --test --test-concurrency=1 tests/*.test.mjs tests/browser/*.test.mjs`.
+- Both smokes PASS. Tracked Markdown: 17 files, 49 local links, none missing.
+- Angular/React worktrees clean. No Cinema candidate or evaluation-input edits.
+- `git diff --check` PASS.
+
+Coverage: explicit command/cleanup authorization and generated-directory protection;
+fresh builds, matching health/header identities and immutable serving; occupied
+target port without cleaning the old output or touching its listener; no-op/failed
+builds refusing stale artifacts; callback error, abort and total timeout cleanup;
+input/disk changes invalidating results; symlink, hard-link, credential-name, missing
+index and oversized-file refusal; local-origin configuration; build metadata in the
+reference environment hash; SPA fallback without masking missing JS, source-map
+refusal, method/Host restrictions and HEAD responses. Chromium loads JS and clicks
+the synthetic UI on both origins at 1280x720 and 390x844, with screenshots and no
+page errors. These are public synthetic fixtures, not a Cinema migration.
+
+The first focused run exposed a test-client issue: Node fetch ignored the custom
+Host header. The test now sends it through node:http and verifies the refusal;
+the corrected focused run passed. No failing run was relabeled as a success.
+
+Limits: static SPA library only; no consolidated verification CLI, reset, scenario
+or reference-stability orchestration, final migration report or SSR. Only declared
+inputs are fingerprinted. Public build assets must not contain secrets; filename
+checks are not content sanitization. The callback owns browser resources and must
+honor cancellation. Native commands remain authorized local code, not a sandbox;
+generated output is explicitly disposable and not rolled back. Existing configs
+without build metadata retain the prior environment-hash projection. Standalone
+pilots and actual Cinema builds were not rerun in this increment.
+
 ## Commit organization - 2026-09-07
 
 - c4f319b: P1/P2 configuration, reference lifecycle, comparison and reporting libraries.

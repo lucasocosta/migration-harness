@@ -33,6 +33,8 @@ const project = z.object({
   baseUrl: httpUrl,
   relevantFiles: z.array(MigrationPathSchema).min(1).max(10000),
   commands: z.array(ProjectCommandSchema).max(100),
+  /** Explicit consent to clean an exclusively generated output directory before managed builds. */
+  build: z.object({ commandId: MigrationIdSchema, outputDir: MigrationPathSchema, cleanOutput: z.literal(true) }).strict().optional(),
 }).strict();
 const binding = z.object({
   entryUrl: httpUrl,
@@ -88,6 +90,14 @@ export const MigrationConfigSchema = z.object({
   if (overlaps(value.source.root, value.target.root)) issue('Source and target roots must not overlap');
   for (const side of ['source', 'target'] as const) {
     if (!unique(value[side].commands.map(item => item.id)) || !unique(value[side].relevantFiles)) issue('Duplicate project command or relevant file');
+    const build = value[side].build;
+    if (build) {
+      if (!value[side].commands.some(command => command.id === build.commandId && command.kind === 'build')
+        || !value.checks.some(check => check.side === side && check.commandId === build.commandId && check.required)) issue('Managed build must reference a required build check');
+      const protectedPaths = [...value[side].relevantFiles, ...(side === 'target' ? [...value.target.writePaths, ...value.target.protectedPaths] : [])];
+      if (['src', 'public', 'node_modules'].includes(build.outputDir.split('/')[0]!)
+        || protectedPaths.some(path => overlaps(build.outputDir, path))) issue('Build output overlaps project inputs');
+    }
   }
   if (!unique(value.target.writePaths) || !unique(value.target.protectedPaths)) issue('Duplicate target scope path');
   if (value.target.writePaths.some(write => value.target.protectedPaths.some(protectedPath => overlaps(write, protectedPath)))) issue('Writable and protected paths overlap');

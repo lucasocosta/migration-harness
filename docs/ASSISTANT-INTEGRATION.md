@@ -29,9 +29,12 @@ Required integration capabilities (not current commands):
 Do not invent a `--profile` flag or present this interface as available. Implementation
 milestones and interface decisions live in [PLAN.md](PLAN.md).
 
-P1 now implements the configuration/report schemas and a library aggregator, not
-the operational loop. It consumes collector declarations and does not read/build
-the apps or verify reference provenance. Library entry points and limits: USAGE.md.
+P1/P2 implement configuration/report schemas, reference collection from declared
+project files, change verification, comparison and aggregation as libraries. P3
+adds native checks and managed static build servers, not the complete operational
+loop. Source observations still need orchestration, and hashes do not authenticate
+provenance. Reset, complete scenario execution and reference/build/report binding
+remain pending. Library entry points and limits: USAGE.md.
 
 ## Evaluation independence
 

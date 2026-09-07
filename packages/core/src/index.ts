@@ -14,3 +14,4 @@ export * from './migration-config.js';
 export * from './migration-reference.js';
 export * from './migration-report.js';
 export * from './project-check.js';
+export * from './served-build.js';
