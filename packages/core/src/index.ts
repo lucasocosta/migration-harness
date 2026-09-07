@@ -9,3 +9,7 @@ export * from './equivalence-result.js';
 export * from './schemas.js';
 export * from './normalization.js';
 export * from './brief.js';
+export * from './unit-assertion.js';
+export * from './migration-config.js';
+export * from './migration-reference.js';
+export * from './migration-report.js';

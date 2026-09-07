@@ -20,6 +20,9 @@ const storageType = z.enum(['localStorage', 'sessionStorage']);
 const mutationType = z.enum(['SET', 'REMOVE', 'CLEAR']);
 const role = z.enum(['alert', 'alertdialog', 'application', 'article', 'banner', 'blockquote', 'button', 'caption', 'cell', 'checkbox', 'code', 'columnheader', 'combobox', 'complementary', 'contentinfo', 'definition', 'deletion', 'dialog', 'directory', 'document', 'emphasis', 'feed', 'figure', 'form', 'generic', 'grid', 'gridcell', 'group', 'heading', 'img', 'insertion', 'link', 'list', 'listbox', 'listitem', 'log', 'main', 'marquee', 'math', 'meter', 'menu', 'menubar', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'navigation', 'none', 'note', 'option', 'paragraph', 'presentation', 'progressbar', 'radio', 'radiogroup', 'region', 'row', 'rowgroup', 'rowheader', 'scrollbar', 'search', 'searchbox', 'separator', 'slider', 'spinbutton', 'status', 'strong', 'subscript', 'superscript', 'switch', 'tab', 'table', 'tablist', 'tabpanel', 'term', 'textbox', 'time', 'timer', 'toolbar', 'tooltip', 'tree', 'treegrid', 'treeitem']);
 const timeoutMs = z.number().int().positive().max(300000);
+export const AriaRoleSchema = role;
+export const StorageTypeSchema = storageType;
+export const StorageMutationSchema = mutationType;
 const frameShape: z.ZodType<ScenarioFrameShape> = z.lazy(() => z.record(z.union([z.enum(['any', 'string', 'number', 'boolean', 'null', 'object', 'array']), frameShape])));
 const wsDirection = z.enum(['sent', 'received']);
 export const CompletionSignalSchema = z.discriminatedUnion('type', [
@@ -167,7 +170,7 @@ export const OpenApiRefMapSchema = z.record(z.string().min(1).max(512), z.string
 export const parseOpenApiRefMap = (value: unknown): Record<string, string> => OpenApiRefMapSchema.parse(value) as Record<string, string>;
 
 export const HarnessPolicySchema = z.object({
-  network: z.object({ volatileQueryParams: strings.optional(), volatilePayloadFields: strings.optional(), volatileResponseFields: strings.optional(), volatilePathParams: z.record(strings).optional(), pathTemplates: strings.optional(), comparePayloadShape: z.boolean().optional(), compareStatusCode: z.boolean().optional(), compareResponseShape: z.boolean().optional() }).strict().optional(),
+  network: z.object({ volatileQueryParams: strings.optional(), volatilePayloadFields: strings.optional(), volatileResponseFields: strings.optional(), volatilePathParams: z.record(strings).optional(), pathTemplates: strings.optional(), comparePayloadShape: z.boolean().optional(), compareStatusCode: z.boolean().optional(), compareResponseShape: z.boolean().optional(), comparePayloadValues: z.boolean().optional(), compareResponseValues: z.boolean().optional(), requiredValueFields: z.array(z.object({ method: id.optional(), path: id.optional(), field: z.string().regex(/^(payload|response)(\.[^.\s]+)*$/).max(512) }).strict()).max(1000).optional() }).strict().optional(),
   observables: z.object({ volatileQueryParams: strings.optional(), ignoredStorageKeys: strings.optional(), volatileStorageValues: z.array(z.object({ storageType, key: id }).strict()).optional(), ariaSeverity: severity.optional(), navigationAliases: record.optional() }).strict().optional(),
   websockets: z.object({ volatileWebSocketFields: strings.optional() }).strict().optional(),
   sanitization: z.object({ allowedPayloadKeys: strings.optional(), allowedStorageKeys: strings.optional(), sensitiveKeys: strings.optional() }).strict().optional(),

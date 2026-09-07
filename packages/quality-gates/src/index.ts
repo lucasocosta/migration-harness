@@ -1,4 +1,5 @@
 export * from './evaluate.js';
+export * from './migration-report.js';
 export * from './typescript/index.js';
 export * from './coverage/index.js';
 export * from './a11y/index.js';
