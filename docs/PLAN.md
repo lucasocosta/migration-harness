@@ -1,7 +1,7 @@
 # Plano de implementacao - validacao primeiro
 
 Atualizado: 2026-09-07. P1/P2 concluidas como biblioteca; P3 parcial com preflight,
-checks nativos e servidores de builds estaticos, sem verificacao comportamental
+checks nativos, builds estaticos e captura de suite com reset, sem verificacao comportamental
 consolidada. Autoridade: [RFC v0.3](RFC.md).
 Inventario entregue: [STATUS.md](STATUS.md). Nao confundir decisao com entrega.
 
@@ -20,13 +20,14 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 | P0 - Realinhar documentos | Concluido | 21 documentos/49 links conferidos; hook 8/8; VALIDATION.md |
 | P1 - Contratos de operacao e referencia | Concluido | Configuracao/relatorio/adaptacao e lifecycle da referencia implementados e testados |
 | P2 - Precisao da comparacao | Concluido | Valores, assertivas por unidade/checkpoint, bindings aplicados, read-back de persistencia e repetibilidade source/source |
-| P3 - Verificacao consolidada | Parcial | Checks nativos e servidores de builds estaticos; faltam reset/suite/relatorio integrado |
+| P3 - Verificacao consolidada | Parcial | Checks, builds e captura de suite com reset/estabilidade; faltam referencia/comparacao/CLI integradas |
 | P4 - Iteracao autonoma | Pendente | Reparos sem brief, historico persistente e limites respeitados |
 | P5 - Cinema ponta a ponta | Pendente | Sessao real, relatorio final e regressao React |
 | P6 - Componente e varias unidades | Pendente | Host de componente e regressao integrada |
 
 Commits de implementacao (2026-09-07): P1/P2 em `c4f319b`; incremento P3 em
-`5079579`. Commit nao fecha itens pendentes; a P3 continua parcial.
+`5079579`; servidores estaticos em `378d730`. A retomada seguinte acrescenta reset
+e captura de suite, detalhados abaixo. Commit nao fecha itens pendentes; P3 continua parcial.
 
 ## P0 - Documentacao e transicao
 
@@ -215,6 +216,10 @@ Pacotes: cli, engine, scenario-runner, quality-gates.
   healthcheck e cleanup proprio, usando cwd/argv/timeouts e ambiente autorizado.
 - [x] Servir snapshots imutaveis de builds novos e identificar os bytes servidos;
   rejeitar porta ocupada, output antigo e alteracoes durante a sessao.
+- [x] Executar reset declarado antes de cada captura; rodar todos os cenarios
+  nos dois lados com bindings, contextos novos e estabilidade source/source real.
+- [x] Registrar capturas completas, falhas e nao executadas, ligadas ao build e
+  com evidencia sanitizada; concluir cleanup antes de gravar o resultado final.
 - [ ] Integrar identidade do build a referencia e ao relatorio da suite efetivamente
   executada; recusar cache de referencia invalido na operacao consolidada.
 - [ ] Rodar todos os cenarios obrigatorios e regressao do destino; agregar
@@ -272,9 +277,42 @@ completa 168/168 (154 unit/CLI + 14 browser), ambos os smokes e diff-check PASS.
 Teste Chromium novo cobre ambos os lados e viewports desktop/mobile. VALIDATION.md
 registra comandos/limites; pilotos separados e builds reais do Cinema nao reexecutados.
 
-Proxima tarefa P3: executar reset entre runs, ligar ScenarioRunner e estabilidade
-source/source aos servidores, executar suite source/target e regressao, vincular
-referencia/build/evidencia e agregar diagnosticos seguros em uma operacao CLI.
+Terceiro incremento P3: `captureProjectSuite` coordena builds/servidores, reset,
+capturas e estabilidade. Executa `limits.sourceRuns` vezes cada cenario na origem
+e uma no destino, incluindo opcionais. `runProjectReset` reaproveita o executor
+nativo com autorizacao, cwd, timeout, cleanup e reconferencia de inputs. Um reset
+com erro impede aquela captura, sem esconder os outros cenarios; isolamento de
+fixtures significa contexto novo, nao limpeza presumida de backend externo.
+
+O runner aplica bindings/ambiente e confere o cabecalho do build na navegacao real
+apos o seed de storage. Recebe AbortSignal, fecha apenas seu contexto e preserva
+browser fornecido pelo chamador. A suite usa um diretorio publico novo e exclusivo,
+fora de apps/fixtures/contrato, registra inventario inicial, resultado de cada run
+e `capture-suite.json` final. Hashes de trace/binding e identidade do build ligam
+as capturas ao que foi executado. Raw fica somente em memoria; chave efemera comum
+serve aos dois lados nesta invocacao. Nao ha cache/comparacao entre invocacoes.
+
+`CAPTURE_SUITE.COMPLETED` significa captura completa, nao equivalencia: origem
+instavel pode ter todas as capturas completas e fica explicitamente UNSTABLE.
+Falhas operacionais/mutacao de inputs ou build tornam a suite INCONCLUSIVE, mesmo
+com capturas anteriores completas. Ainda nao produz MIGRATION_REPORT, nao aplica
+assertivas ao destino e nao emite/atualiza uma referencia. Nao reaprova criterios.
+
+Verificacao focada: build PASS, 4/4 testes de reset/carregamento e 6/6 browser novos.
+Playwright so e carregado quando a captura e solicitada, sem custo nos outros comandos.
+Backend sintetico com estado prova reset antes de cada uma de seis capturas;
+sem reset, a origem e detectada como instavel. Regressao final 178/178 PASS
+(158 unit/CLI + 20 browser), build, ambos os smokes e diff-check PASS.
+Pilotos separados e builds reais do Cinema nao reexecutados. VALIDATION.md registra
+tambem a execucao anterior e a verificacao apos adiar o carregamento do navegador.
+
+Proxima tarefa P3: vincular esta evidencia a uma referencia versionada valida,
+comparar preservacao/requisitos/regressao do destino, agregar checks e diagnosticos
+seguros e publicar uma operacao CLI com JSON e resumo legivel. Nenhum candidato
+do Cinema foi alterado por estes incrementos.
+Ao integrar a referencia, a estabilidade global deve cobrir o inventario inteiro,
+nao apenas copiar as observacoes do primeiro cenario; capturas ausentes nao aprovam
+essa referencia. Artefatos de outra invocacao nao compartilham a chave efemera.
 
 ## P4 - Assistente ponta a ponta e reparos
 

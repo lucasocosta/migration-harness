@@ -59,8 +59,12 @@ for input/cwd preflight and native commands with bounded process cleanup, plus
 `withProjectBuildServers` for clean static builds, reserved loopback ports, bounded
 immutable file snapshots, healthchecks and callback-scoped server cleanup.
 `SERVED_BUILD` binds that session to configuration, declared inputs and served bytes;
-build metadata participates in reference environment identity. The complete operation
-still needs reset, browser-suite orchestration and reference/build/report integration.
+build metadata participates in reference environment identity. `captureProjectSuite`
+now coordinates native resets and all configured scenarios, uses the runner's
+cancellation/build-navigation checks, sanitizes in memory and persists build-linked
+capture outcomes plus observed source stability. It does not compare source/target
+or issue/update references. The complete operation still needs reference integration,
+comparison/assertions, aggregate reporting and CLI exposure.
 
 ## Trust and evidence boundaries
 

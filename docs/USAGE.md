@@ -15,8 +15,8 @@ config/report schemas and aggregation are available as library APIs only.
 | Optional assistance | `discover`, `plan`, `transform`, importers | Not universal prerequisites |
 
 Do not simulate the proposed standard profile by disabling restricted checks.
-Suite coverage and served-build freshness still need coordination beyond native
-checks. Raw-input examples below are operator-only;
+Managed builds and suite capture are available through the library APIs below;
+consolidated comparison/reference/CLI integration is still pending. Raw-input examples are operator-only;
 they do not authorize an assistant to read private traces or keys.
 
 Install and build:
@@ -138,6 +138,65 @@ affect the versioned reference environment hash. SSR, custom server commands, pr
 HTTPS and automatic port reassignment are not supported by this static adapter.
 Outputs must contain public test assets only: filename checks do not detect secrets
 embedded in compiled JavaScript or other otherwise valid assets.
+
+## Suite capture and reset (P3 library)
+
+`captureProjectSuite` composes managed builds, reset, scenario capture and source
+stability. It does not compare the applications, evaluate target assertions, issue
+a reference or return MIGRATION_REPORT. No new CLI command is introduced yet.
+
+```js
+import { captureProjectSuite } from './packages/engine/dist/index.js';
+
+const capture = await captureProjectSuite({
+  config, workspaceRoot: process.cwd(),
+  artifactPath: 'artifacts/example/capture-001',
+  allowProjectCommands: true,
+});
+```
+
+Use the configured managed build objects from the previous section. `artifactPath`
+must name a NEW workspace-relative public directory, outside both applications,
+scenario fixtures and the optional critical contract. Existing directories are
+refused before any build cleanup or execution. Each invocation retains started.json,
+per-run records in captures/, sanitized traces and a final capture-suite.json.
+Outputs are not overwritten. Raw events and the shared pseudonymization key stay
+only in memory; evidence is comparable within this invocation, not a cross-run
+reference cache. The summary contains structural metadata, not observed values.
+
+For every configured scenario, including optional ones, the suite runs
+limits.sourceRuns captures on source and one on target. It applies the configured
+route/control bindings, locale, viewport, fixture root and allowed origins; the
+application origin is always included. Each run gets a fresh context, checks the
+served build header on navigation and records its trace/build/binding identity.
+
+With reset.kind COMMANDS, sourceCommandId and targetCommandId name commands of
+kind reset in their respective projects. `runProjectReset` executes the appropriate
+command BEFORE EACH capture with the native executor's authorization, cwd, output
+limits, timeout, process cleanup and input recheck. State files a reset changes must
+not be declared immutable evaluation inputs. A reset nonzero exit/timeout is
+INCONCLUSIVE and prevents that capture; other scenarios are still attempted while
+the session budget permits. Only trusted test-backend commands are appropriate.
+
+ISOLATED_FIXTURES uses a new browser context without running a backend command.
+It is not proof that an external backend was cleaned. Repeated source captures are
+compared under the configured policy; changing backend state can produce UNSTABLE
+despite every browser context being fresh. Mocked persistence still requires the
+separate P2 read-back rules when final comparison is integrated.
+
+CAPTURE_SUITE.status is COMPLETED or INCONCLUSIVE, never a migration PASS. A source
+can be UNSTABLE with COMPLETED captures. Missing executions are NOT_RUN; reset and
+capture failures retain safe reasons and their scenario/side/run identity. Final
+build/input changes invalidate the suite even if individual captures succeeded.
+An optional AbortSignal cancels the run; native processes, contexts and servers are
+closed before the final result is written. Browser launch/setup may take time to
+settle before cleanup. Filesystem failure can leave only the initial/per-run records;
+absence of a final summary is not completion.
+
+Executable synthetic examples: tests/project-reset.test.mjs and
+tests/browser/capture-suite.test.mjs. The latter uses a controlled stateful backend
+to verify resets and to demonstrate instability without them. Library output is a
+capture manifest, not the finished standard migration workflow.
 
 ## Optional discovery and planning
 

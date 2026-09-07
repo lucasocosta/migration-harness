@@ -137,6 +137,12 @@ importers:
       '@migration-harness/quality-gates':
         specifier: workspace:*
         version: link:../quality-gates
+      '@migration-harness/scenario-runner':
+        specifier: workspace:*
+        version: link:../scenario-runner
+      '@migration-harness/trace-sanitizer':
+        specifier: workspace:*
+        version: link:../trace-sanitizer
 
   packages/equivalence-validator:
     dependencies:

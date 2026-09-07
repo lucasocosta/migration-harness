@@ -77,8 +77,8 @@ execution, annotates prior failing checks without making them pass and omits raw
 
 PROJECT_PREFLIGHT / PROJECT_CHECK_REPORT are not migration equivalence. Cinema's
 actual React build and lint passed through this executor, without changes to its
-source/API or the restricted isolated TypeScript gate. Reset and browser-suite
-coordination remain P3 work.
+source/API or the restricted isolated TypeScript gate. The subsequent increments
+below add managed servers and suite capture.
 
 Verification of this increment: build PASS, unit/CLI 143/143 serial, both smokes
 PASS; actual React build/lint PASS. Browser/pilots not rerun here. See VALIDATION.md.
@@ -94,15 +94,30 @@ and desktop/mobile viewports. Full regression: 168/168 PASS (154 unit/CLI + 14
 browser), build and both smokes PASS. No standalone pilot or Cinema build rerun
 in this increment. Evidence is in VALIDATION.md.
 
+`captureProjectSuite` now coordinates those builds with declared reset commands,
+fresh Chromium contexts, applied bindings and all configured scenarios: repeated
+source runs, one target run and per-scenario source stability. The runner checks
+the build identity on actual document navigation and supports cancellation without
+closing a caller-owned browser. An exclusive public run directory retains the
+inventory, per-capture outcomes and CAPTURE_SUITE summary, with hashes and sanitized
+evidence paths. Raw events/key stay in memory; comparisons are within this invocation.
+COMPLETED means capture completion, never migration equivalence; an unstable source
+is disclosed, reset/capture failures remain visible, missing runs stay NOT_RUN and
+build/input invalidation prevents successful completion. Reference/report integration
+and CLI exposure remain pending. Focused tests: 4 reset/loading + 6 browser PASS.
+Browser modules load only when capture is requested, not during native-only commands.
+Final verification: build, 178/178 tests (158 unit/CLI + 20 browser), both smokes
+and diff check PASS. Standalone pilots and Cinema native builds were not rerun.
+
 ## Current product state
 
 | Area | Delivered | Remaining for the standard flow |
 | --- | --- | --- |
-| Execution | Typed scenarios, fresh Chromium contexts, pre-boot mocks/storage, explicit completion, recorder draining, per-side resolved scenarios, source repeatability check | Suite/process coordination and reset execution |
+| Execution | Typed scenarios, fresh Chromium contexts, pre-boot mocks/storage, explicit completion, recorder draining, managed suite capture with bindings, declared resets, cancellation and observed source repeatability | Consolidated verification CLI |
 | Comparison | Network shapes/status/params/query/transport, selected payload/response values, unit-scoped semantic assertions with per-application scope, persistence read-back, mocked-coverage disclosure, navigation, storage, ARIA, declared causality, structural diagnostics | Consolidated verification operation |
 | Requirements | Mining, evidence import, approved immutable contracts, critical gates, machine-checkable requirement assertions | Optional contract integration with distinct preservation/requirement outcomes |
-| Evidence | Sanitization, private raw storage, hashes/audit, versioned reference, source stability observations, immutable served-build identities | Binding the full scenario suite/report to reference and served build |
-| Project checks | Native commands via check-projects, baseline comparisons, timeout/cleanup, input preflight and managed static SPA builds/servers; restricted gates retained | Integration with reset and behavioral suite |
+| Evidence | Sanitization, private raw storage for legacy captures, hashes/audit, versioned reference, source stability observations, build-linked suite capture records | Binding comparison/report to a valid reference and the executed suite |
+| Project checks | Native commands via check-projects, baseline comparisons, timeout/cleanup, input preflight and managed builds/reset/capture; restricted gates retained | Baseline/native results in the consolidated migration report |
 | Agent workflow | Restricted issued briefs, TS/TSX patch submissions, read-only context, hook and audit | Normal scoped edits and end-to-end standard agent without mandatory briefs |
 | Repair | HTTP-method repair and restricted classifier/briefs | Semantic corrections, persistent budgets and implementation versus infrastructure diagnosis |
 | Optional adapters | Angular discovery, partial IO/synchronous forms codemods, OpenAPI/structured-test import, HTTP/Docker worker adapters | Not prerequisites for first standard migration |
@@ -172,8 +187,8 @@ Missing SPEC coverage includes 401, 400-save and other load/save errors.
 
 ## Priorities and deferred scope
 
-Next: finish P3 with reset, full scenario execution and aggregate evidence bound
-to managed builds and a valid reference, followed by normal
+Next: finish P3 with preservation/requirement comparison and aggregate evidence
+bound to the captured suite, managed builds and a valid reference, followed by normal
 agent iteration and the Cinema proof. Detailed checkboxes and acceptance are only in
 PLAN.md.
 

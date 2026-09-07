@@ -1,5 +1,49 @@
 # Validation record
 
+## P3 reset and suite capture - 2026-09-07
+
+Based on 378d730 (managed static builds). Added `runProjectReset` and
+`captureProjectSuite`; the shared browser capture now accepts cancellation and
+an expected served-build identity. Internal workspace dependencies were added
+for the existing runner/sanitizer, without upgrading external packages.
+
+- Build PASS after resolving strict optional-property typing at the library boundary.
+- Initial focused tests: 9/9 PASS; first full serial regression: 177/177 PASS
+  (157 unit/CLI + 20 browser), about 699 seconds.
+- Follow-up: deferred Playwright loading until capture is requested. A standalone
+  import cost about 1.7s here; non-browser engine operations must not load it.
+  Added a module-loading regression; final focused tests 10/10 PASS (4 reset/loading
+  tests + 6 browser). Full regression after this adjustment: 178/178 PASS
+  (158 unit/CLI + 20 browser), no failures/skips, about 517 seconds, with
+  `node --test --test-concurrency=1 tests/*.test.mjs tests/browser/*.test.mjs`.
+- Both smokes PASS. Tracked Markdown links: 17 documents, 49 local links, none missing.
+- Final diff check PASS; cloned Angular/React worktrees remain clean. Standalone
+  pilots and Cinema native builds were not rerun in this increment.
+
+The synthetic stateful backend records reset/read ordering for two scenarios,
+two source runs and one target run each: six resets before six reads. Bound source
+and target controls/routes differ. Evidence is sanitized, has distinct trace IDs
+and carries matching build/binding hashes. With no backend reset, both scenarios
+become UNSTABLE even with fresh contexts. Failed resets prevent their captures;
+scenario errors do not hide remaining scenarios; total timeout records NOT_RUN
+and closes owned resources before persisting the summary. Output collisions and
+project-local outputs are refused before builds; failed builds leave an explicit
+inconclusive inventory. Wrong served-document identity is refused. Cancelling a
+capture leaves a caller-provided browser connected with no leaked contexts.
+
+Reset tests cover explicit authorization, public output omission, native nonzero
+exit/timeout/cancellation, input mutation and independently checked reset cwd.
+ISOLATED_FIXTURES runs no project command and makes no claim to clear an external
+backend. Raw trace/key retention is intentionally absent from the new suite API:
+one ephemeral shared key is used in memory for an invocation. Sanitized evidence
+is not a cross-invocation reference cache.
+
+No source/target comparison or target assertions are run by this operation yet;
+CAPTURE_SUITE.COMPLETED is not migration equivalence. Per-scenario stability has
+not been attached to a versioned reference or aggregate report. The standard CLI,
+reference reuse/invalidation integration and final migration reporting are pending.
+No Cinema candidate, approved criteria or application source changes were made.
+
 ## P3 managed static builds - 2026-09-07
 
 Added `withProjectBuildServers`, optional disposable-output build configuration and

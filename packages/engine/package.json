@@ -13,6 +13,8 @@
     "@migration-harness/core": "workspace:*",
     "@migration-harness/contract-review": "workspace:*",
     "@migration-harness/equivalence-validator": "workspace:*",
-    "@migration-harness/quality-gates": "workspace:*"
+    "@migration-harness/quality-gates": "workspace:*",
+    "@migration-harness/scenario-runner": "workspace:*",
+    "@migration-harness/trace-sanitizer": "workspace:*"
   }
 }

@@ -61,6 +61,37 @@ export async function preflightProjectChecks(input: { config: unknown; workspace
 }
 
 type Outcome = Pick<NativeCheckResult, 'status' | 'reason' | 'exitCode' | 'durationMs' | 'output'>;
+export interface ProjectResetResult {
+  kind: 'ISOLATED_FIXTURES' | 'COMMANDS';
+  side: ProjectSide;
+  status: 'PASS' | 'INCONCLUSIVE';
+  reason: Outcome['reason'] | 'ISOLATED_CONTEXT' | 'EXECUTION_NOT_AUTHORIZED' | 'INPUT_CHANGED' | 'CWD_UNAVAILABLE';
+  commandId?: string;
+  outcome?: Outcome;
+}
+
+/** Run the declared reset, with the same authorization, process bounds and input checks as native checks. */
+export async function runProjectReset(input: {
+  config: unknown; workspaceRoot: string; side: ProjectSide; allowProjectCommands?: boolean; signal?: AbortSignal;
+}): Promise<ProjectResetResult> {
+  const config = parseMigrationConfig(input.config);
+  if (!['source', 'target'].includes(input.side)) throw new Error('Invalid reset side');
+  const base = { kind: config.reset.kind, side: input.side };
+  if (input.allowProjectCommands !== true) return { ...base, status: 'INCONCLUSIVE', reason: 'EXECUTION_NOT_AUTHORIZED' };
+  if (input.signal?.aborted) return { ...base, status: 'INCONCLUSIVE', reason: 'ABORTED' };
+  if (config.reset.kind === 'ISOLATED_FIXTURES') return { ...base, status: 'PASS', reason: 'ISOLATED_CONTEXT' };
+  const preflight = await preflightProjectChecks(input);
+  if (preflight.status !== 'PASS') return { ...base, status: 'INCONCLUSIVE', reason: 'INPUT_CHANGED' };
+  const commandId = config.reset[`${input.side}CommandId`];
+  const command = config[input.side].commands.find(item => item.id === commandId)!;
+  const workspace = await workspacePath(input.workspaceRoot);
+  const cwd = await commandCwd(workspace, config, input.side, command).catch(() => undefined);
+  if (!cwd) return { ...base, commandId, status: 'INCONCLUSIVE', reason: 'CWD_UNAVAILABLE' };
+  const outcome = await execute(command, cwd, Math.min(command.timeoutMs, config.limits.maxDurationMs), input.signal);
+  const after = await preflightProjectChecks(input);
+  if (after.status !== 'PASS' || after.inputHash !== preflight.inputHash) return { ...base, commandId, outcome, status: 'INCONCLUSIVE', reason: 'INPUT_CHANGED' };
+  return { ...base, commandId, outcome, status: outcome.status === 'PASS' ? 'PASS' : 'INCONCLUSIVE', reason: outcome.reason };
+}
 const notRun = (): Outcome => ({ status: 'INCONCLUSIVE', reason: 'NOT_RUN', exitCode: null, durationMs: 0,
   output: { omitted: true, stdoutBytes: 0, stderrBytes: 0 } });
 

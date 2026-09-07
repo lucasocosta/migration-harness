@@ -9,6 +9,8 @@ export * from './browser.js';
 type StorageSnapshot = { local: Record<string, string>; session: Record<string, string> };
 
 export interface ScenarioRunnerOptions {
+  /** Optional managed static build identity checked on the real application navigation, after storage seeding. */
+  expectedBuild?: { origin: string; buildHash: string };
   fixtureBaseDir?: string;
   traceRecorder?: TraceRecorderOptions;
   allowedOrigins?: string[];
@@ -48,7 +50,12 @@ export class ScenarioRunner {
     const responseCompletion = scenario.completionSignal?.type === 'RESPONSE_RECEIVED' ? this.armCompletionSignal(scenario.completionSignal) : undefined;
     void responseCompletion?.catch(() => undefined);
     try {
-      await this.page.goto(scenario.entryUrl);
+      const navigation = await this.page.goto(scenario.entryUrl);
+      if (this.options.expectedBuild && (!navigation || navigation.status() !== 200 || navigation.fromServiceWorker()
+        || new URL(navigation.url()).origin !== this.options.expectedBuild.origin
+        || navigation.headers()['x-migration-build'] !== this.options.expectedBuild.buildHash)) {
+        throw new Error('SERVED_BUILD_MISMATCH');
+      }
       let beforeStorage = await recorder.captureStorage();
       await recorder.captureAria('initial_mount');
 
