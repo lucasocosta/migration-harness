@@ -1,5 +1,9 @@
 # Real Angular/React pilot
 
+This is an implemented v0.2 synthetic integration fixture retained for regression.
+It is not the RFC v0.3 standard end-to-end assistant workflow. See
+[the implementation plan](../../docs/PLAN.md) for that acceptance milestone.
+
 Run `pnpm pilot` from the repository root after installing dependencies and Chromium.
 
 The fixture boots real Angular 19 in Chromium, transforms a supported standalone component to React with the codemod, and executes the same scenario using the TypeScript ScenarioRunner. Angular's async code is compiled for ES2016 so Zone.js can track Promise continuations.
@@ -16,4 +20,4 @@ Run `pnpm pilot:assistant` to exercise the real `brief`, `apply-patch` and `run 
 
 The fixture selects structural/critical invariants before synthetic approval: runtime ARIA observations can contain pseudonyms and must not enter any section of a brief. Approved contracts are never stripped or rehashed to bypass a refusal. Three briefs and four apply results are archived under `artifacts/pilot-assistant-*`.
 
-This script simulates the assistant with deterministic codemod output. It does not satisfy the separate recorded human-driven, brief-only session in `docs/ASSISTANT-INTEGRATION.md` section 6.2. No generated candidate is production-approved by this demonstration.
+This script simulates the assistant with deterministic codemod output. It does not prove a real assistant session. A clean-context recording is optional restricted-profile evidence under RFC v0.3, not a universal product gate. No generated candidate is production-approved by this demonstration.

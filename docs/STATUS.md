@@ -1,158 +1,191 @@
 # Status
 
-Updated: 2026-09-06. Branch `next/angular-forms-and-io`, on top of commit `3b0fad2`
-plus an uncommitted correction set (audit findings R1-R9, read-only destination
-context, Copilot manual and migration agents).
+Updated: 2026-09-07. Harness branch: `next/angular-forms-and-io`.
+Base of the v0.3 transition: `c663b40`. P1/P2 libraries committed as `c4f319b`.
+P3 native project checks committed as `5079579`. No merge or push performed.
+RFC v0.3 direction is agreed; its standard workflow is **not implemented**.
+[PLAN.md](PLAN.md) is the single ordered implementation checklist.
 
-This file replaces the former `IMPLEMENTATION-STATUS.md`, `PROGRESS.md`,
-`HANDOFF.md` and `MVP-PLAN.md`. RFC v0.2 and `research.md` remain the
-architectural specification; `REVIEWS.md` records review decisions.
+P1 is complete as a library: versioned configuration and report schemas, config
+fingerprints, a versioned reference with real working-tree input fingerprints and its
+change lifecycle, conservative v0.2 comparison adaptation and report aggregation.
+Implemented in core/migration-config.ts, core/migration-reference.ts,
+core/migration-report.ts, engine/migration-reference.ts and
+quality-gates/migration-report.ts. These are library APIs; the complete standard
+flow is not available. The first P3 CLI operation is described below.
+`collectMigrationReference` reads declared public project files, protected destination
+work, scenario fixtures and an optional approved critical contract; it refuses symlinks,
+escapes, missing inputs and oversized files. `verifyMigrationReference` re-checks those
+inputs, so a configured critical contract can now reach a verified state, while missing
+repeated-source evidence keeps the outcome UNVERIFIABLE until P3 collects it. A new
+reference version classifies additions, binding adaptations and input updates on its
+own; weakening evaluation criteria requires an explicit owner decision.
 
-The RFC is **not production-complete**. The core workflow and the executable
-pilots are delivered. The limits below must stay visible when the harness is
-applied to a real migration: unsupported semantics must produce review or
-escalation, never fabricated certainty.
+P1 verification: build PASS; unit/CLI suite 110/110 PASS in a serialized run
+(tests/migration-reference.test.mjs 8/8); both smokes PASS; `git diff --check` PASS.
+Browser suite and pilots were not rerun in these library increments. See VALIDATION.md.
 
-## Verification snapshot
+P2 has started: selected request-payload and response-body values are now compared,
+not only their shapes, and comparison diagnostics became structural. A difference
+reports its path and the kinds involved (`payload.email`, `string` versus `absent`),
+never an observed value; navigation, storage and ARIA diagnostics report safe routes,
+storage keys with a difference classification and ARIA roles instead of dumping
+observed data. A declared required value field that neither side exposes yields
+`VALUE_EVIDENCE_OMITTED`, which aggregates as INCONCLUSIVE. Value comparison is
+opt-in for the v0.2 policy mapping and on by default in the standard mapping, which a
+standard configuration cannot disable.
 
-Measured on the current tree, in this order:
+P2 is complete as a library: value comparison, unit-scoped assertions, applied
+per-application bindings, persistence read-back and source/source repeatability.
 
-| Check | Result |
-| --- | --- |
-| Strict workspace build (`tsc -b`) | PASS |
-| Unit/CLI suite (`node --test tests/*.test.mjs`) | 92/92 PASS |
-| Chromium suite (`node --test tests/browser/*.test.mjs`) | 13/13 PASS |
-| `scripts/smoke.mjs`, `scripts/smoke-v02.mjs` | PASS |
-| `scripts/pilot.mjs` | PASS, `artifacts/pilot-5ZpYVI`, EQUIVALENT after one bounded repair |
-| `scripts/pilot-assistant.mjs` | PASS, `artifacts/pilot-assistant-WSkbqf` |
-| `git diff --check` | PASS |
+P2 verification: build PASS; unit/CLI 132/132 serialized; Chromium 13/13; both smokes;
+both pilots PASS; `git diff --check` PASS. See VALIDATION.md.
 
-Passing this baseline does not mean the implementation work is exhausted, and it
-does not certify any real migration. See `VALIDATION.md` for what each run
-covers and what it deliberately does not.
+Unit-scoped semantic assertions now exist too: a configuration requirement may carry a
+machine-checkable claim at a named checkpoint (node presence/absence with state and
+text, forbidden or required request, storage mutation, navigation), evaluated on each
+side inside the unit's semantic scope. A required violation in the destination blocks
+regardless of the global ARIA policy; a lost scope, a missing checkpoint or an empty
+capture is not evaluable; a requirement the source does not meet is disclosed instead
+of failing the destination. Diagnostics carry the requirement id, a reason code and the
+declared role only.
 
-## Delivered, with limits
+Per-application bindings are applied as a library: each side declares its entry route,
+control locators and the unit's visual scope, and `resolveScenarioForSide` produces that
+side's executable scenario while refusing any change to the shared semantic projection.
+An adapted scope that does not resolve is not evaluable and a control missing inside the
+scope still fails, so an adaptation cannot hide it. Wiring the resolved scenario into an
+actual run belongs to P3.
 
-| RFC area | Delivered | Limits |
+Persistence and repeatability closed the milestone: a `READ_BACK` claim requires the
+written values to come back from a later read, a read answered by a declared mock is not
+evaluable, mocked coverage is disclosed alongside a pass instead of being hidden, and
+`verifySourceStability` compares repeated source executions under the declared reset to
+produce the reference's `sourceObservations`. An unstable source is reported with codes
+and structural locations for the owner to decide; the harness never declares a field
+volatile on its own.
+
+This document replaces the former IMPLEMENTATION-STATUS, PROGRESS, global HANDOFF
+and MVP-PLAN. Do not recreate them. A migration may keep its own scoped handoff.
+
+## P3 operational increment
+
+`check-projects` now provides preflight-only and authorized baseline/candidate native
+checks: declared argv/cwd without implicit shell, minimal environment, time/output
+limits and POSIX process-group cleanup. It checks declared input hashes before/after
+execution, annotates prior failing checks without making them pass and omits raw output.
+
+PROJECT_PREFLIGHT / PROJECT_CHECK_REPORT are not migration equivalence. Cinema's
+actual React build and lint passed through this executor, without changes to its
+source/API or the restricted isolated TypeScript gate. Server/port/healthcheck,
+served-build identity, reset and browser-suite coordination remain P3 work.
+
+Verification of this increment: build PASS, unit/CLI 143/143 serial, both smokes
+PASS; actual React build/lint PASS. Browser/pilots not rerun here. See VALIDATION.md.
+
+## Current product state
+
+| Area | Delivered | Remaining for the standard flow |
 | --- | --- | --- |
-| MigrationUnit / discovery | TypeScript symbols, tsconfig aliases, dependency closure, Angular templates/selectors/pipes, route ownership, guards/resolvers, constructor DI, explicit root lifetimes, fetch/HTTP endpoints, initial RxJS classification | Dynamic modules/routes, complex provider scopes, composite selectors and application-wide lifetime inference require review |
-| Runtime schemas | Scenarios, events, traces, contracts, units, plans, manifests, results, CLI policy | Valid schema/metadata is not provenance authentication |
-| Scenario execution | Fresh contexts, pre-boot mocks/storage at context level, typed actions, pre-armed response signals, explicit completion, origin filtering, opt-in WebSocket frame capture/prophecy, opt-in service workers with one-to-one forwarding verification | Automatic in-page causal instrumentation is a deliberate non-goal (see below). Causal attribution stays declared: scenario steps, request→response, WS-frame attribution |
-| Trace recording | Request identity correlation, navigation, ARIA JSON/YAML, step storage deltas, async draining, body omission, deadline cleanup, worker-owned exchange observation | Recording stays protocol-level; nothing is injected into the page. App-internal provenance (timers, RxJS orchestration, postMessage, boot fetches) is not captured; unprompted requests carry the harness-declared trigger; step-boundary attribution is timing-sensitive |
-| Sanitization | Strict event envelope, denylist, application allowlists, PII patterns, keyed pseudonyms, structural-only worker projection | PII patterns cannot recognize arbitrary personal data; application allowlists require review |
-| Artifacts | Separate native-filesystem raw domain, verified 0700/0600, exclusive writes, path/symlink/inode checks, raw retention, hash-chained audit, opt-in AES-256-GCM sealing, versioned keyring with rotation, purge-time backup generations, external audit anchoring, exclusive locks on key generation, raw lifecycle, audit updates and anchor appends | External anchoring is an integrity-detection copy of the chain head, not trusted timestamping; same-UID attackers are not fully isolated; private roots must enforce POSIX modes |
-| Critical contracts | Execution-ID mining, nonblocking network/storage/stable-navigation/ARIA synthesis, evidence fusion, OpenAPI local references, bounded `allOf` object-field extraction, `oneOf`/`anyOf` alternative convergence with disagreement findings, explicit local ref-map for external references, structured-test imports, explicit review/approval, portable SHA-256, critical gates | Conditional (`if`/`then`/`else`, `dependent*`) and general composed schemas and unstructured test extraction remain review gaps; external refs resolve only through the explicit local map and are never fetched; execution IDs are not provenance signatures |
-| Equivalence | Network shapes/status/transport/path params, navigation, state, ARIA, declared causal partial-order alignment | Request values are compared by shape; causal edges are declared only, never inferred; app-autonomous requests are compared as unordered exchanges within (trigger, path) groups; graph alignment is bounded and fails closed |
-| Transformation | Semantic plan, Angular codemod with decorated IO and synchronous reactive forms, normalized builder groups, manifest mappings; structured async-validator evidence and provider scopes feed the semantic/manual lanes | Async validators, FormArray, dynamic controls, ngModel mixing and side-effectful subscriptions require semantic/manual review; complex DI lifetimes and streams are unsupported by the codemod |
-| Repair | Classification, method repair, candidate hashes, protected-oracle checks, bounded repair briefs, target recapture | Repair briefs localize HTTP-method mismatches only; caller-supplied attempt counters are not a global retry ledger |
-| Worker execution | Primary assistant-driven CLI: issued briefs, baseline/protected-input checks, package/file boundaries, read-only destination context (`--context-files`), content screens, optional pre-write typecheck/lint, handled-failure rollback and audit; optional HTTP provider and Docker adapter retained | Same-user assistant reads and archive mutation are policy-controlled, not isolated or authenticated; static scanning is defense in depth; multi-file writes are not crash-atomic; Docker unavailable in this WSL |
-| Quality gates | Integrity, security, required scenarios, equivalence, TypeScript, trusted-config ESLint, axe, measured coverage, eligibility precedence | Human accessibility evaluation and application-specific lint/security policy remain external review responsibilities |
-| Pilot DoD | Deterministic Angular/React pilot and assistant-protocol CLI/browser demo: regression, repair, scope refusal, unchanged approved fixture, verified audit | Synthetic approval is test data only; the protocol demo uses a codemod, not a recorded human-driven assistant session |
-| Migration workflow | Portuguese Copilot manual, reusable migration specification template, two tool-restricted Copilot agents and a `PreToolUse` boundary hook derived from the issued brief | Never executed against a real Angular/React pair; the hook is defense in depth, not isolation, and hooks in agent files are a Preview VS Code feature |
+| Execution | Typed scenarios, fresh Chromium contexts, pre-boot mocks/storage, explicit completion, recorder draining, per-side resolved scenarios, source repeatability check | Suite/process coordination and reset execution |
+| Comparison | Network shapes/status/params/query/transport, selected payload/response values, unit-scoped semantic assertions with per-application scope, persistence read-back, mocked-coverage disclosure, navigation, storage, ARIA, declared causality, structural diagnostics | Consolidated verification operation |
+| Requirements | Mining, evidence import, approved immutable contracts, critical gates, machine-checkable requirement assertions | Optional contract integration with distinct preservation/requirement outcomes |
+| Evidence | Sanitization, private raw storage, hashes/audit, optional encryption/rotation/backup/anchor, versioned reference with real input fingerprints and change lifecycle, source stability observations | Binding results to the actually served candidate/build |
+| Project checks | Native commands via check-projects, baseline comparisons, timeout/cleanup and input preflight; restricted isolated gates retained | Integration with served build and behavioral suite |
+| Agent workflow | Restricted issued briefs, TS/TSX patch submissions, read-only context, hook and audit | Normal scoped edits and end-to-end standard agent without mandatory briefs |
+| Repair | HTTP-method repair and restricted classifier/briefs | Semantic corrections, persistent budgets and implementation versus infrastructure diagnosis |
+| Optional adapters | Angular discovery, partial IO/synchronous forms codemods, OpenAPI/structured-test import, HTTP/Docker worker adapters | Not prerequisites for first standard migration |
+| Documentation | P0 complete: v0.3 RFC, plan, manual/template, scoped handoff and 21 documents reconciled | Keep availability synchronized as each milestone is verified |
 
-Delivery of RFC phases 1-5 (differential equivalence, critical contracts,
-discovery, transformation, repair) is represented in the executable pilots.
-`pnpm pilot` demonstrates the integration; `pnpm test` and `pnpm test:browser`
-cover regressions and security constraints. Neither pilot needs model API
-access.
+No `--profile` or aggregate verify command exists. `compare` already accepts
+optional contract/manifest, but `run` still requires an approved contract and
+handles one scenario with apps already running. Apply PASS is not equivalence.
+The reference library reads project files but starts no build, server or browser;
+the separate check-projects operation runs native checks, not servers.
 
-## Resolved scope decisions
+## Latest recorded implementation verification
 
-- **No model API integration** (2026-09-05). The Transform/Repair worker is a
-  human-driven coding assistant driving the CLI with bounded briefs; every
-  submission passes the same deterministic gates. RFC §33.II therefore shifted
-  from architectural guarantee to policy plus tooling, with an honest residual-risk
-  statement. `HttpWorkerProvider` stays as a demoted optional adapter; the former
-  "external model service with credentials" item is obsolete by design.
-- **Automatic application-wide causal instrumentation: deliberate non-goal**
-  (2026-09-05). An injected in-page observer cannot be inert — wrapping app
-  natives perturbs the execution it measures — and would run harness code inside
-  untrusted page content. Auto-derived edges would normative-ize non-observable
-  machinery (a framework-idiom detector, e.g. Zone.js asymmetry). Genuine causal
-  requirements belong in approved contract invariants. Optional future lane, only
-  on evidenced review pain: protocol-level `request.initiator()` provenance,
-  raw-side only, non-comparable, dropped by the sanitizer projection.
-- **Navigation order is meaningful** and must not be replaced by a URL multiset
-  (rejected review suggestion SF-4; see `REVIEWS.md`).
+Historical snapshot of the correction/agent cycle subsequently committed through
+`27e01b8` and `e54e9f8`, not a rerun of the v0.3 design:
 
-## Remaining work
+| Check | Recorded result |
+| --- | --- |
+| Strict workspace build | PASS |
+| Unit/CLI suite | 92/92 PASS |
+| Chromium suite | 13/13 PASS |
+| Both smokes | PASS |
+| Deterministic pilot | PASS, artifacts/pilot-5ZpYVI |
+| Restricted assistant-protocol pilot | PASS, artifacts/pilot-assistant-WSkbqf |
 
-Not blocked, real work:
+See [VALIDATION.md](VALIDATION.md) for scope, later documentation checks and probes.
+Pilots use synthetic approval and deterministic transformations, not an actual
+end-to-end assistant migration. Do not relabel them as v0.3 acceptance.
 
-- [ ] Record a real human-driven, brief-only assistant session (integration
-  §6.2). `pilot-assistant.mjs` uses deterministic codemod submissions and does
-  **not** prove this. A maintenance session that has read harness internals
-  cannot honestly be relabeled as that clean-context session.
-- [ ] Execute the migration workflow end to end against a real Angular and a
-  real existing React repository. `COPILOT-MIGRATION.md` and
-  `templates/MIGRATION-SPEC.md` are written but unproven: no `apps/`,
-  no `migrations/`, no filled specification, no real contract. This overlaps
-  the §6.2 requirement; one real migration in a clean conversation closes both.
-- [ ] Resolve field-level `inject()` dependencies in discovery. Measured against a
-  real Angular 20 application (`apps/angular`, unit `FilmeEditar`): discovery
-  identified 13 symbols and resolved 1, because every dependency is injected as a
-  field with `inject()` rather than through a constructor. `unit.httpEndpoints` and
-  `unit.routes` come back empty as a consequence, so the assistant's read set has
-  to be assembled by hand with `--context-files`. `inject()` has been the
-  recommended Angular idiom since v14, so this is the common case, not an edge one.
-- [ ] Transformations for async validators, FormArray, dynamic controls, ngModel
-  mixing, side-effectful `valueChanges`, complex provider lifetimes and stream
-  orchestration. These stay in the LLM/MANUAL lanes today.
-- [ ] OpenAPI conditional (`if`/`then`/`else`, `dependent*`) and general composed
-  schemas, and extraction from arbitrary test frameworks beyond structured
-  assertion imports.
+## Confirmed gaps motivating v0.3
 
-Blocked by environment or reserved for humans:
+- Different payload string values with the same shape returned EQUIVALENT in a
+  synthetic direct-validator probe, even with an approved fixture contract.
+  Addressed in P2: value comparison detects it when enabled, and the standard mapping
+  enables it. The v0.2 default remains shape-only for compatibility.
+- Omitting a required payload field produced NOT_EQUIVALENT but
+  REQUIRES_CONTRACT_REVIEW, interrupting an ordinary implementation repair.
+- ARIA comparison is broad snapshot comparison; required functionality needs scoped
+  semantic checks rather than global WARNING or whole-page blocking parity. Addressed
+  in P2: unit-scoped assertions block on their own authority while the global ARIA
+  dimension keeps its configured severity.
+- Isolated TypeScript uses fixed compiler options, not the destination's tsconfig.
+  Cinema's existing React baseline fails that gate on ImportMeta.env while its
+  native build passed in preparation.
+- Restricted issuance rejects six pseudonym tokens in Cinema's proposed ARIA
+  contract. This is a restricted-interface blocker, not a reason to weaken privacy.
+- Discovery resolves 1 of 13 Cinema symbols because field inject() is unresolved.
+  Helpful future improvement, no longer a prerequisite for standard validation.
 
-- [ ] Execute `DockerSandbox` against a real local digest-pinned image. Docker is
-  unavailable through this WSL integration. Still relevant: it bounds
-  harness-side execution of generated code.
-- [ ] Human accessibility review and actual approval of a real migration
-  contract. Synthetic fixture approval does not satisfy this.
-- [ ] `/mnt/c` does not enforce the required private modes, so private artifacts
-  live on the native Linux filesystem. Same-UID isolation remains policy.
+## Cinema checkpoint
 
-## Continuation notes
+apps/angular and apps/react exist as independent repositories; migrations/cinema
+contains a filled scope, three scenarios, nine sanitized captures and REVIEW
+contract proposals. Previous claims that those directories did not exist are obsolete.
+Both apps were written for this exercise, not supplied production/third-party code.
 
-- The harness is the oracle. Apply `PASS` is neither behavioral equivalence nor
-  `PR_READY`. EQUIVALENT holds for the scenarios and policy executed, nothing
-  wider.
-- Same-user filesystem reads, archive tampering and hostile concurrent directory
-  mutation are not isolated or authenticated. `AGENTS.md`, the brief-only
-  discipline and the boundary hook are policy plus tooling, not a sandbox.
-- Issuance is local to the artifact root. Briefs from older checkpoints lack
-  issuance records and must be reissued by the harness. Do not fabricate
-  registry entries.
-- Changing a candidate baseline requires a fresh brief, not just a new
-  `beforeHash`. Unexpected changes to protected inputs require review.
-- Repair attempt counters are caller-supplied, not a persisted retry ledger.
-- The `next` command covers the first scenario only. Run every required scenario
-  separately.
-- Handled write/persistence failures roll back; multi-file writes are not
-  crash-atomic. After a crash, confirm no writer remains, inspect
-  candidates/audit, then remove `.harness-assistant.lock` from both roots. Never
-  bypass locks automatically or reuse stale evidence.
-- Key rotation retains old versions on purpose; automatic pruning was disabled so
-  that retained backups stay readable. Never delete key versions without a
-  recovery plan.
+Recorded baselines: Angular `11db3f2`, React `b3bfcf5`.
+The React edit page is **not implemented**. There is no approved contract, brief,
+submission or final equivalence evidence for this unit.
 
-## Commands and environment
+The local handoff now directs continuation to P1-P5, not to mandatory human contract
+approval and a fresh brief-only conversation. No policy/scenario/contract changes
+or candidate implementation are implied by the documentation transition.
+Historical evidence must be revalidated/versioned before serving as a v0.3 reference.
+Missing SPEC coverage includes 401, 400-save and other load/save errors.
 
-```bash
-npx --yes pnpm@10.15.0 build
-node --test tests/*.test.mjs
-node --test tests/browser/*.test.mjs
-node scripts/smoke.mjs
-node scripts/smoke-v02.mjs
-node scripts/pilot.mjs
-node scripts/pilot-assistant.mjs
-git diff --check
-```
+## Priorities and deferred scope
 
-Tests import `dist/`; build first. Node 20.20.1; `pnpm` absent from PATH;
-Playwright pinned to 1.63.0 with Chromium installed. Docker unavailable. Private
-raw artifacts use native Linux storage (0700/0600) outside the repository; do not
-inspect their contents. No dev server is required for CLI work; the pilots close
-their own fixture servers.
+Next: finish P3 with server/port/healthcheck and served-build identity, then reset,
+full scenario execution and aggregate evidence, followed by normal
+agent iteration and the Cinema proof. Detailed checkboxes and acceptance are only in
+PLAN.md.
 
-No remote publication has been requested or performed.
+Deferred: more Angular codemods/inject() discovery, conditional OpenAPI and arbitrary
+test extraction, broader SW/WS/instrumentation and additional artifact operations.
+Existing functionality remains supported; do not expand it merely to exhaust the RFC.
+A recorded clean-context session is an optional restricted-profile demonstration.
+
+## Environment and continuation
+
+- Tests import dist: build before implementation tests. Node 20.20.1; pnpm absent
+  from PATH, use `npx --yes pnpm@10.15.0`. Playwright 1.63.0 with Chromium.
+- Private storage requires native Linux modes 0700/0600; /mnt/c does not enforce
+  them here. Never inspect raw traces. Same-user access is not sandboxed.
+- Docker against a real image remains unverified. Local project execution requires
+  an authorized environment; static scanning is not an execution sandbox.
+- Restricted hooks/issuance keep their checks. AGENTS.md changes invalidate briefs
+  that fingerprint it; reissue, never edit hashes or approved artifacts.
+- Existing repair counters are caller-supplied; they are not a persistent budget.
+- Reference fingerprints cover declared working-tree inputs, protected destination
+  files, scenario fixtures and the configured contract only; `sourceObservations` is
+  caller-supplied, and absent stability evidence keeps verification UNVERIFIABLE.
+  Revisions are read from `.git` as metadata and fall back to `UNVERSIONED`.
+- Inspect crash/stale-lock state before recovery. No cross-file crash transaction
+  is promised. Key rotation retains older keys to keep backups recoverable.
+- Human accessibility/release review remains distinct from automatic verification.
+- No merge/push/source removal is authorized by the new product direction.

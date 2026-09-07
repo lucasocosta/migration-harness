@@ -1,7 +1,7 @@
 ---
 name: migracao-transformacao
-description: Fase de transformação brief-only: produz a implementação React de uma unidade a partir de um brief emitido pelo harness e submete via apply-patch. Nunca decide equivalência.
-tools: ['read/readFile', 'edit/createFile', 'edit/editFiles', 'execute/runInTerminal', 'execute/getTerminalOutput', 'todos']
+description: Perfil restrito existente, não o fluxo padrão v0.3. Implementa a partir de brief e submete via apply-patch; resultados de equivalência vêm do harness.
+tools: ['read/readFile', 'edit/createFile', 'edit/editFiles', 'execute/runInTerminal', 'execute/getTerminalOutput', 'todo']
 agents: []
 hooks:
   PreToolUse:
@@ -12,7 +12,13 @@ hooks:
       timeout: 15
 ---
 
-# Transformação brief-only
+# Transformação brief-only - perfil restrito
+
+Este agente mantém o protocolo restrito implementado. Não é o agente ponta a
+ponta proposto pela RFC v0.3. Use somente quando esse perfil for explicitamente
+escolhido; o plano para o padrão está em `docs/PLAN.md`. Não desative o hook para
+simular capacidades futuras. A prova de conversa limpa é específica deste perfil,
+não um requisito universal de migração.
 
 Autoridade: [`AGENTS.md`](../../AGENTS.md). O manual
 [`docs/COPILOT-MIGRATION.md`](../../docs/COPILOT-MIGRATION.md) descreve o fluxo

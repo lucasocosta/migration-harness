@@ -1,5 +1,24 @@
 # CLI usage
 
+Reference for **implemented commands**, not the future RFC v0.3 workflow.
+See [PLAN.md](PLAN.md) for the consolidated standard operation still to be built.
+No profile flag or aggregate verification command is available yet. Versioned
+config/report schemas and aggregation are available as library APIs only.
+
+| Need | Available operation | Limit |
+| --- | --- | --- |
+| Preflight and native build/typecheck/lint/test | `check-projects` | Project-check report only, not behavioral equivalence |
+| Capture a running application | `trace` | One scenario; caller serves the app |
+| Compare sanitized evidence | `compare` | Contract/manifest optional; payloads compared by shape |
+| Execute both sides | `run` | Approved contract, one scenario, no build orchestration |
+| Restricted submission | `brief`, `apply-patch` | Issuance and TS/TSX boundary; not normal editing |
+| Optional assistance | `discover`, `plan`, `transform`, importers | Not universal prerequisites |
+
+Do not simulate the proposed standard profile by disabling restricted checks.
+Suite coverage and served-build freshness still need coordination beyond native
+checks. Raw-input examples below are operator-only;
+they do not authorize an assistant to read private traces or keys.
+
 Install and build:
 
 ```bash
@@ -12,7 +31,56 @@ When pnpm is unavailable, use `npx --yes pnpm@10.15.0` in its place.
 Commands below use `node packages/cli/dist/index.js`; installing the CLI package also exposes `harness`.
 Evidence outputs are created exclusively. Choose a new output path for each verification. The assistant commands may replace their current `--out` brief/apply result; their archived records remain exclusive.
 
-## Discovery and planning
+## Native project checks (P3 partial)
+
+Use a version-1 MigrationConfig (examples in tests/project-checks.test.mjs). The
+agent can prepare it from the approved scope; the owner need not type JSON or
+approve each individual invocation. The execution flag selects previously authorized
+local project-command execution, not a sandbox or a new approval ceremony.
+
+```bash
+node packages/cli/dist/index.js check-projects --help
+node packages/cli/dist/index.js check-projects \
+  --config migrations/example/migration.json --workspace-root . \
+  --artifact-root artifacts/example/checks --out preflight.json --preflight-only
+node packages/cli/dist/index.js check-projects \
+  --config migrations/example/migration.json --workspace-root . \
+  --artifact-root artifacts/example/checks --out baseline.json \
+  --allow-project-commands --phase baseline
+node packages/cli/dist/index.js check-projects \
+  --config migrations/example/migration.json --workspace-root . \
+  --artifact-root artifacts/example/checks --out candidate-1.json \
+  --allow-project-commands --phase candidate --baseline artifacts/example/checks/baseline.json
+```
+
+Paths are templates. Output is relative to artifact-root, exclusive and outside
+project/fixture inputs. Existing/unsafe output is refused before commands. Preflight
+reads declared public inputs and checks cwd, not ports/server readiness. Without
+execution authorization checks are NOT_RUN/INCONCLUSIVE. Phase defaults to baseline;
+a supplied baseline must match configuration/workspace and have consistent inputs.
+
+Only commands referenced by config.checks run; serve/reset are not checks. Arguments
+are literal (shell:false). Commands/npm scripts are trusted project code in an
+authorized environment, not isolated code. Inherited environment is restricted to
+PATH/HOME/locale/temp variables, with CI=1 and NO_COLOR=1; no arbitrary credentials
+or NODE_OPTIONS. Configurable public env is not yet supported.
+
+Per-command timeouts and maxDurationMs apply. Output over 1 MiB stops the command.
+Ordinary children in its owned POSIX group are terminated after exit/timeout/abort.
+Linux/WSL is supported; native Windows is not. Deliberately escaped processes and
+hostile same-user mutation are not sandboxed.
+
+PROJECT_CHECK_REPORT records native exit codes, safe reasons, byte counts (not raw
+stdout/stderr), declared input hashes and baseline comparisons. BASELINE_CHECK_FAILED
+says the same check failed before, not that the root cause is identical; it still
+fails. Input changes, timeouts and launch failure are INCONCLUSIVE. Compiler-message
+parsing, served-build identity and scenario-suite integration remain pending.
+
+Exit codes: 0 project checks passed; 4 required native check failed; 5 inconclusive;
+1 invalid config/output/I/O. Project PASS is NOT migration success. APIs:
+preflightProjectChecks and runProjectChecks from engine/project-checks.js.
+
+## Optional discovery and planning
 
 ```bash
 node packages/cli/dist/index.js discover \
@@ -33,7 +101,7 @@ node packages/cli/dist/index.js trace \
   --artifact-root artifacts/source-run
 ```
 
-The application must already be running. Each run gets a fresh browser context. Storage and mocks are installed before application boot. Fixture paths resolve from the scenario file's own directory and must stay inside it: paths that escape, including through symlinks, are refused. Only the application origin is allowed by default; additional origins require an explicit policy. WebSockets are blocked unless the scenario explicitly opts into its dedicated adapter; service workers remain blocked.
+The application must already be running. Each run gets a fresh browser context. Storage and mocks are installed before application boot. Fixture paths resolve from the scenario file's own directory and must stay inside it: paths that escape, including through symlinks, are refused. Only the application origin is allowed by default; additional origins require an explicit policy. WebSockets and service workers are blocked by default; their bounded adapters require explicit opt-in.
 
 Capture evidence against a served production build rather than a framework dev server: dev servers keep an HMR WebSocket open, and WebSockets are blocked by default.
 
@@ -59,7 +127,7 @@ node packages/cli/dist/index.js purge-raw \
 
 Retention removes only expired files in that root's private raw domain. Keys and repair backups need a separate operational retention policy. In assistant-driven work, minimize raw retention: once evidence review is complete and raw data is no longer needed, a human can run `purge-raw --retention-hours 0`. Do not read raw files into the assistant context. Same-user filesystem reads outside the CLI cannot be blocked or detected by the harness.
 
-## Operational artifact lifecycle
+## Optional operational artifact lifecycle
 
 All of the following default to off; without these flags behavior is byte-identical to plaintext storage.
 
@@ -87,7 +155,7 @@ node packages/cli/dist/index.js anchor-audit --audit artifacts/source-run/audit.
 
 All four serialize through exclusive locks. After a crash, inspect state before removing stale lock files.
 
-## Contract review
+## Optional critical contracts (required by current run/brief)
 
 Synthesis creates nonblocking candidates for network, storage and stable final navigation/ARIA observations. It never creates blocking requirements from repeated runtime observations. Each recorded run has a distinct execution ID; changing runIndex alone does not create a new observation.
 
@@ -141,7 +209,9 @@ node packages/cli/dist/index.js compare \
 
 The codemod supports a single inline standalone component with ordinary TypeScript fields/methods, decorated inputs/outputs, supported property/event bindings and a conservative synchronous reactive-forms subset, including statically-normalizable builder groups. Async validators, dynamic controls, FormArray, mixed ngModel and side-effectful subscriptions require semantic/manual work. Unsupported lifecycle hooks, inheritance, metadata and structural templates are refused. React output must be independently typechecked, built and validated. Manifests record claims; claims do not relax comparisons.
 
-Policy accepts `network.volatileQueryParams`, `network.volatilePayloadFields`, `network.volatileResponseFields`, `network.volatilePathParams` (template -> parameter names), `network.pathTemplates`, shape/status comparison flags, `observables.ariaSeverity`, navigation aliases, ignored storage keys, `observables.volatileStorageValues` (`{storageType,key}` entries), `sanitization` allowlists and `allowedOrigins`. Unknown fields are rejected. Every relaxed comparison is an explicit caller-owned policy choice. Main-frame navigation order remains meaningful; independent network exchanges are compared without strict temporal ordering.
+Policy accepts `network.volatileQueryParams`, `network.volatilePayloadFields`, `network.volatileResponseFields`, `network.volatilePathParams` (template -> parameter names), `network.pathTemplates`, shape/status comparison flags, `network.comparePayloadValues`, `network.compareResponseValues`, `network.requiredValueFields`, `observables.ariaSeverity`, navigation aliases, ignored storage keys, `observables.volatileStorageValues` (`{storageType,key}` entries), `sanitization` allowlists and `allowedOrigins`. Unknown fields are rejected. Every relaxed comparison is an explicit caller-owned policy choice. Main-frame navigation order remains meaningful; independent network exchanges are compared without strict temporal ordering.
+
+Value comparison is opt-in here: `parseValidationPolicy` keeps shape-only comparison so existing v0.2 results do not change meaning, while `migrationComparisonPolicy` (standard profile) enables payload and response value comparison, and a standard `MIGRATION_CONFIG` may not disable comparison criteria. With values enabled, a difference reports its structural path and the kinds involved (`payload.email`: `string` versus `absent`) and never the observed value; arrays are compared positionally; declared volatile field names are pruned at any depth, so a tolerated nested difference neither diverges nor shifts exchange identity. `requiredValueFields` entries (`{method?, path?, field}` with `field` rooted at `payload` or `response`) declare data that must be observable: when neither side exposes it — because the operation never happened or sanitization redacted it — the result carries `VALUE_EVIDENCE_OMITTED` and aggregates as INCONCLUSIVE rather than passing. Navigation, storage and ARIA diagnostics report safe paths with query keys, storage keys with a `VALUE`/`SEQUENCE`/`MISSING` classification, and ARIA roles per checkpoint.
 
 ## Compare and repair running applications
 
@@ -156,13 +226,13 @@ node packages/cli/dist/index.js run \
   --out artifacts/run-result.json
 ```
 
-Both applications must already be running. Target rebuilding/hot reload belongs to the application server. This command invokes only the conservative single-fetch method repair; the library API accepts a bounded worker for semantic patches. Every retry captures a new target trace. A stale target continues failing and exhausts the budget. Unclassified, nondeterministic, security and architectural failures do not enter automatic repair. The command never executes arbitrary build commands on the host.
+Both applications must already be running. This command invokes only the conservative single-fetch method repair; the library API accepts a bounded worker for semantic patches. Every retry captures a new target trace, but it does not rebuild or prove that the server serves the edited bytes. A stale server can invalidate the conclusion, even if the result is EQUIVALENT. Prefer explicit rebuild plus `run --max-repairs 0` for the restricted assistant loop. Unclassified, nondeterministic, security and architectural failures do not enter automatic repair. The command never executes arbitrary build commands on the host.
 
-The primary semantic workflow is the assistant loop below, with no model API credentials. `BoundedWorker` and `HttpWorkerProvider` remain optional library adapters for an injected provider or JSON service (`{system,data}` -> `{patches,manifest}`); only that adapter's model has no inherited file/command capabilities. Provider adapters are trusted host code. Static checks are defense in depth, not a sandbox. `DockerSandbox` is the separate generated-command execution boundary: it requires a locally installed digest-pinned image and mounts only the candidate directory read-only, with networking disabled, resource limits and a deadline. There is no unsandboxed execution fallback.
+The implemented restricted semantic workflow is the assistant loop below, with no model API credentials. `BoundedWorker` and `HttpWorkerProvider` remain optional library adapters for an injected provider or JSON service (`{system,data}` -> `{patches,manifest}`); only that adapter's model has no inherited file/command capabilities. Provider adapters are trusted host code. Static checks are defense in depth, not a sandbox. `DockerSandbox` is the separate generated-command execution boundary: it requires a locally installed digest-pinned image and mounts only the candidate directory read-only, with networking disabled, resource limits and a deadline. There is no unsandboxed execution fallback.
 
 Quality adapters expose `checkTypeScript`, `lintCandidate` (fixed trusted ESLint rules, no repository config loading), `checkAccessibility` (axe, explicit browser context required) and `measureCoverage`. Axe results always retain a manual-review requirement; passing automated checks is not a complete accessibility certification.
 
-## Assistant-driven transform and repair
+## Restricted assistant transform and repair
 
 Read root `AGENTS.md` and `ASSISTANT-INTEGRATION.md`. A human prepares reviewed inputs and adds an `assistant` block to the policy:
 
@@ -211,8 +281,109 @@ Briefs are rejected if any section contains pseudonym tokens or private-domain r
 
 Archives are under `assistant/{issued,briefs,submissions,manifests,results,refusals}` with `assistant/audit.json`. Treat issuance records as harness-only inputs under policy; they are local consistency records, not authenticated provenance. Output paths cannot overwrite protected inputs or non-assistant artifacts. Cooperative writers are serialized using `.harness-assistant.lock` in both roots. After a crash, a human must inspect candidates/audit and confirm no writer remains before removing stale locks and issuing new briefs. Handled failures roll back candidate/artifact writes; crashes and hostile same-user concurrent filesystem mutations are not transactionally isolated.
 
-Run `pnpm pilot:assistant` for the deterministic CLI/browser protocol demonstration. A recorded, brief-only human-driven assistant session remains a separate validation requirement.
+Run `pnpm pilot:assistant` for the deterministic restricted-protocol demonstration. A recorded brief-only session is an optional proof of that profile, not a universal migration requirement under RFC v0.3.
 
-For migrations into an existing React repository, `COPILOT-MIGRATION.md` is the operational manual, `templates/MIGRATION-SPEC.md` the per-migration contract, and `.github/agents/` plus `scripts/copilot-boundary-hook.mjs` the tool-level enforcement of the two phases.
+For existing React migrations, `COPILOT-MIGRATION.md` distinguishes proposed and available flows; `templates/MIGRATION-SPEC.md` records scope/profile. The two `.github/agents/` definitions and `scripts/copilot-boundary-hook.mjs` apply only to the restricted profile, not the proposed standard loop.
 
 Exit codes: `0` success/equivalent, `1` invalid input or I/O failure, `2` invalid contract digest, `3` structured apply refusal (candidate files unchanged), `4` behavioral divergence. Unsafe output locations or persistence failures may return `1` without a new result artifact. EQUIVALENT is not release authorization; use quality gates and reviewed coverage to determine eligibility.
+
+## P1 library APIs (not an executable migration flow)
+
+- Core: `MigrationConfigSchema`, `parseMigrationConfig`, `migrationConfigHash`,
+  `MigrationReferenceSchema`, `parseMigrationReference`, `migrationReferenceHash`,
+  `classifyReferenceChange`, `ReferenceVerificationSchema`,
+  `UnitAssertionSchema`, `parseUnitAssertion`, `unitAssertionsForScenario`,
+  `resolveScenarioForSide`, `scenarioSemanticProjection`, `scenarioBindingProjection`,
+  `MigrationReportSchema`, `parseMigrationReport`.
+- Engine: `collectMigrationReference(input)`, `verifyMigrationReference(input)` and
+  `ReferenceWeakeningError`; lightweight module is
+  `@migration-harness/engine/dist/migration-reference.js`.
+- Equivalence validator: `migrationComparisonPolicy(policy)` for the standard value
+  comparison, `evaluateUnitAssertions({source,target,assertions,unitScopes,mocks})`,
+  `discloseMockedCoverage(trace, mocks)`, `verifySourceStability({runs,requiredRuns,reset,policy})`,
+  plus `diffValues`, `valuePathPresent`, `resolveValuePath`, `executionHash` and `safeUrl`.
+- Quality gates: `buildMigrationReport(configuration, evidence)`,
+  `assertionRequirementStatuses(outcomes)` and
+  `adaptLegacyComparison(result, identity)`; lightweight module is
+  `@migration-harness/quality-gates/dist/migration-report.js`.
+- Executable configuration/evidence examples: `tests/migration-report.test.mjs`,
+  `tests/migration-reference.test.mjs`, `tests/equivalence-values.test.mjs`,
+  `tests/unit-assertions.test.mjs`, `tests/scenario-bindings.test.mjs` and
+  `tests/persistence-stability.test.mjs`.
+
+Version 1 configuration embeds existing ScenarioDefinitions, explicit side bindings,
+workspace-relative roots, project-relative file scope/cwd, argv commands, requirements,
+accepted-difference records, reset, environment, policy and limits. It does not read
+files, run commands or approve criteria. Path checks there are lexical, not a sandbox.
+
+`collectMigrationReference` fingerprints the actual working-tree bytes of the declared
+source/target files, the protected destination subtrees, every scenario fixture and an
+optional approved critical contract, resolving a `.git` revision when available and
+recording `UNVERSIONED` otherwise. It refuses symlinked, escaping, missing, oversized
+and private-domain paths, a declared mock fixture that does not exist, a contract whose
+bytes differ from the configured digest, and a contract that is not APPROVED or fails
+its own integrity check. Only hashes are recorded; file contents never enter the artifact.
+
+`verifyMigrationReference` re-checks those inputs against the workspace. Changed or
+missing source inputs, changed or added fixtures and changed protected files make the
+reference STALE; a configuration change, a hand-edited reference, an unreadable input,
+a tampered contract or missing/unstable source observations make it UNVERIFIABLE.
+Changes to declared target files are expected during a migration and stay
+INFORMATIONAL, as does newly added unrelated work under a protected path.
+
+A new version passes `previous`; additions, binding adaptations and input updates are
+classified automatically, while any weakening (removed or demoted scenario/requirement/
+check, new accepted difference, broader ignore rules, changed step semantics, changed
+fixtures, smaller stability budget, changed protected work) raises
+`ReferenceWeakeningError` unless an explicit `ownerDecisionReference` is supplied, which
+is then recorded together with the superseded version and its hash.
+
+The collector supplies reference/config/candidate/build hashes and whether it verified
+the reference. Aggregation rejects mismatched/duplicate/unknown or missing required
+evidence and separates preservation, requirements and project checks. `referenceStatus`
+distinguishes a DECLARED flag from a VERIFIED/STALE/UNVERIFIABLE reference verification,
+and a configured critical contract only passes with a verified reference whose observed
+digest matches the configuration. Those hashes are not authenticated provenance, and
+`sourceObservations` remains caller-supplied: without repeated source executions, which
+P3 implements, verification stays UNVERIFIABLE.
+
+The legacy adapter discards arbitrary runtime messages/values and cannot promote
+shape-only EQUIVALENT to standard PASS. It never treats an APPLY_RESULT as equivalence.
+
+A configuration requirement may declare a unit assertion: `{checkpoint, scope?, claim}`
+where the checkpoint is `AFTER_STEP` (a scenario step id) or `SCENARIO_END`, the scope is
+the migrated unit's `role`/`name` inside the accessibility snapshot, and the claim is one
+of `NODE_PRESENT` (with optional state flags and text), `NODE_ABSENT`, `NO_REQUEST`,
+`REQUEST_OBSERVED` (with required payload fields), `STORAGE_MUTATION` or `NAVIGATED`.
+`evaluateUnitAssertions` checks each assertion on both sides and returns outcomes plus
+divergences: a required violation in the destination is BLOCKING regardless of
+`observables.ariaSeverity`, a missing checkpoint, empty capture or unresolved scope is
+NOT_EVALUABLE and aggregates as INCONCLUSIVE, and a requirement the source does not meet
+is disclosed as INFORMATIONAL instead of failing the destination. Declared literals are
+owner configuration — declare labels and messages, not user data — and diagnostics carry
+the requirement id, a reason code and the declared role only. Component output callbacks
+are asserted through their observable effects; direct output capture needs a component
+host. Requirements without an assertion still need caller-supplied evidence.
+
+Each scenario binding declares one application's `entryUrl`, control locator overrides
+and optional `unitScope`. `resolveScenarioForSide(config, scenarioId, side)` returns that
+side's executable ScenarioDefinition plus its unit scope, refusing any change to the
+shared semantic projection (actions, values, order, preconditions, completion). Pass the
+resolved scopes as `unitScopes` when evaluating assertions: an adapted scope that does
+not resolve is NOT_EVALUABLE and a control missing inside the scope still fails, so an
+adaptation cannot hide it. Changing a binding changes the configuration hash and is
+classified as `BINDING_ADAPTATION`, which requires a new reference version and a rerun of
+both sides.
+
+A `READ_BACK` claim (`{writeMethod, writePathPattern, readMethod?, readPathPattern,
+fields:[{payloadField, responseField}]}`) separates a correct request from actual
+persistence: the written values must return from a later read. Pass the scenario's declared
+`mocks` so a read answered by a fixture is reported as `READ_BACK_MOCKED` instead of proof,
+and so `discloseMockedCoverage` records how much of the execution came from fixtures — that
+disclosure reaches the report as `MOCKED_COVERAGE` and may accompany a PASS.
+`verifySourceStability({runs, requiredRuns, reset, policy})` compares repeated source
+executions with the migration's own policy under the declared reset and returns the
+`sourceObservations` a reference records (`STABLE`, `UNSTABLE` or `NOT_COLLECTED`) plus the
+codes and structural locations that moved. It never declares a field volatile: making an
+unstable source stable requires an explicit policy decision, which the reference then
+classifies as a criteria change.

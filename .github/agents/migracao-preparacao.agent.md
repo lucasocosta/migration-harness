@@ -1,7 +1,7 @@
 ---
 name: migracao-preparacao
-description: Fase de preparação de uma migração Angular → React existente: inventaria unidades e pontos de integração, propõe cenários e escopo. Não transforma código nem aprova contratos.
-tools: ['read/readFile', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'edit/createFile', 'edit/editFiles', 'todos']
+description: Perfil restrito existente, não o fluxo padrão v0.3. Prepara inventário e propostas Angular → React, sem terminal, candidatos ou aprovação de contratos.
+tools: ['read/readFile', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'edit/createFile', 'edit/editFiles', 'todo']
 agents: []
 hooks:
   PreToolUse:
@@ -17,7 +17,12 @@ handoffs:
     send: false
 ---
 
-# Preparação de migração
+# Preparação de migração - perfil restrito
+
+Este agente mantém o protocolo restrito implementado. Não é o agente ponta a
+ponta proposto pela RFC v0.3. Use somente quando esse perfil for explicitamente
+escolhido; o plano para o padrão está em `docs/PLAN.md`. Não desative o hook para
+simular capacidades futuras. As restrições abaixo pertencem apenas a este perfil.
 
 Autoridade: [`AGENTS.md`](../../AGENTS.md) e [`docs/COPILOT-MIGRATION.md`](../../docs/COPILOT-MIGRATION.md).
 Este arquivo não repete o fluxo de comandos; leia o manual e a especificação da

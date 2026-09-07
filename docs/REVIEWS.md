@@ -1,5 +1,25 @@
 # Review record
 
+## Product reconciliation - 2026-09-06
+
+RFC v0.3 supersedes the product workflow assumed by older reviews below. Those
+entries describe historical fixes/decisions, not universal operating instructions.
+Former RFC section references refer to v0.2 in Git history. Restricted checks
+remain intact; their mandatory use is no longer the product goal.
+
+| Finding | Decision | Delivery |
+| --- | --- | --- |
+| Value changes with identical payload shape pass | Selected value/outcome comparison and safe diagnostics | PLAN P2, pending |
+| Missing required field escalates to contract review | Separate implementation defects from criteria changes | PLAN P4, pending |
+| Brief-only read/edit rules dominate normal migration | Standard end-to-end agent; restricted compatibility | RFC agreed; PLAN P4 pending |
+| Per-scenario CLI and artificial TypeScript environment fragment verification | Native checks, build identity and aggregate suite report | PLAN P1/P3 pending |
+| Broad ARIA mismatches do not isolate the migrated feature | Unit-scoped semantics and side bindings | PLAN P2 pending |
+
+Only documentation changes in this reconciliation. Agreement is not a code fix.
+Probes are recorded in VALIDATION.md. PLAN.md owns the implementation checklist.
+
+## Historical implementation reviews
+
 Updated: 2026-09-06. Consolidates the former `REVIEW.md` (adversarial review
 supplied 2026-09-05), `REVIEW-RESOLUTION.md` and `REVIEW-2026-09-06.md`
 (reconciliation review). The original review texts are not preserved verbatim;
@@ -30,7 +50,7 @@ fetch handler are not directly routable. Metadata alone does not close these gap
 | R8 (P1) the importer excluded only the literal `.migration-private`, not native private roots; CLI audit guards lacked resolved/all-store checks and rotation checked the wrong store root | Fixed. Resolved private-domain guards apply to CLI inputs and audits, with explicit and native private-root rejection for imports. Regression in `tests/cli.test.mjs`. |
 | R9 (P2) `anchorAudit` read and appended without a lock; two simultaneous calls produced two anchor lines with no `previousAnchorHash` | Fixed. Exclusive locks cover key generation, raw lifecycle, audit updates and anchor appends. Focused anchor concurrency regression passed. |
 
-All nine are resolved and verified on the current tree (build PASS, 92/92 unit,
+All nine were resolved and verified in that implementation cycle (build PASS, 92/92 unit,
 13/13 browser, both smokes, both pilots). The instrumentation non-goal recorded
 in `STATUS.md` is a scope decision, not an implemented instrumenter.
 
