@@ -11,11 +11,18 @@ import { anchorAudit, ArtifactStore, AuditTrail, runRepairLoop, safeArtifactPath
 import { fileHash } from '@migration-harness/llm-worker';
 import { issueAssistantBrief, applyAssistantSubmission } from './assistant.js';
 import { publicPath, readPublicJson, withAssistantLock } from './assistant-files.js';
+import { projectChecksCommand } from './project-checks.js';
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  if (command === 'check-projects' && args.length === 1 && args[0] === '--help') {
+    console.log('check-projects --config <migration.json> --workspace-root <dir> --artifact-root <dir> --out <relative.json>\n  --preflight-only: inspect declared inputs/cwd without executing\n  --allow-project-commands: authorize declared native project checks\n  --phase baseline|candidate: default baseline; --baseline <report.json> compares candidate check outcomes\nExit codes: 0 checks passed; 4 native check failed; 5 inconclusive; 1 invalid input/output. Not behavioral equivalence.');
+    return;
+  }
   const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'context-files', 'attempt', 'next-out', 'ref-map', 'keys-root', 'backup-root', 'backup-generations', 'store-root', 'audit', 'path', 'prune-key-versions'];
-  const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const }, encrypt: { type: 'boolean' as const } }, strict: true, allowPositionals: false });
+  stringOptions.push('config', 'workspace-root', 'phase', 'baseline');
+  const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const }, encrypt: { type: 'boolean' as const }, 'allow-project-commands': { type: 'boolean' as const }, 'preflight-only': { type: 'boolean' as const } }, strict: true, allowPositionals: false });
+  if (command === 'check-projects') { await projectChecksCommand(values); return; }
   const flag = (name: string): string | undefined => (values as Record<string, unknown>)[name] as string | undefined;
   const required = (name: string): string => { const value = flag(name); if (!value) throw new Error(`Required flag --${name} is missing.`); return value; };
   const number = (name: string, fallback: number, min = 0, max = 100): number => { const value = flag(name) === undefined ? fallback : Number(flag(name)); if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`Invalid --${name}.`); return value; };
@@ -178,7 +185,7 @@ async function main(): Promise<void> {
       break;
     }
     default:
-      console.log('Migration Harness\nCommands: discover, plan, trace, sanitize-trace, import-openapi, import-test-evidence, synthesize, review-contract, approve-contract, verify-contract, transform, compare, run, brief, apply-patch, purge-raw, rotate-raw-key, anchor-audit\nSee docs/USAGE.md and AGENTS.md for command arguments and the assistant protocol.');
+      console.log('Migration Harness\nCommands: check-projects, discover, plan, trace, sanitize-trace, import-openapi, import-test-evidence, synthesize, review-contract, approve-contract, verify-contract, transform, compare, run, brief, apply-patch, purge-raw, rotate-raw-key, anchor-audit\nSee docs/USAGE.md and AGENTS.md for command arguments and the assistant protocol.');
       if (command && command !== 'help') process.exitCode = 1;
   }
 }
