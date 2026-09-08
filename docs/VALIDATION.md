@@ -1,5 +1,34 @@
 # Validation record
 
+## P4.2 session reference update - 2026-09-07
+
+Based on 623fd7d (P4.1 scoped sessions). Added `update-migration-session`:
+a controlled reference update for standard sessions through a hash-chained
+`generations.json` file — coverage extension, binding adaptation and
+owner-decision-backed weakening. Session identity, attempt history and budgets
+are preserved; `session.json` is never rewritten; superseded-generation reports
+stop matching the workspace; deleting `generations.json` falls back to the
+previous generation and is not a reset workaround. Roots and limits are immutable;
+an open attempt refuses the update. Implementation notes: generations are written
+by exclusive temp file + atomic rename inside the session lock with full chain
+revalidation (needed to reach generation >= 2), and `load` has an internal-only
+config-drift allowance used exclusively by the update operation.
+
+- Build PASS; `git diff --check` PASS.
+- Focused tests: 5/5 new (tests/migration-session-update.test.mjs), session suite
+  14/14, scope 6/6, CLI 3/3, migration-operations 7/7.
+- Full serial regression: 185/185 unit/CLI and 25/25 browser PASS, no
+  failures/skips (about 2.4 + 1.6 min); both smokes PASS; both pilots PASS
+  (`pilot` EQUIVALENT; `pilot:assistant` EQUIVALENT).
+- Coverage: open-attempt/pair/limits refusals; weakening needs an owner decision
+  and an owner decision needs weakening (including CLI exit codes); generations
+  chain corruption refused with absent-file fallback; CLI flags/help; and a full
+  lifecycle with real prepareMigration: gen0 PASS verify -> EXTENSION gen1 ->
+  mixed-generation history -> BINDING_ADAPTATION gen2 -> WEAKENING+owner gen3,
+  with budget counters unchanged and session immutability asserted.
+- Remaining: P4.3 complete acceptance fixture (value/validation/navigation repair
+  in one operation); no real Cinema migration yet.
+
 ## P4.1 scoped standard sessions - 2026-09-07
 
 Based on `75100c9`, with P3 already complete. Added explicit standard config,

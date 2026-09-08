@@ -16,7 +16,7 @@ import { migrationCommand, migrationHelp } from './migration.js';
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
-  if (command && ['prepare-migration', 'verify-migration', 'start-migration-session', 'migration-session-status'].includes(command) && args.length === 1 && args[0] === '--help') {
+  if (command && ['prepare-migration', 'verify-migration', 'start-migration-session', 'migration-session-status', 'update-migration-session'].includes(command) && args.length === 1 && args[0] === '--help') {
     console.log(migrationHelp(command)); return;
   }
   if (command === 'check-projects' && args.length === 1 && args[0] === '--help') {
@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   stringOptions.push('config', 'workspace-root', 'phase', 'baseline', 'artifact-path', 'preparation', 'previous', 'owner-decision');
   const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const }, encrypt: { type: 'boolean' as const }, 'allow-project-commands': { type: 'boolean' as const }, 'preflight-only': { type: 'boolean' as const } }, strict: true, allowPositionals: false });
   if (command === 'check-projects') { await projectChecksCommand(values); return; }
-  if (command === 'prepare-migration' || command === 'verify-migration' || command === 'start-migration-session' || command === 'migration-session-status') { await migrationCommand(command, values); return; }
+  if (command === 'prepare-migration' || command === 'verify-migration' || command === 'start-migration-session' || command === 'migration-session-status' || command === 'update-migration-session') { await migrationCommand(command, values); return; }
   const flag = (name: string): string | undefined => (values as Record<string, unknown>)[name] as string | undefined;
   const required = (name: string): string => { const value = flag(name); if (!value) throw new Error(`Required flag --${name} is missing.`); return value; };
   const number = (name: string, fallback: number, min = 0, max = 100): number => { const value = flag(name) === undefined ? fallback : Number(flag(name)); if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`Invalid --${name}.`); return value; };
@@ -190,7 +190,7 @@ async function main(): Promise<void> {
       break;
     }
     default:
-      console.log('Standard validation: prepare-migration, verify-migration, start-migration-session, migration-session-status (use --help).');
+      console.log('Standard validation: prepare-migration, verify-migration, start-migration-session, update-migration-session, migration-session-status (use --help).');
       console.log('Migration Harness\nCommands: check-projects, discover, plan, trace, sanitize-trace, import-openapi, import-test-evidence, synthesize, review-contract, approve-contract, verify-contract, transform, compare, run, brief, apply-patch, purge-raw, rotate-raw-key, anchor-audit\nSee docs/USAGE.md and AGENTS.md for command arguments and the assistant protocol.');
       if (command && command !== 'help') process.exitCode = 1;
   }

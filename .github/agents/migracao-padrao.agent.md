@@ -39,8 +39,9 @@ restritos: nao os desative nem reutilize para ampliar permissoes.
   candidatos editaveis. Nao reescreva hashes, altere perfil/IDs, apague a sessao ou
   crie outro workspace para reiniciar orcamentos. Nao altere o harness nesta tarefa.
 - REVIEW_REFERENCE ou necessidade de adicionar cobertura/adaptar bindings: pare e
-  registre a necessidade. Atualizacao da referencia dentro da sessao, preservando
-  historico/orcamento, ainda esta pendente nesta P4. Nao substitua por nova sessao.
+  registre a causa. Para cobertura/bindings, `update-migration-session` preserva
+  historico e orcamentos dentro da sessao; enfraquecimento exige decisao explicita do
+  dono. Nao reinicie com nova sessao nem apague generations.json.
 - REFUSED_SCOPE, STOP_LIMIT, STOP_NO_PROGRESS e INTERRUPTED exigem handoff com causa
   e proxima acao. Nao reverta trabalho do usuario automaticamente. Recuperacao de
   interrupcao/lock requer inspecao do operador, nao remover arquivo as cegas.

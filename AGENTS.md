@@ -13,8 +13,9 @@ Use explicit `profile: "standard"` in MigrationConfig and an authorized SPEC.
 `prepare-migration` -> `start-migration-session` -> normal scoped edits ->
 `verify-migration` -> repair uses a fixed reference and persistent budgets.
 See `docs/USAGE.md` and `.github/agents/migracao-padrao.agent.md`. Session reference
-updates preserving history/budgets and the full real-migration proof remain pending.
-Do not reset sessions to work around those limits. There is no `--profile` flag.
+updates preserving history/budgets are implemented via `update-migration-session`;
+the full real-migration proof remains pending. Do not reset sessions to work around
+those limits. There is no `--profile` flag.
 
 The existing `brief`/`apply-patch` workflow and the preparation/transformation agents are the
 restricted profile. Sections 1-8 below govern that profile only and remain in force

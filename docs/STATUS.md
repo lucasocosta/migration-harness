@@ -1,12 +1,13 @@
 # Status
 
-Updated: 2026-09-07. Harness branch: `next/angular-forms-and-io`.
-Base of the v0.3 transition: `c663b40`. P1/P2 libraries committed as `c4f319b`;
-P3 committed as `5079579` (native checks), `378d730` (managed builds) and
-`adc61d4` (suite capture) and `75100c9` (consolidated verification).
-No merge or push performed. RFC v0.3 direction is agreed; P0-P3 are implemented.
-P4 now has scoped normal editing, persistent sessions and a standard agent; it is
-**not complete**. [PLAN.md](PLAN.md) is the single ordered checklist.
+Updated: 2026-09-07. Harness branch: `next/angular-forms-and-io`, pushed to
+`origin` with owner authorization. Base of the v0.3 transition: `c663b40`.
+P1/P2 libraries committed as `c4f319b`; P3 committed as `5079579` (native checks),
+`378d730` (managed builds), `adc61d4` (suite capture) and `75100c9` (consolidated
+verification). RFC v0.3 direction is agreed; P0-P3 are implemented. P4 has scoped
+normal editing, persistent sessions, a standard agent and controlled session
+reference updates; the complete acceptance (P4.3) is **not done**.
+[PLAN.md](PLAN.md) is the single ordered checklist.
 
 P1 is complete as a library: versioned configuration and report schemas, config
 fingerprints, a versioned reference with real working-tree input fingerprints and its
@@ -141,9 +142,11 @@ contract review. Only COMPLETE with lastReportMatchesWorkspace=true supports del
 The new `migracao-padrao` agent operates this loop; restricted agents/hook are unchanged.
 
 Limits: file-level scope, not line ownership or a sandbox; private metadata is opaque,
-dependency/generated directories excluded. No session reference refresh or automatic
-crash/reset/archive operation. Coverage/binding updates preserving budgets and full
-value/validation/navigation acceptance remain pending. No Cinema migration performed.
+dependency/generated directories excluded. No automatic crash/reset/archive operation.
+Session reference updates preserving budgets are implemented (`update-migration-session`:
+coverage/binding updates, weakening with an explicit owner decision, chained
+`generations.json`, superseded results invalidated); the full value/validation/navigation
+acceptance remains pending. No Cinema migration performed.
 See USAGE.md for operational limits and VALIDATION.md for test evidence.
 
 ## Current product state
@@ -155,7 +158,7 @@ See USAGE.md for operational limits and VALIDATION.md for test evidence.
 | Requirements | Mining, evidence import, approved immutable contracts, critical gates, machine-checkable requirement assertions | Real-migration exercise (P5); no contract weakening without owner decision |
 | Evidence | Sanitization, private raw storage for legacy captures, hashes/audit, versioned reference, source stability observations, build-linked suite capture records, consolidated report bound to a verified reference and the executed suite | Real-migration exercise (P5) |
 | Project checks | Native commands via check-projects, baseline comparisons, timeout/cleanup, input preflight and managed builds/reset/capture; baseline/native results integrated in the consolidated migration report; restricted gates retained | Real-migration exercise (P5) |
-| Agent workflow | Standard scoped edits, persistent sessions and standard agent; restricted briefs/hook/audit retained | Session reference refresh and full P4/P5 acceptance |
+| Agent workflow | Standard scoped edits, persistent sessions, standard agent and controlled session reference updates (coverage/binding, weakening with owner decision); restricted briefs/hook/audit retained | Complete P4 acceptance (P4.3) and P5 real migration |
 | Repair | Standard implementation/environment/reference decisions, semantic edits, persistent limits; restricted HTTP-method adapter retained | Complete value/validation/navigation repair demonstration |
 | Optional adapters | Angular discovery, partial IO/synchronous forms codemods, OpenAPI/structured-test import, HTTP/Docker worker adapters | Not prerequisites for first standard migration |
 | Documentation | P0 complete: v0.3 RFC, plan, manual/template, scoped handoff and 21 documents reconciled | Keep availability synchronized as each milestone is verified |
@@ -226,8 +229,8 @@ Missing SPEC coverage includes 401, 400-save and other load/save errors.
 
 ## Priorities and deferred scope
 
-Next: finish P4 reference updates with preserved budgets and the complete semantic
-repair acceptance, then the Cinema proof through the consolidated operation in P5.
+Next: finish P4 with the complete value/validation/navigation acceptance (P4.3),
+then the Cinema proof through the consolidated operation in P5.
 Detailed checkboxes and acceptance are only in PLAN.md.
 
 Deferred: more Angular codemods/inject() discovery, conditional OpenAPI and arbitrary

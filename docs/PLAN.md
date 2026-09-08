@@ -21,7 +21,7 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 | P1 - Contratos de operacao e referencia | Concluido | Configuracao/relatorio/adaptacao e lifecycle da referencia implementados e testados |
 | P2 - Precisao da comparacao | Concluido | Valores, assertivas por unidade/checkpoint, bindings aplicados, read-back de persistencia e repetibilidade source/source |
 | P3 - Verificacao consolidada | Concluido | Operacao prepare/verify com referencia verificada, comparacao, requisitos, checks nativos e relatorio agregado |
-| P4 - Iteracao autonoma | Em andamento | Escopo normal, agente e historico persistente implementados; refresh da referencia e aceite completo pendentes |
+| P4 - Iteracao autonoma | Em andamento | Escopo normal, agente, historico persistente e atualizacao de referencia implementados; falta o aceite completo (P4.3) |
 | P5 - Cinema ponta a ponta | Pendente | Sessao real, relatorio final e regressao React |
 | P6 - Componente e varias unidades | Pendente | Host de componente e regressao integrada |
 
@@ -344,7 +344,7 @@ Pacotes: cli/engine/quality-gates; AGENTS.md, manual e agentes/hook.
   estao claros; nao encaminhar campo obrigatorio ausente para revisao do contrato.
 - [x] Persistir orcamento, tentativas e ausencia de progresso entre invocacoes.
   Permitir correcao semantica dentro do escopo, nao apenas metodo HTTP.
-- [ ] Suportar extensao de cobertura e adaptacao de binding conforme RFC, com
+- [x] Suportar extensao de cobertura e adaptacao de binding conforme RFC, com
   nova referencia e reexecucao; pedir revisao para reducao de criterios/novo desvio.
 - [x] Exigir suite final completa no mesmo candidato; documentar motivos reais
   de intervencao humana e separar manutencao do harness de reparo do candidato.
@@ -379,15 +379,29 @@ sandbox/hook do editor. .git/dependencias/outputs gerados excluidos; entradas
 privadas sao metadados opacos. Sem recuperacao automatica de crash/lock, reset ou
 archive da sessao. Nenhuma migracao Cinema nem aceite de Copilot humano executado.
 
+### P4.2 - Atualizacao de referencia da sessao (2026-09-07)
+
+Implementado: `update-migration-session` aplica atualizacao controlada da referencia
+da sessao via `generations.json` encadeado por hash — extensao de cobertura e
+adaptacao de binding; enfraquecimento exige `--owner-decision`. Identidade da sessao,
+historico de tentativas e orcamento sao preservados; `session.json` nunca e reescrito;
+relatorios de geracoes substituidas deixam de valer como atuais; apagar
+`generations.json` recua a geracao anterior e nao e workaround de reset. Raizes e
+limites sao imutaveis e tentativa em aberto recusa a atualizacao.
+
+Evidencia: build PASS; 5/5 testes novos de sessao (14/14 no arquivo de sessao,
+6/6 escopo, 3/3 CLI, 7/7 migration-operations); regressao 185/185 unit/CLI +
+25/25 browser, ambos os smokes e pilotos PASS, diff-check PASS. Ciclo de vida real
+testado com prepareMigration: gen0 PASS -> EXTENSION gen1 -> historico misto ->
+BINDING_ADAPTATION gen2 -> WEAKENING+owner gen3, com orcamento inalterado e
+imutabilidade da sessao assegurada. Detalhes em VALIDATION.md.
+
 **Falta para fechar P4:**
-- [ ] P4.2: atualizar referencia da sessao por adicao de cobertura/binding, mantendo
-  baseline, escopo e historico/orcamento; invalidar resultados antigos e reexecutar.
-  P3 `prepare --previous` sozinho nao fecha esta integracao. Reducoes exigem dono.
 - [ ] P4.3: fixture/sessao de aceite que repara valores, validacao e navegacao na
   mesma operacao, incluindo refresh acima e sem tarefas manuais de artefatos.
   A confirmacao de salvamento da P4.1 e evidencia parcial, nao esse aceite inteiro.
 
-Proxima acao: implementar P4.2 antes de iniciar Cinema (P5). Nao apagar uma sessao
+Proxima acao: implementar P4.3 antes de iniciar Cinema (P5). Nao apagar uma sessao
 ou criar outro workspace como substituto da atualizacao preservando orcamentos.
 
 ## P5 - Cinema como primeiro caso de uso

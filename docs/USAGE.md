@@ -1,8 +1,8 @@
 # CLI usage
 
 Reference for **implemented commands**. The consolidated standard verification
-operation exists; P4 adds scoped normal edits and persistent standard sessions.
-Reference updates within a session and full milestone acceptance remain pending.
+operation exists; P4 adds scoped normal edits and persistent standard sessions with
+controlled in-session reference updates. Full milestone acceptance remains pending.
 See [PLAN.md](PLAN.md) for the ordered checklist. The restricted profile below is
 unchanged and must not be bypassed. An executable standard example is in
 examples/validation-first/README.md.
@@ -10,7 +10,7 @@ examples/validation-first/README.md.
 | Need | Available operation | Limit |
 | --- | --- | --- |
 | Standard verification (prepare + verify) | `prepare-migration`, `verify-migration` | Declared suite only; not yet exercised by a real migration |
-| Standard assistant iteration | `start-migration-session`, `migration-session-status`, `verify-migration` | Explicit config profile; fixed reference, one persistent session per project pair |
+| Standard assistant iteration | `start-migration-session`, `update-migration-session`, `migration-session-status`, `verify-migration` | Explicit config profile; fixed reference per generation, one persistent session per project pair |
 | Preflight and native build/typecheck/lint/test | `check-projects` | Project-check report only, not behavioral equivalence |
 | Capture a running application | `trace` | One scenario; caller serves the app |
 | Compare sanitized evidence | `compare` | Contract/manifest optional; payloads compared by shape |
@@ -56,11 +56,16 @@ node packages/cli/dist/index.js verify-migration \
   --config migrations/example/migration.json --workspace-root . --allow-project-commands
 node packages/cli/dist/index.js migration-session-status \
   --config migrations/example/migration.json --workspace-root .
+# Only when coverage must grow or a binding must adapt (see below):
+node packages/cli/dist/index.js update-migration-session \
+  --config migrations/example/migration.json --workspace-root . \
+  --artifact-path artifacts/example/reprepared --allow-project-commands
 ```
 
 Paths above are templates. Standard verify refuses caller-supplied preparation/output.
 Session artifacts live at `artifacts/sessions/<project-pair-hash>`; restarting the
-command or changing migrationId cannot reset it. Config/profile/limits remain frozen.
+command or changing migrationId cannot reset it. Config/profile/limits remain frozen
+apart from the explicit reference update below.
 Each attempt reserves an immutable started record, then a hash-linked finished record
 and full P3 report. Missing/edited reports or inconsistent history are refused.
 This is local consistency, not authenticated provenance against the same user.
@@ -92,13 +97,20 @@ Budget: `maxRepairAttempts + 1` verification attempts and accumulated verificati
 time `maxDurationMs`; preparation/editing/idle time excluded. The same failed candidate
 and diagnostic fingerprint twice stops for no progress. A crashed unfinished attempt
 is INTERRUPTED, not a fresh budget. There is no automatic recovery, archive/reset or
-session reference-update command yet. Inspect stale locks with the operator. Do not
-delete state, downgrade the profile or create a new workspace to bypass the limits.
+session reset. Inspect stale locks with the operator. Do not delete state, downgrade
+the profile or create a new workspace to bypass the limits.
 
-P3 can version preparations, but adopting coverage/binding updates into an existing
-standard session **while preserving budgets is still pending**. Record that need and
-stop; creating a fresh session is not the workaround. Full value/validation/navigation
-repair acceptance and the real Cinema migration remain P4/P5 work.
+`update-migration-session` versions the session reference for **coverage extension or
+binding adaptation** without a reset: it requires an open session with no unfinished
+attempt, the same source/target roots and unchanged limits, runs a real preparation
+against the previous generation and appends a hash-chained entry to
+`generations.json`. Attempts, budgets and session identity persist; reports from
+superseded generations stop counting as current (`lastReportMatchesWorkspace` becomes
+false until a new attempt passes). Criteria weakening is only accepted with an
+explicit `--owner-decision <reference>`; anything else is refused.
+
+Full value/validation/navigation repair acceptance and the real Cinema migration
+remain P4/P5 work.
 
 Verify exits: 0 COMPLETE; 3 scope/limit/no-progress/interruption; 4 behavioral FAIL;
 5 INCONCLUSIVE; 1 invalid state/input. The session decision overrides any nested

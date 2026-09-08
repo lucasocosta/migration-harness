@@ -21,7 +21,7 @@ export const MigrationSessionSchema = z.object({
 }).strict();
 export const SessionAttemptStartSchema = z.object({
   index: z.number().int().nonnegative(), startedAt: z.string().datetime(), previousHash: Sha256Schema,
-  candidateHash: Sha256Schema, remainingMs: z.number().int().positive(),
+  candidateHash: Sha256Schema, remainingMs: z.number().int().positive(), generation: z.number().int().nonnegative().optional(),
 }).strict();
 export const SessionAttemptFinishSchema = z.object({
   index: z.number().int().nonnegative(), startHash: Sha256Schema, finishedAt: z.string().datetime(), durationMs: z.number().int().nonnegative(),
@@ -29,11 +29,26 @@ export const SessionAttemptFinishSchema = z.object({
   fingerprint: Sha256Schema, candidateHash: Sha256Schema,
   reportPath: MigrationPathSchema.optional(), reportHash: Sha256Schema.optional(),
   errorCode: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(), findings: z.array(ScopeFindingSchema),
+  generation: z.number().int().nonnegative().optional(),
 }).strict().refine(value => !!value.reportPath === !!value.reportHash
   && (value.outcome !== 'PASS' || !!value.reportPath && !value.errorCode && !value.findings.length), 'Invalid attempt evidence');
+/** One persisted reference generation: an approved coverage/binding update that preserves session identity, scope governance and budgets. */
+export const SessionGenerationSchema = z.object({
+  index: z.number().int().nonnegative(), createdAt: z.string().datetime(),
+  configurationHash: Sha256Schema, referenceHash: Sha256Schema, scopeHash: Sha256Schema, previousHash: Sha256Schema,
+  config: MigrationConfigSchema, preparation: MigrationPreparationSchema, scope: MigrationScopeSnapshotSchema,
+}).strict();
+export const SessionGenerationsSchema = z.object({
+  kind: z.literal('MIGRATION_SESSION_GENERATIONS'), version: z.literal('1'),
+  sessionHash: Sha256Schema, entries: z.array(SessionGenerationSchema).max(1000),
+}).strict();
 export type ScopeEntry = z.infer<typeof ScopeEntrySchema>;
 export type MigrationScopeSnapshot = z.infer<typeof MigrationScopeSnapshotSchema>;
 export type ScopeFinding = z.infer<typeof ScopeFindingSchema>;
 export type MigrationSession = z.infer<typeof MigrationSessionSchema>;
 export type SessionAttemptStart = z.infer<typeof SessionAttemptStartSchema>;
 export type SessionAttemptFinish = z.infer<typeof SessionAttemptFinishSchema>;
+export type SessionGeneration = z.infer<typeof SessionGenerationSchema>;
+export type SessionGenerations = z.infer<typeof SessionGenerationsSchema>;
+export const parseSessionGeneration = (value: unknown): SessionGeneration => SessionGenerationSchema.parse(value);
+export const parseSessionGenerations = (value: unknown): SessionGenerations => SessionGenerationsSchema.parse(value);

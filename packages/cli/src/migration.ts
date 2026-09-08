@@ -1,16 +1,22 @@
 import { resolve } from 'node:path';
 import { lstat } from 'node:fs/promises';
 import { ArtifactStore, prepareMigration, verifyMigration, summarizeMigration, ReferenceWeakeningError,
-  startMigrationSession, inspectMigrationSession, verifyMigrationSession, migrationSessionPath } from '@migration-harness/engine';
+  startMigrationSession, inspectMigrationSession, verifyMigrationSession, updateMigrationSessionReference, migrationSessionPath } from '@migration-harness/engine';
 import { parseMigrationConfig, parseMigrationPreparation } from '@migration-harness/core';
 import { readPublicJson } from './assistant-files.js';
 
 export function migrationHelp(command: string): string {
+  if (command === 'update-migration-session') return `update-migration-session --config <migration.json> --workspace-root <dir> --artifact-path <new-relative-dir> [--owner-decision <reference>] --allow-project-commands
+Controlled reference update for a standard session: coverage extension or binding adaptation only.
+Session identity, attempt history and budgets are preserved; roots and limits must not change. Weakening requires --owner-decision.
+Reports from superseded generations stop matching; session resets remain forbidden. Runs a full preparation (project commands).
+Exit codes: 0 updated; 1 invalid input/state or refused reference change.`;
   if (command === 'start-migration-session' || command === 'migration-session-status') return `${command} --config <migration.json> --workspace-root <dir>${command === 'start-migration-session' ? ' --preparation <preparation.json>' : ''}
 Requires profile: standard. Session storage is deterministic per source/target pair.
 Normal writes are checked against target.writePaths. Session state and attempt history are harness-owned.
 Attempts: maxRepairAttempts + 1; cumulative verification time: maxDurationMs (editing time excluded).
 Repeated identical failed candidate/result stops for no progress. Existing sessions cannot be reset by starting again.
+Coverage/binding reference updates keep this session: update-migration-session preserves history and budgets.
 Exit codes: 0 started/valid scope; 3 refused scope or exhausted budget; 1 invalid input/state.`;
   return `${command} --config <migration.json> --workspace-root <dir> --artifact-path <new-relative-dir>
   --allow-project-commands: run declared build/test/reset commands in an authorized local environment
@@ -24,17 +30,18 @@ verify-migration then takes only config/workspace and authorization, with sessio
 Executable example: examples/validation-first/README.md`;
 }
 
-export async function migrationCommand(command: 'prepare-migration' | 'verify-migration' | 'start-migration-session' | 'migration-session-status', values: Record<string, unknown>): Promise<void> {
+export async function migrationCommand(command: 'prepare-migration' | 'verify-migration' | 'start-migration-session' | 'migration-session-status' | 'update-migration-session', values: Record<string, unknown>): Promise<void> {
   const sessionCommand = command === 'start-migration-session' || command === 'migration-session-status';
+  const updateCommand = command === 'update-migration-session';
   const allowed = new Set(['config', 'workspace-root', 'artifact-path', 'allow-project-commands',
-    ...(command === 'prepare-migration' ? ['preflight-only', 'previous', 'owner-decision'] : ['preparation'])]);
+    ...(command === 'prepare-migration' ? ['preflight-only', 'previous', 'owner-decision'] : updateCommand ? ['owner-decision'] : ['preparation'])]);
   if (sessionCommand) { allowed.delete('artifact-path'); allowed.delete('allow-project-commands'); if (command === 'migration-session-status') allowed.delete('preparation'); }
   for (const key of Object.keys(values)) if (!allowed.has(key)) throw new Error('UNSUPPORTED_MIGRATION_OPTION');
   const required = (key: string): string => {
     const value = values[key]; if (typeof value !== 'string' || !value) throw new Error(`MISSING_${key.replace(/-/g, '_').toUpperCase()}`); return value;
   };
   if (values['preflight-only'] && (values['allow-project-commands'] || values.previous || values['owner-decision'])) throw new Error('CONFLICTING_PREFLIGHT_OPTIONS');
-  if (values['owner-decision'] && !values.previous) throw new Error('OWNER_DECISION_REQUIRES_PREVIOUS');
+  if (values['owner-decision'] && !values.previous && !updateCommand) throw new Error('OWNER_DECISION_REQUIRES_PREVIOUS');
   const workspaceRoot = resolve(required('workspace-root'));
   const artifactPath = typeof values['artifact-path'] === 'string' ? values['artifact-path'] : undefined;
   const store = new ArtifactStore(resolve(workspaceRoot, artifactPath ?? 'artifacts'));
@@ -51,6 +58,12 @@ export async function migrationCommand(command: 'prepare-migration' | 'verify-mi
         const result = await inspectMigrationSession({ config, workspaceRoot });
         console.log(JSON.stringify(result, null, 2)); process.exitCode = result.lastReportMatchesWorkspace || result.scope === 'PASS' && result.referenceStatus === 'VERIFIED' && !result.stop ? 0 : 3;
       }
+      return;
+    }
+    if (updateCommand) {
+      const result = await updateMigrationSessionReference({ config, workspaceRoot, artifactPath: required('artifact-path'),
+        allowProjectCommands: common.allowProjectCommands, ...(values['owner-decision'] ? { ownerDecisionReference: required('owner-decision') } : {}) });
+      console.log(`${result.kind}: generation ${result.generation} (${result.classification}, reference v${result.referenceVersion})\nSession: ${result.sessionPath}; attempts used: ${result.attemptsUsed}; remaining: ${result.attemptsRemaining}`);
       return;
     }
     if (command === 'prepare-migration') {
