@@ -3,7 +3,7 @@
 Target: [RFC v0.3](RFC.md). Delivered behavior: [STATUS.md](STATUS.md).
 Implementation sequence: [PLAN.md](PLAN.md).
 
-## Validation-first target (not yet delivered)
+## Validation-first flow (P4 incremental)
 
 ```text
 Owner scope -> assistant prepares project configuration and scenarios
@@ -24,14 +24,14 @@ repair. Evaluation inputs remain protected independently of who runs the tools.
 
 ## Responsibilities
 
-| Layer | Existing implementation to reuse | Required change |
+| Layer | Implemented | Remaining |
 | --- | --- | --- |
-| Configuration/reference | core schemas, scenario definitions, artifacts and hashes | Versioned migration config, stable reference, input/build identity |
-| Execution | scenario-runner, Playwright recorder, explicit completion, isolated contexts | Suite coordination, per-side bindings, reset and project process lifecycle |
-| Privacy | sanitizer, structural worker projection, private raw storage | Safe value comparison and localized public diagnostics |
-| Comparison | network shapes/status, navigation, storage, ARIA, declared causality, contracts | Selected values/outcomes and unit-scoped semantic assertions |
-| Project validation | quality-gates, coverage/eligibility helpers | Actual project commands/configuration and aggregate required-check coverage |
-| Agent integration | CLI commands and structured results | Normal scoped edits, persistent iteration history and actionable report |
+| Configuration/reference | Versioned config/reference, working-tree fingerprints, input/build identity | Session reference refresh preserving budgets |
+| Execution | Suite coordination, bindings, reset, managed static builds and cleanup | Real Cinema exercise; static SPAs only |
+| Privacy | Sanitizer, safe value comparison, structural diagnostics, private keys | Same-user execution is not isolated |
+| Comparison | Selected values, scoped assertions, navigation, storage, ARIA, causality, contracts | Measured real-migration coverage |
+| Project validation | Native commands, baseline comparisons and aggregate required coverage | Real-migration regression evidence |
+| Agent integration | Normal scoped edits, persistent session history, CLI repair decisions and standard agent | Complete P4 acceptance and P5/P6 demonstrations |
 | Optional adapters | discovery, codemods, OpenAPI/test importers, manifests, bounded workers | Not prerequisites for standard verification |
 
 No package-wide rewrite is required. Extend existing boundaries, version schemas
@@ -49,7 +49,7 @@ profile. Keep issuance, protected hashes, read/write lists, patch screens, audit
 and compatibility tests there. The two Copilot agents and hook implement that
 profile; they are not an end-to-end standard agent.
 
-The proposed standard operation coordinates native project checks, current builds,
+The implemented P3 operation coordinates native project checks, current builds,
 all required scenarios and destination regression. P1 provides configuration, reference
 and PASS/FAIL/INCONCLUSIVE report schemas, a library aggregator and reference
 collection/verification over real project inputs. P2 added selected value comparison,
@@ -63,8 +63,17 @@ build metadata participates in reference environment identity. `captureProjectSu
 now coordinates native resets and all configured scenarios, uses the runner's
 cancellation/build-navigation checks, sanitizes in memory and persists build-linked
 capture outcomes plus observed source stability. It does not compare source/target
-or issue/update references. The complete operation still needs reference integration,
-comparison/assertions, aggregate reporting and CLI exposure.
+or issue/update references on its own. `prepare-migration` and `verify-migration`
+now add reference integration, comparisons/assertions, aggregate reporting and CLI.
+
+P4 wraps that verifier with `migration-session`: immutable baseline scope and
+preparation, deterministic storage per project pair, exclusive attempt reservation,
+hash-linked outcomes and reports, scope checks before/after the complete run and
+persistent attempts/active-time/no-progress limits. `migration-scope` fingerprints
+current public trees, never follows links and excludes declared generated outputs.
+Private entries are opaque metadata; .git/dependencies are excluded. The new standard
+agent makes normal edits, while restricted issuance/hooks remain unchanged.
+Reference-refresh integration and full milestone acceptance remain pending.
 
 ## Trust and evidence boundaries
 

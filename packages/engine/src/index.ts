@@ -7,3 +7,5 @@ export * from './project-checks.js';
 export * from './build-servers.js';
 export * from './capture-suite.js';
 export * from './migration-operations.js';
+export * from './migration-scope.js';
+export * from './migration-session.js';

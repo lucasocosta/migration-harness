@@ -1,8 +1,8 @@
 # Manual de migracao com Copilot
 
-Atualizado: 2026-09-06. Direcao: [RFC v0.3](RFC.md).
-**O fluxo padrao ponta a ponta ainda esta em implementacao planejada.**
-Este manual distingue a experiencia desejada dos comandos disponiveis hoje.
+Atualizado: 2026-09-07. Direcao: [RFC v0.3](RFC.md).
+**P0-P3 completas; perfil padrao disponivel como incremento da P4.**
+Atualizacao da referencia dentro de uma sessao e aceite completo ainda pendentes.
 Veja [STATUS.md](STATUS.md), [PLAN.md](PLAN.md) e [USAGE.md](USAGE.md).
 
 ## 1. O que voce entrega e recebe
@@ -35,13 +35,14 @@ apps/, migrations/ e artifacts/ sao ignorados pelo Git do harness. Os clones tem
 historicos independentes; especificacoes e evidencias permitidas precisam de
 versionamento autorizado separado. Nunca versione raw traces/chaves/credenciais.
 
-## 3. Fluxo padrao proposto
+## 3. Fluxo padrao
 
 1. O agente le o escopo e codigo relevante, inventaria integracoes e comandos reais.
 2. Prepara cenarios de sucesso, erro e borda; dados/reset; criterios observaveis e
    diferencas intencionais. Pergunta somente por ambiguidade ou autorizacao real.
 3. O harness verifica a estabilidade do Angular e registra uma referencia versionada.
-4. O agente edita normalmente o destino dentro do escopo, inclusive estilos e testes.
+4. Inicia uma sessao persistente e edita normalmente o destino dentro do escopo,
+   inclusive estilos e testes. A arvore atual, incluindo trabalho local, e a baseline.
 5. O harness executa comandos do projeto, serve o build atual, verifica os cenarios
    nas duas aplicacoes e a regressao do React, entregando um relatorio consolidado.
 6. O agente corrige defeitos e repete dentro do limite. Ao final, executa a suite
@@ -52,16 +53,26 @@ Referencia, criterios e evidencias continuam protegidos. Uma diferenca detectada
 nao autoriza retirar o teste. Adicoes de cobertura/bindings geram nova versao e
 reexecucao; reducao de criterios ou novas diferencas aceitas exigem revisao humana.
 
-**P1-P4 do plano precisam existir antes de executar esse fluxo como produto.**
-Na transicao, nao use os agentes restritos para simular essas permissoes.
+Use `migracao-padrao`, nao os agentes restritos. O agente registra `profile: standard`
+na configuracao antes de `prepare-migration`, inicia `start-migration-session` e usa
+`verify-migration` sem fornecer nova preparacao/output. `migration-session-status`
+confere historico, escopo e correspondencia do ultimo PASS com o candidato atual.
+Comandos completos e limites estao em [USAGE.md](USAGE.md#standard-assistant-session-p4-increment).
+
+O limite persiste entre chamadas: uma tentativa inicial mais maxRepairAttempts,
+tempo acumulado de verificacao (sem tempo de edicao) e parada por repeticao sem
+progresso. A sessao nao e um sandbox; comandos locais precisam de autorizacao.
+Config/criterios ficam congelados. Se for necessario adicionar cobertura ou adaptar
+bindings apos iniciar a sessao, registre e pare: a adocao de nova referencia com
+preservacao de orcamento ainda falta nesta P4. Nao apague/recrie a sessao como atalho.
 
 ## 4. Instrucao para o agente
 
-Modelo de instrucao para o perfil padrao, apos sua disponibilizacao:
+Selecione `migracao-padrao` no Copilot e informe:
 
 ```text
 Leia AGENTS.md, docs/STATUS.md e migrations/<nome>/SPEC.md.
-Confirme que o perfil padrao esta implementado e autorizado nesta especificacao.
+Confirme que o incremento padrao disponivel atende ao escopo e esta autorizado na SPEC.
 Se nao estiver, relate a capacidade ausente; nao invente comandos nem burle o restrito.
 Conduza a migracao ponta a ponta no React existente usando suas capacidades.
 Prepare cenarios e dados sinteticos, valide a referencia Angular e registre cobertura.
@@ -81,6 +92,10 @@ separa escolhas do responsavel e detalhes que o agente consegue levantar.
 ## 5. O que funciona hoje
 
 [USAGE.md](USAGE.md) e a referencia executavel:
+- `prepare-migration`: captura referencia estavel, checks e builds reais.
+- `start-migration-session`: congela referencia, escopo e orcamentos.
+- `verify-migration`: suite completa, requisitos e checks, decisao para o reparo.
+- `migration-session-status`: historico e correspondencia do resultado com o destino.
 - `trace`: uma captura de cenario, com aplicacao ja servida.
 - `compare`: compara traces sanitizados; contrato e manifest sao opcionais.
 - `run`: exige contrato aprovado, apps ja servidas e um cenario por chamada.
@@ -93,7 +108,8 @@ preparacao sem terminal, transformacao via brief e sem escrita direta de candida
 Nao desative seu hook para contornar uma recusa. A gravacao brief-only e uma
 demonstracao desse perfil, nao um requisito geral de migracao.
 
-Nenhum resultado atual compara automaticamente todos os valores de negocio.
+Valores selecionados e assertivas semanticas sao verificados; nao ha descoberta
+automatica de todos os valores de negocio.
 PASS de apply nao e equivalencia. EQUIVALENT vale para os cenarios/dimensoes
 executados, nao para tudo que esta na especificacao.
 
@@ -120,8 +136,9 @@ aprovacao da aplicacao inteira.
 Registrar versao, tentativa, caminho de resultado e proxima acao. Nao marcar feito
 por ter escrito codigo. Registrar checks preexistentes com falha e nao os chamar
 de aprovados. PASS/FAIL/INCONCLUSIVE e a referencia versionada (com verificacao de
-insumos e decisao do responsavel para enfraquecimento) ja existem como schema/API de
-biblioteca na P1, mas ainda nao como operacao executavel de verificacao.
+insumos e decisao do responsavel para enfraquecimento) existem na operacao executavel.
+Na sessao, somente COMPLETE com lastReportMatchesWorkspace=true sustenta a entrega;
+INCONCLUSIVE, parada por limite ou PASS isolado de preparacao nao aprovam migracao.
 
 Dados sinteticos e reset sao o padrao; mocks nao provam persistencia sem verificacao
 dos valores enviados/read-back pertinente. Raw traces ficam privados, nunca no

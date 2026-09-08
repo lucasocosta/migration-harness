@@ -3,7 +3,7 @@
 Direction: [RFC v0.3](RFC.md). Status: [STATUS.md](STATUS.md).
 This replaces the mandatory brief-only product model. No model API is required.
 
-## Standard profile: integration to implement
+## Standard profile: P4 increment
 
 One assistant, in the same conversation, can:
 1. Read relevant application code and fill technical details of the owner's scope.
@@ -17,7 +17,7 @@ The assistant may interpret and summarize results, never manufacture a tool verd
 It does not need a codemod, successful discovery, mandatory manifest, patch JSON,
 hidden scenarios or a fresh conversation to validate a migration.
 
-Required integration capabilities (not current commands):
+Implemented integration capabilities:
 - Runtime-validated migration config with roots, scope, commands/cwd, URLs, scenarios,
   bindings, fixture/reset policy, required checks and limits.
 - Reference identity, stable-source checks, stale-input detection and explicit rebaseline.
@@ -26,15 +26,19 @@ Required integration capabilities (not current commands):
 - Persisted attempt history across calls; no-progress detection and bounded retries.
 - Diff checks for scoped edits, protected inputs and unrelated preexisting user changes.
 
-Do not invent a `--profile` flag or present this interface as available. Implementation
-milestones and interface decisions live in [PLAN.md](PLAN.md).
+Select `profile: "standard"` in config before preparation, not a `--profile` flag.
+Use the new `migracao-padrao` agent and the session commands in [USAGE.md](USAGE.md).
+Versioned reference updates are implemented by P3, but adopting them into an existing
+P4 session without resetting budgets remains pending. Stop on that need for now.
+Implementation milestones and acceptance live in [PLAN.md](PLAN.md).
 
 P1/P2 implement configuration/report schemas, reference collection from declared
 project files, change verification, comparison and aggregation as libraries. P3
-adds native checks, managed static build servers and suite capture with reset and
-observed source stability, not the complete operational loop. Hashes do not
-authenticate provenance. Source/target comparison, reference/report integration
-and the consolidated CLI remain pending. Library entry points and limits: USAGE.md.
+adds native checks, managed static build servers, suite capture with reset, observed
+source stability and consolidated prepare/verify with source/target comparison and
+aggregate reports. P4 now adds normal scoped edits, persistent attempts/time and
+repair decisions around that verifier. Hashes do not authenticate provenance.
+The real assistant migration acceptance remains pending. Limits: USAGE.md.
 
 ## Evaluation independence
 
@@ -51,6 +55,8 @@ Preparation can create scenarios. After capture, additions/binding adaptations
 need recorded new versions and validation on both sides. Removing requirements,
 accepting a new difference or broadening ignore rules requires owner review.
 A missing payload field is normally a target defect, not a contract-review request.
+The current session freezes config/reference; its refresh lifecycle is the remaining
+P4 integration work, not permission to edit criteria or restart the counter.
 
 Escalate ambiguity, scope/permission changes, secret exposure, unsupported evidence,
 unsafe execution and exhausted budgets. Diagnose infrastructure separately from

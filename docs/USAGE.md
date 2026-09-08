@@ -1,7 +1,8 @@
 # CLI usage
 
 Reference for **implemented commands**. The consolidated standard verification
-operation exists; a full standard agent workflow (normal edits/budgets) remains P4.
+operation exists; P4 adds scoped normal edits and persistent standard sessions.
+Reference updates within a session and full milestone acceptance remain pending.
 See [PLAN.md](PLAN.md) for the ordered checklist. The restricted profile below is
 unchanged and must not be bypassed. An executable standard example is in
 examples/validation-first/README.md.
@@ -9,6 +10,7 @@ examples/validation-first/README.md.
 | Need | Available operation | Limit |
 | --- | --- | --- |
 | Standard verification (prepare + verify) | `prepare-migration`, `verify-migration` | Declared suite only; not yet exercised by a real migration |
+| Standard assistant iteration | `start-migration-session`, `migration-session-status`, `verify-migration` | Explicit config profile; fixed reference, one persistent session per project pair |
 | Preflight and native build/typecheck/lint/test | `check-projects` | Project-check report only, not behavioral equivalence |
 | Capture a running application | `trace` | One scenario; caller serves the app |
 | Compare sanitized evidence | `compare` | Contract/manifest optional; payloads compared by shape |
@@ -32,7 +34,77 @@ pnpm build
 
 When pnpm is unavailable, use `npx --yes pnpm@10.15.0` in its place.
 Commands below use `node packages/cli/dist/index.js`; installing the CLI package also exposes `harness`.
-Evidence outputs are created exclusively. Choose a new output path for each verification. The assistant commands may replace their current `--out` brief/apply result; their archived records remain exclusive.
+Evidence outputs are created exclusively. Standalone P3 verification takes a new output
+path; standard sessions choose their own outputs. Restricted assistant commands may
+replace their current `--out` brief/apply result; archived records remain exclusive.
+
+## Standard assistant session (P4 increment)
+
+Use `.github/agents/migracao-padrao.agent.md`, an authorized SPEC and a config with
+`"profile": "standard"` **before preparation**. There is no `--profile` flag. The
+agent fills the config; the owner need not maintain command arguments or JSON manually.
+
+```bash
+node packages/cli/dist/index.js prepare-migration \
+  --config migrations/example/migration.json --workspace-root . \
+  --artifact-path artifacts/example/prepared --allow-project-commands
+node packages/cli/dist/index.js start-migration-session \
+  --config migrations/example/migration.json --workspace-root . \
+  --preparation artifacts/example/prepared/preparation.json
+# The agent now edits only the authorized target.writePaths.
+node packages/cli/dist/index.js verify-migration \
+  --config migrations/example/migration.json --workspace-root . --allow-project-commands
+node packages/cli/dist/index.js migration-session-status \
+  --config migrations/example/migration.json --workspace-root .
+```
+
+Paths above are templates. Standard verify refuses caller-supplied preparation/output.
+Session artifacts live at `artifacts/sessions/<project-pair-hash>`; restarting the
+command or changing migrationId cannot reset it. Config/profile/limits remain frozen.
+Each attempt reserves an immutable started record, then a hash-linked finished record
+and full P3 report. Missing/edited reports or inconsistent history are refused.
+This is local consistency, not authenticated provenance against the same user.
+
+Scope snapshots use current working-tree bytes, including uncommitted/untracked work,
+not Git HEAD. Code, styles, assets and tests may be added/edited/deleted in writePaths.
+Source and offscope destination changes are refused, never reverted. Writable symlinks,
+changed symlinks, hardlinks and escaping roots are refused; links are not followed.
+Preserve user changes inside writable files too: this is file-level scope, not line
+ownership. Any scanned source/target change during verification prevents COMPLETE.
+
+`.git`, `node_modules`, managed build outputDir and optional project `generatedPaths`
+are excluded. Declare only genuinely disposable generated caches (e.g. `.angular`);
+declared inputs/scope/fixtures/contracts cannot overlap. Exclusion is not permission to
+edit dependencies. Private entries use opaque metadata, not content or recursive private
+directory inspection. Scope caps: 8 MiB/file, 64 MiB/project, 20,000 entries/project.
+This scanner is not a sandbox or a per-editor-operation hook.
+
+| Session decision | Agent action |
+| --- | --- |
+| COMPLETE | Deliver only with lastReportMatchesWorkspace=true; later edits require another full run |
+| REPAIR_IMPLEMENTATION | Repair behavior within scope, then verify again; missing fields are not blanket contract-review requests |
+| FIX_ENVIRONMENT | Diagnose execution/build/capture availability without declaring success |
+| REVIEW_REFERENCE | Explain source/reference drift or evidence problems; do not weaken criteria |
+| REFUSED_SCOPE | Stop and reconcile unauthorized/concurrent changes with the owner; do not revert user work |
+| STOP_LIMIT / STOP_NO_PROGRESS / INTERRUPTED | Stop and hand off history, remaining work and cause |
+
+Budget: `maxRepairAttempts + 1` verification attempts and accumulated verification
+time `maxDurationMs`; preparation/editing/idle time excluded. The same failed candidate
+and diagnostic fingerprint twice stops for no progress. A crashed unfinished attempt
+is INTERRUPTED, not a fresh budget. There is no automatic recovery, archive/reset or
+session reference-update command yet. Inspect stale locks with the operator. Do not
+delete state, downgrade the profile or create a new workspace to bypass the limits.
+
+P3 can version preparations, but adopting coverage/binding updates into an existing
+standard session **while preserving budgets is still pending**. Record that need and
+stop; creating a fresh session is not the workaround. Full value/validation/navigation
+repair acceptance and the real Cinema migration remain P4/P5 work.
+
+Verify exits: 0 COMPLETE; 3 scope/limit/no-progress/interruption; 4 behavioral FAIL;
+5 INCONCLUSIVE; 1 invalid state/input. The session decision overrides any nested
+report PASS when scope/time guards fail. Status exits 0 for intact ready state or a
+matching completed report, 3 for scope/reference/budget stops, 1 for invalid state.
+Start/status execute no project commands. Restricted agents/hook are unchanged.
 
 ## Native project checks (P3)
 

@@ -1,6 +1,6 @@
 # AGENTS.md — assistant protocol and transition rules
 
-## Product direction and availability (2026-09-06)
+## Product direction and availability (2026-09-07)
 
 RFC v0.3 makes the assistant the end-to-end migration operator and the harness
 the independent behavioral validator. The same assistant may eventually prepare,
@@ -8,12 +8,21 @@ implement, compare and repair in one conversation. Independence means protected
 evaluation and evidence-backed conclusions, not a separate model or conversation.
 Read `docs/RFC.md`, `docs/STATUS.md` and `docs/PLAN.md` before choosing a workflow.
 
-**The standard end-to-end profile is planned, not implemented.** The existing
-`brief`/`apply-patch` workflow and the two `.github/agents/` definitions are the
+**The standard profile is available as a P4 increment, not full P4/P5 acceptance.**
+Use explicit `profile: "standard"` in MigrationConfig and an authorized SPEC.
+`prepare-migration` -> `start-migration-session` -> normal scoped edits ->
+`verify-migration` -> repair uses a fixed reference and persistent budgets.
+See `docs/USAGE.md` and `.github/agents/migracao-padrao.agent.md`. Session reference
+updates preserving history/budgets and the full real-migration proof remain pending.
+Do not reset sessions to work around those limits. There is no `--profile` flag.
+
+The existing `brief`/`apply-patch` workflow and the preparation/transformation agents are the
 restricted profile. Sections 1-8 below govern that profile only and remain in force
 when using its commands, briefs or agents. Their section numbers are retained for
 existing tool diagnostics. Do not infer a new CLI profile flag or bypass current
-checks because the target architecture changed.
+checks because the target architecture changed. Standard scope checks run before
+and after verification, not as an editor sandbox. Preserve preexisting user edits
+inside authorized files too; file-level fingerprints do not attribute individual lines.
 
 For user-requested harness maintenance, including this documentation transition,
 read relevant public code/docs and make the authorized changes; a migration brief

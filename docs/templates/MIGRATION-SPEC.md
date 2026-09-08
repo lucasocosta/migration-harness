@@ -2,7 +2,7 @@
 
 Template da RFC v0.3. Preencher escolhas essenciais; o agente levanta detalhes
 tecnicos. Nao executar marcadores <...>. Consulte ../COPILOT-MIGRATION.md.
-O perfil padrao e proposto, ainda nao disponivel; conferir STATUS.md antes de usar.
+O perfil padrao esta disponivel incrementalmente na P4; conferir limites em STATUS.md.
 Este documento nao autoriza alterar o harness, criterios protegidos ou segredos.
 
 ## Decisoes do responsavel
@@ -13,7 +13,7 @@ Este documento nao autoriza alterar o harness, criterios protegidos ou segredos.
 - Escopo funcional: <o que migrar e onde integrar>.
 - Fora do escopo: <funcionalidades/arquivos que devem permanecer intactos>.
 - Diferencas deliberadamente aceitas: <lista; nenhuma por padrao>.
-- Perfil escolhido: <padrao apos disponibilidade | restrito explicitamente escolhido>.
+- Perfil escolhido: <standard com limites P4 conhecidos | restrito explicitamente escolhido>.
 - Permissoes de execucao: <ambiente local de teste autorizado | ambiente isolado>.
 - Escritas autorizadas: <pastas/arquivos de codigo, estilos, assets e testes pertinentes>.
 - Dependencias/configuracoes: <reutilizar existentes; novas dependencias exigem decisao>.
@@ -32,6 +32,8 @@ No perfil restrito, o brief continua definindo a fronteira efetiva.
 - Revisoes/baselines e alteracoes locais relevantes: <registrar, nao descartar>.
 - Branch destino: <branch>; acompanhamento: migrations/<nome>/units.md.
 - Evidencias publicas: artifacts/<nome>; versionamento autorizado do acompanhamento: <local>.
+- Sessao padrao: <caminho emitido por start-migration-session; nunca apagar para reiniciar limite>.
+- Outputs/caches exclusivamente gerados: <build.outputDir e generatedPaths por projeto>.
 - Roteador, auth, HTTP, estado/cache, formularios, design system e estilos: <padroes>.
 - Comandos com cwd/argumentos: <instalacao pelo lockfile, build, typecheck, lint, testes>.
 - Servidores/URLs/origens/healthchecks: <detalhes do ambiente de teste>.
@@ -70,7 +72,7 @@ O agente nao aprova contratos nem inventa aprovacao humana.
 
 ## Referencia e politica de mudancas
 
-- Referencia versionada: <identidade emitida, depois de implementada a capacidade>.
+- Referencia versionada: <identidade emitida por prepare-migration>.
 - Cenarios/dados/reset: <arquivos; fixtures dentro do diretorio dos cenarios>.
 - Bindings por aplicacao: <rotas/controles/escopo sem mudar semantica>.
 - Politica de dados/normalizacao: <campos relevantes, volatilidade explicita, origens>.
@@ -82,12 +84,16 @@ Depois da referencia, reparos comuns alteram o destino, nao criterios. Adicoes d
 cobertura/bindings semanticamente equivalentes sao versionadas e reexecutadas em
 ambos. Remocao de checks, ampliacao de ignores ou nova diferenca aceita exige
 revisao explicita. Nunca sobrescrever resultados ou contratos aprovados.
+Limite P4 atual: adotar nova referencia dentro da sessao preservando historico e
+orcamento ainda nao esta implementado. Registrar essa necessidade, sem criar outra
+sessao para contornar o limite. maxDurationMs conta tempo ativo de verificacao,
+nao edicao/espera; maxRepairAttempts permite uma tentativa inicial mais os reparos.
 
 ## Execucao e entrega
 
 1. Confirmar disponibilidade do perfil, escopo, ambiente e baselines.
 2. Preparar referencia reproduzivel e criterios sem inventar requisitos.
-3. Implementar no React existente e operar verificacao conforme capacidades reais.
+3. Iniciar sessao, implementar no React existente e operar verificacao completa.
 4. Corrigir defeitos dentro do limite, registrar tentativas e escalar apenas decisoes
    reais/limites. Nao consertar o harness durante o reparo do candidato.
 5. Executar suite completa na revisao/build final e atualizar units.md.

@@ -141,8 +141,10 @@ function criteriaWithoutFixtures(config: MigrationConfig, contract?: ReferenceCo
       };
     }),
     policyHash: digestOf(config.policy),
-    environmentHash: digestOf(config.source.build || config.target.build
-      ? { environment: config.environment, builds: { source: config.source.build ?? null, target: config.target.build ?? null } }
+    environmentHash: digestOf(config.source.build || config.target.build || config.profile || config.source.generatedPaths || config.target.generatedPaths
+      ? { environment: config.environment, builds: { source: config.source.build ?? null, target: config.target.build ?? null },
+        ...(config.profile ? { profile: config.profile } : {}),
+        ...(config.source.generatedPaths || config.target.generatedPaths ? { generatedPaths: { source: config.source.generatedPaths ?? [], target: config.target.generatedPaths ?? [] } } : {}) }
       : config.environment), limitsHash: digestOf(config.limits),
     ...(contract ? { criticalContract: contract } : {}),
   };

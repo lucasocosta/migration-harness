@@ -1,6 +1,6 @@
 # RFC - Migration Harness v0.3
 
-Date: 2026-09-06. Product direction agreed with the owner; implementation pending.
+Date: 2026-09-06. Availability updated 2026-09-07: P0-P3 complete, P4 incremental.
 Supersedes v0.2 as the target specification, not existing CLI semantics or approved
 contracts. Delivery: [STATUS.md](STATUS.md). Execution plan: [PLAN.md](PLAN.md).
 
@@ -37,7 +37,7 @@ diagnostic hint; neither it nor a confidence score can override failing evidence
 
 ## 3. Profiles and transition
 
-**Standard (target default, not implemented):** normal scoped destination edits,
+**Standard (target default, P4 increment available):** normal scoped destination edits,
 including styles, assets and tests; one assistant operates the whole lifecycle.
 No mandatory brief, patch JSON, discovery success, codemod or manifest.
 Dependency/configuration changes still need declared scope and execution permissions.
@@ -47,8 +47,8 @@ approved critical contracts, package/file boundaries and hooks. Keep its checks
 and compatibility tests. A recorded clean-context session proves this profile,
 not the standard product's universal Definition of Done.
 
-These are product concepts: no `--profile` flag exists today. Standard activation
-requires the implemented milestones in PLAN.md and a recorded specification choice.
+Select standard with `profile: "standard"` in config and a recorded SPEC choice;
+there is no `--profile` flag. Full milestone acceptance remains in PLAN.md.
 No silent downgrade of active restricted migrations or relabeling of old evidence.
 
 ## 4. Minimal workflow
@@ -75,8 +75,9 @@ strategy, required checks and retry budget. The assistant fills technical detail
 the owner need not manually author CLI JSON.
 
 P1 provides versioned runtime-validated configuration and reference schemas plus the
-reference collection/verification and change-classification library APIs. Command
-names, execution and result binding remain implementation work; see USAGE.md.
+reference collection/verification and change-classification library APIs. P3 binds
+these to `prepare-migration` / `verify-migration`; P4 adds persistent scoped sessions.
+Commands and current limitations: USAGE.md.
 
 A reference records:
 - Source revision and relevant working-tree fingerprints, including untracked inputs.
@@ -121,6 +122,8 @@ After a reference exists:
   version. Never rewrite past verdicts or approved contracts in place.
 
 Do not turn a failure-to-pass loop into repeated weakening of the test suite.
+Current P4 limit: adopting reference updates into a session while preserving its
+history/budget is pending. P3 preparation versioning alone does not close that gap.
 
 ## 8. Scenario execution
 
@@ -183,8 +186,8 @@ inputs mid-run or missing required scenarios prevent success.
 
 ## 11. Results and diagnosis
 
-Aggregate report statuses (P1 library schema, not today's EquivalenceResult enum
-or a delivered CLI verification operation):
+Aggregate report statuses (P1 schema, delivered by P3 verification; distinct from
+the restricted EquivalenceResult enum):
 - PASS: every required check covered and passed for the recorded candidate/reference.
 - FAIL: reproducible implementation/requirement regression with sufficient evidence.
 - INCONCLUSIVE: stale, unstable, insufficient or unsupported evidence, or execution
@@ -213,6 +216,9 @@ Persist attempt history across invocations, enforce time/attempt budgets and det
 lack of progress. Rebuild after edits. Focused checks may guide iterations; final
 verification runs the complete required suite against one current candidate.
 Do not fill a report with passing results from older candidates.
+The current P4 budget counts one initial attempt plus maxRepairAttempts and cumulative
+verification time (maxDurationMs), excluding preparation, editing and idle time.
+Scope/time guards can refuse a session even if its nested behavioral report passes.
 
 Escalate scope/requirement changes, permission/secret exposure, conflicting criteria,
 unsupported evidence, unsafe execution or exhausted/no-progress budgets.

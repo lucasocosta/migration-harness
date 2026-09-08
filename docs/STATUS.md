@@ -3,10 +3,10 @@
 Updated: 2026-09-07. Harness branch: `next/angular-forms-and-io`.
 Base of the v0.3 transition: `c663b40`. P1/P2 libraries committed as `c4f319b`;
 P3 committed as `5079579` (native checks), `378d730` (managed builds) and
-`adc61d4` (suite capture), plus the consolidated verification operation in the
-latest commit. No merge or push performed.
-RFC v0.3 direction is agreed; P0-P3 are implemented and the standard agent
-iteration (P4) is **not**. [PLAN.md](PLAN.md) is the single ordered checklist.
+`adc61d4` (suite capture) and `75100c9` (consolidated verification).
+No merge or push performed. RFC v0.3 direction is agreed; P0-P3 are implemented.
+P4 now has scoped normal editing, persistent sessions and a standard agent; it is
+**not complete**. [PLAN.md](PLAN.md) is the single ordered checklist.
 
 P1 is complete as a library: versioned configuration and report schemas, config
 fingerprints, a versioned reference with real working-tree input fingerprints and its
@@ -125,6 +125,27 @@ verify PASS. Verification: build PASS; 7/7 new unit and 1/1 new browser tests;
 full regression 186/186 (165 unit/CLI + 21 browser); both smokes;
 `git diff --check` PASS. No real migration has been verified by this operation yet.
 
+## P4 session increment
+
+Explicit config `profile: "standard"` selects ordinary scoped edits, including
+CSS/assets/tests, with `start-migration-session` and `migration-session-status`.
+`verify-migration` then uses the frozen session reference/output and persistent
+budget. Source/offscope destination changes are refused without reverting anything;
+the initial snapshot includes existing uncommitted/untracked user work. A candidate
+change during verification prevents COMPLETE even when its nested report passes.
+
+Attempts and active verification time persist in exclusive hash-linked records.
+Repeated identical failed candidate/diagnostics stop for no progress; interrupted
+attempts do not reset budgets. Implementation failures request repair, not blanket
+contract review. Only COMPLETE with lastReportMatchesWorkspace=true supports delivery.
+The new `migracao-padrao` agent operates this loop; restricted agents/hook are unchanged.
+
+Limits: file-level scope, not line ownership or a sandbox; private metadata is opaque,
+dependency/generated directories excluded. No session reference refresh or automatic
+crash/reset/archive operation. Coverage/binding updates preserving budgets and full
+value/validation/navigation acceptance remain pending. No Cinema migration performed.
+See USAGE.md for operational limits and VALIDATION.md for test evidence.
+
 ## Current product state
 
 | Area | Delivered | Remaining for the standard flow |
@@ -134,8 +155,8 @@ full regression 186/186 (165 unit/CLI + 21 browser); both smokes;
 | Requirements | Mining, evidence import, approved immutable contracts, critical gates, machine-checkable requirement assertions | Real-migration exercise (P5); no contract weakening without owner decision |
 | Evidence | Sanitization, private raw storage for legacy captures, hashes/audit, versioned reference, source stability observations, build-linked suite capture records, consolidated report bound to a verified reference and the executed suite | Real-migration exercise (P5) |
 | Project checks | Native commands via check-projects, baseline comparisons, timeout/cleanup, input preflight and managed builds/reset/capture; baseline/native results integrated in the consolidated migration report; restricted gates retained | Real-migration exercise (P5) |
-| Agent workflow | Restricted issued briefs, TS/TSX patch submissions, read-only context, hook and audit | Normal scoped edits and end-to-end standard agent without mandatory briefs |
-| Repair | HTTP-method repair and restricted classifier/briefs | Semantic corrections, persistent budgets and implementation versus infrastructure diagnosis |
+| Agent workflow | Standard scoped edits, persistent sessions and standard agent; restricted briefs/hook/audit retained | Session reference refresh and full P4/P5 acceptance |
+| Repair | Standard implementation/environment/reference decisions, semantic edits, persistent limits; restricted HTTP-method adapter retained | Complete value/validation/navigation repair demonstration |
 | Optional adapters | Angular discovery, partial IO/synchronous forms codemods, OpenAPI/structured-test import, HTTP/Docker worker adapters | Not prerequisites for first standard migration |
 | Documentation | P0 complete: v0.3 RFC, plan, manual/template, scoped handoff and 21 documents reconciled | Keep availability synchronized as each milestone is verified |
 
@@ -144,7 +165,7 @@ codes 0 PASS / 4 FAIL / 5 INCONCLUSIVE. The restricted profile is unchanged:
 `compare` accepts optional contract/manifest, `run` still requires an approved
 contract and one scenario with apps already running, and apply PASS is not
 equivalence. Preparation PASS fixes the baseline and approves no migration.
-No profile flag exists, and restricted commands keep their checks.
+No CLI profile flag exists; standard is a config field. Restricted commands keep their checks.
 
 ## Latest recorded implementation verification
 
@@ -172,6 +193,8 @@ end-to-end assistant migration. Do not relabel them as v0.3 acceptance.
   enables it. The v0.2 default remains shape-only for compatibility.
 - Omitting a required payload field produced NOT_EQUIVALENT but
   REQUIRES_CONTRACT_REVIEW, interrupting an ordinary implementation repair.
+  P4 now routes standard report failures to REPAIR_IMPLEMENTATION; restricted
+  classification remains unchanged.
 - ARIA comparison is broad snapshot comparison; required functionality needs scoped
   semantic checks rather than global WARNING or whole-page blocking parity. Addressed
   in P2: unit-scoped assertions block on their own authority while the global ARIA
@@ -203,8 +226,8 @@ Missing SPEC coverage includes 401, 400-save and other load/save errors.
 
 ## Priorities and deferred scope
 
-Next: P4 normal agent iteration (scoped edits, persistent budgets, semantic
-repair), then the Cinema proof through the consolidated operation in P5.
+Next: finish P4 reference updates with preserved budgets and the complete semantic
+repair acceptance, then the Cinema proof through the consolidated operation in P5.
 Detailed checkboxes and acceptance are only in PLAN.md.
 
 Deferred: more Angular codemods/inject() discovery, conditional OpenAPI and arbitrary
@@ -222,7 +245,8 @@ A recorded clean-context session is an optional restricted-profile demonstration
   an authorized environment; static scanning is not an execution sandbox.
 - Restricted hooks/issuance keep their checks. AGENTS.md changes invalidate briefs
   that fingerprint it; reissue, never edit hashes or approved artifacts.
-- Existing repair counters are caller-supplied; they are not a persistent budget.
+- Restricted repair counters are caller-supplied; standard sessions persist their
+  own counters and accumulated verification time (editing/idle time excluded).
 - Reference fingerprints cover declared working-tree inputs, protected destination
   files, scenario fixtures and the configured contract only; `sourceObservations` is
   caller-supplied, and absent stability evidence keeps verification UNVERIFIABLE.

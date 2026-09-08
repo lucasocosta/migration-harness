@@ -19,13 +19,16 @@ Prepare a stable source reference
 The same assistant should run this end to end. Independent validation means protected
 criteria and tool-issued results, not a different agent or a mandatory fresh session.
 
-**This simplified standard workflow is planned, not delivered.** RFC v0.3 replaces
-the previous mandatory brief-only direction. Existing commands and restricted
-protocols still work as before; no new profile flag or consolidated verify command
-is available yet.
+**P0-P3 are complete; P4 is available incrementally.** Set `profile: "standard"`
+in the migration configuration to use scoped normal edits and persistent sessions.
+Session reference updates and the complete P4/P5 acceptance remain pending.
+Existing restricted commands and hooks keep their semantics. There is no CLI
+`--profile` flag. See the manual for current commands and limitations.
 
 ## What exists
 
+- `prepare-migration` / `verify-migration`: managed builds, full declared suite, fixed reference and consolidated report.
+- `start-migration-session` / `migration-session-status`: standard scoped edits, persistent attempts and repair decisions.
 - `check-projects`: preflight and native checks with baseline reports and bounded execution; not a migration verdict.
 - Playwright scenario execution, trace recording, sanitization and private artifacts.
 - Network shapes/status/params, navigation, storage, ARIA and declared-causality comparison.
@@ -33,9 +36,10 @@ is available yet.
 - Discovery, limited Angular codemods, project-check helpers and deterministic pilots.
 - A restricted `brief / apply-patch / run` assistant workflow with scope/integrity checks.
 
-Important gaps: payload values can differ while shapes pass; semantic repair is
-mostly limited to HTTP-method mismatches; native project orchestration and a complete
-migration report are missing. A pilot passing does not certify a user migration.
+Selected payload values and required semantic assertions now block incorrect
+standard candidates. The restricted repair adapter remains method-only; standard
+repairs use the assistant's coding abilities. No real migration has yet completed
+the standard acceptance. A pilot passing does not certify a user migration.
 See [current status](docs/STATUS.md).
 
 ## Start here

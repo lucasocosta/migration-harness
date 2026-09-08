@@ -21,12 +21,12 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 | P1 - Contratos de operacao e referencia | Concluido | Configuracao/relatorio/adaptacao e lifecycle da referencia implementados e testados |
 | P2 - Precisao da comparacao | Concluido | Valores, assertivas por unidade/checkpoint, bindings aplicados, read-back de persistencia e repetibilidade source/source |
 | P3 - Verificacao consolidada | Concluido | Operacao prepare/verify com referencia verificada, comparacao, requisitos, checks nativos e relatorio agregado |
-| P4 - Iteracao autonoma | Pendente | Reparos sem brief, historico persistente e limites respeitados |
+| P4 - Iteracao autonoma | Em andamento | Escopo normal, agente e historico persistente implementados; refresh da referencia e aceite completo pendentes |
 | P5 - Cinema ponta a ponta | Pendente | Sessao real, relatorio final e regressao React |
 | P6 - Componente e varias unidades | Pendente | Host de componente e regressao integrada |
 
 Commits de implementacao (2026-09-07): P1/P2 em `c4f319b`; P3 em `5079579`,
-`378d730` e `adc61d4`, mais o incremento consolidado desta entrada. Commit nao
+`378d730`, `adc61d4` e `75100c9`. Commit nao
 substitui evidencia; aceites registrados em VALIDATION.md.
 
 ## P0 - Documentacao e transicao
@@ -334,24 +334,61 @@ Proxima etapa: P4, iteracao autonoma do assistente com reparos sem brief.
 
 Pacotes: cli/engine/quality-gates; AGENTS.md, manual e agentes/hook.
 
-- [ ] Habilitar perfil padrao explicitamente, com edicao normal dentro do escopo
+- [x] Habilitar perfil padrao explicitamente, com edicao normal dentro do escopo
   e verificacao de diff (novos/removidos/links/arquivos protegidos/alteracoes do usuario).
-- [ ] Liberar leitura de codigo relevante e edicao de CSS/assets/testes autorizados,
+- [x] Liberar leitura de codigo relevante e edicao de CSS/assets/testes autorizados,
   sem manifest/brief obrigatorio. Dependencias novas respeitam a especificacao.
-- [ ] Criar instrucao/agente padrao que prepare e opere comandos; manter os dois
+- [x] Criar instrucao/agente padrao que prepare e opere comandos; manter os dois
   agentes restritos e seu hook sem ampliar permissoes por acidente.
-- [ ] Diagnosticar violacoes como defeitos de implementacao quando os criterios
+- [x] Diagnosticar violacoes como defeitos de implementacao quando os criterios
   estao claros; nao encaminhar campo obrigatorio ausente para revisao do contrato.
-- [ ] Persistir orcamento, tentativas e ausencia de progresso entre invocacoes.
+- [x] Persistir orcamento, tentativas e ausencia de progresso entre invocacoes.
   Permitir correcao semantica dentro do escopo, nao apenas metodo HTTP.
 - [ ] Suportar extensao de cobertura e adaptacao de binding conforme RFC, com
   nova referencia e reexecucao; pedir revisao para reducao de criterios/novo desvio.
-- [ ] Exigir suite final completa no mesmo candidato; documentar motivos reais
+- [x] Exigir suite final completa no mesmo candidato; documentar motivos reais
   de intervencao humana e separar manutencao do harness de reparo do candidato.
 
 Aceite: sessao/fixture de integracao corrige valores, validacao e navegacao;
 recusa alteracao de criterios/escopo, nao reinicia contador, para sem progresso e
 nao declara sucesso inconclusivo. Suite restrita e pilotos antigos continuam verdes.
+
+### P4.1 - Sessao com referencia fixa (2026-09-07)
+
+Implementado: config `profile: standard`, `start-migration-session`,
+`migration-session-status` e verificacao standard com referencia/output da sessao.
+O snapshot usa a arvore atual, incluindo trabalho local; recusa alteracoes na
+origem/fora de writePaths, links gravaveis e mudancas durante a suite. CSS/assets/
+testes nao exigem brief/manifest. Agente `migracao-padrao` e manual atualizados;
+os agentes restritos/hook nao receberam ampliacao de permissoes.
+
+Tentativas sao reservadas antes da execucao e persistidas com resultados encadeados;
+maxRepairAttempts + 1 tentativas, maxDurationMs de verificacao acumulada (sem tempo
+de edicao/espera). Mesmo candidato/falha repetidos param sem progresso. Novos IDs,
+outputs ou downgrade de perfil nao reiniciam a sessao do par de projetos.
+Defeito de implementacao pede reparo, nao revisao automatica de contrato.
+Somente COMPLETE com relatorio correspondente a arvore atual sustenta entrega.
+
+Evidencia inicial: build e 17/17 testes novos PASS (6 escopo, 9 sessao/CLI,
+2 browser), incluindo falha de requisito -> reparo -> COMPLETE e parada real sem
+progresso. Verificacao final ampliada: regressao 205/205 PASS (180 unit/CLI +
+25 browser), smokes e pilotos PASS, diff-check PASS; detalhes em VALIDATION.md.
+
+Limites declarados: controle por arquivo, nao autoria por linha; scanner nao e
+sandbox/hook do editor. .git/dependencias/outputs gerados excluidos; entradas
+privadas sao metadados opacos. Sem recuperacao automatica de crash/lock, reset ou
+archive da sessao. Nenhuma migracao Cinema nem aceite de Copilot humano executado.
+
+**Falta para fechar P4:**
+- [ ] P4.2: atualizar referencia da sessao por adicao de cobertura/binding, mantendo
+  baseline, escopo e historico/orcamento; invalidar resultados antigos e reexecutar.
+  P3 `prepare --previous` sozinho nao fecha esta integracao. Reducoes exigem dono.
+- [ ] P4.3: fixture/sessao de aceite que repara valores, validacao e navegacao na
+  mesma operacao, incluindo refresh acima e sem tarefas manuais de artefatos.
+  A confirmacao de salvamento da P4.1 e evidencia parcial, nao esse aceite inteiro.
+
+Proxima acao: implementar P4.2 antes de iniciar Cinema (P5). Nao apagar uma sessao
+ou criar outro workspace como substituto da atualizacao preservando orcamentos.
 
 ## P5 - Cinema como primeiro caso de uso
 

@@ -33,6 +33,7 @@ const project = z.object({
   baseUrl: httpUrl,
   relevantFiles: z.array(MigrationPathSchema).min(1).max(10000),
   commands: z.array(ProjectCommandSchema).max(100),
+  generatedPaths: z.array(MigrationPathSchema).max(30).optional(),
   /** Explicit consent to clean an exclusively generated output directory before managed builds. */
   build: z.object({ commandId: MigrationIdSchema, outputDir: MigrationPathSchema, cleanOutput: z.literal(true) }).strict().optional(),
 }).strict();
@@ -61,6 +62,7 @@ const requirement = z.object({
 
 export const MigrationConfigSchema = z.object({
   kind: z.literal('MIGRATION_CONFIG'), version: z.literal('1'), migrationId: MigrationIdSchema,
+  profile: z.literal('standard').optional(),
   source: project,
   target: project.extend({ writePaths: z.array(MigrationPathSchema).min(1).max(1000), protectedPaths: z.array(MigrationPathSchema).max(1000) }),
   scenarios: z.array(scenario).min(1).max(1000),
@@ -91,6 +93,12 @@ export const MigrationConfigSchema = z.object({
   for (const side of ['source', 'target'] as const) {
     if (!unique(value[side].commands.map(item => item.id)) || !unique(value[side].relevantFiles)) issue('Duplicate project command or relevant file');
     const build = value[side].build;
+    const protectedInputs = [...value[side].relevantFiles, ...(side === 'target' ? [...value.target.writePaths, ...value.target.protectedPaths] : [])];
+    for (const generated of value[side].generatedPaths ?? []) {
+      if (['src', 'public', 'node_modules'].includes(generated.split('/')[0]!) || protectedInputs.some(path => overlaps(generated, path))
+        || value.scenarios.some(item => overlaps(`${value[side].root}/${generated}`, item.fixtureRoot))
+        || value.criticalContract && overlaps(`${value[side].root}/${generated}`, value.criticalContract.path)) issue('Generated paths overlap protected inputs');
+    }
     if (build) {
       if (!value[side].commands.some(command => command.id === build.commandId && command.kind === 'build')
         || !value.checks.some(check => check.side === side && check.commandId === build.commandId && check.required)) issue('Managed build must reference a required build check');
