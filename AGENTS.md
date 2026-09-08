@@ -8,14 +8,13 @@ implement, compare and repair in one conversation. Independence means protected
 evaluation and evidence-backed conclusions, not a separate model or conversation.
 Read `docs/RFC.md`, `docs/STATUS.md` and `docs/PLAN.md` before choosing a workflow.
 
-**The standard profile is available as a P4 increment, not full P4/P5 acceptance.**
-Use explicit `profile: "standard"` in MigrationConfig and an authorized SPEC.
-`prepare-migration` -> `start-migration-session` -> normal scoped edits ->
-`verify-migration` -> repair uses a fixed reference and persistent budgets.
+**The standard profile is implemented through P4 acceptance; the P5 real-migration
+proof remains pending.** Use explicit `profile: "standard"` in MigrationConfig and
+an authorized SPEC. `prepare-migration` -> `start-migration-session` -> normal scoped
+edits -> `verify-migration` -> repair uses a fixed reference and persistent budgets.
 See `docs/USAGE.md` and `.github/agents/migracao-padrao.agent.md`. Session reference
-updates preserving history/budgets are implemented via `update-migration-session`;
-the full real-migration proof remains pending. Do not reset sessions to work around
-those limits. There is no `--profile` flag.
+updates preserving history/budgets are implemented via `update-migration-session`.
+Do not reset sessions to work around those limits. There is no `--profile` flag.
 
 The existing `brief`/`apply-patch` workflow and the preparation/transformation agents are the
 restricted profile. Sections 1-8 below govern that profile only and remain in force

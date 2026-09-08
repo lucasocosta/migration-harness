@@ -1,5 +1,24 @@
 # Validation record
 
+## P4.3 complete repair acceptance - 2026-09-07
+
+Based on 1f8add9 (P4.2 session reference updates). Added
+tests/browser/migration-acceptance.test.mjs: one standard session repairs a wrong
+saved value, a missing required validation and a wrong navigation route in the
+same operation loop, with an in-flow `update-migration-session` reference refresh
+(EXTENSION generation, budgets/history preserved, superseded PASS invalidated) and
+no manual artifact tasks. Negative coverage: repeated identical failure stops for
+no progress; weakening is refused without an owner decision (generation and budget
+intact); an off-scope write is refused without consuming an attempt; an
+operationally inconclusive verification never yields COMPLETE.
+
+- Build PASS; `git diff --check` PASS.
+- Acceptance file: 5/5 PASS (about 45 s).
+- Full serial regression: 185/185 unit/CLI and 30/30 browser PASS, no failures/skips
+  (about 2.6 + 2.5 min); both smokes PASS; both pilots PASS (`pilot` EQUIVALENT;
+  `pilot:assistant` EQUIVALENT).
+- Remaining: P5 real-migration proof (Cinema); no real migration has been run yet.
+
 ## P4.2 session reference update - 2026-09-07
 
 Based on 623fd7d (P4.1 scoped sessions). Added `update-migration-session`:

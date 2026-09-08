@@ -21,7 +21,7 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 | P1 - Contratos de operacao e referencia | Concluido | Configuracao/relatorio/adaptacao e lifecycle da referencia implementados e testados |
 | P2 - Precisao da comparacao | Concluido | Valores, assertivas por unidade/checkpoint, bindings aplicados, read-back de persistencia e repetibilidade source/source |
 | P3 - Verificacao consolidada | Concluido | Operacao prepare/verify com referencia verificada, comparacao, requisitos, checks nativos e relatorio agregado |
-| P4 - Iteracao autonoma | Em andamento | Escopo normal, agente, historico persistente e atualizacao de referencia implementados; falta o aceite completo (P4.3) |
+| P4 - Iteracao autonoma | Concluido | Sessao persistente repara valor/validacao/navegacao no mesmo ciclo, com refresh da referencia e orcamento preservado |
 | P5 - Cinema ponta a ponta | Pendente | Sessao real, relatorio final e regressao React |
 | P6 - Componente e varias unidades | Pendente | Host de componente e regressao integrada |
 
@@ -396,13 +396,22 @@ testado com prepareMigration: gen0 PASS -> EXTENSION gen1 -> historico misto ->
 BINDING_ADAPTATION gen2 -> WEAKENING+owner gen3, com orcamento inalterado e
 imutabilidade da sessao assegurada. Detalhes em VALIDATION.md.
 
-**Falta para fechar P4:**
-- [ ] P4.3: fixture/sessao de aceite que repara valores, validacao e navegacao na
-  mesma operacao, incluindo refresh acima e sem tarefas manuais de artefatos.
-  A confirmacao de salvamento da P4.1 e evidencia parcial, nao esse aceite inteiro.
+### P4.3 - Aceite completo do reparo (2026-09-07)
 
-Proxima acao: implementar P4.3 antes de iniciar Cinema (P5). Nao apagar uma sessao
-ou criar outro workspace como substituto da atualizacao preservando orcamentos.
+Implementado: teste browser de aceite (tests/browser/migration-acceptance.test.mjs)
+demonstra, na MESMA sessao padrao, o reparo de valor salvo errado, de validacao
+obrigatoria ausente e de rota de navegacao errada, com o refresh da referencia
+(`update-migration-session`, EXTENSION) dentro do fluxo e sem tarefas manuais de
+artefatos. Assercoes negativas: STOP_NO_PROGRESS em falha identica repetida,
+enfraquecimento recusado sem decisao do dono (geracao/orcamento intactos), edicao
+fora do escopo recusada sem consumir tentativa e INCONCLUSIVE nunca vale COMPLETE.
+
+Evidencia: 5/5 testes de aceite novos (cerca de 45 s); regressao 185/185 unit/CLI +
+30/30 browser, smokes e pilotos PASS, diff-check PASS. Detalhes em VALIDATION.md.
+
+Proxima etapa: P5 - Cinema como primeiro caso de uso, com escopo/decisoes reais do
+responsavel. Nao apagar uma sessao ou criar outro workspace como substituto da
+atualizacao preservando orcamentos.
 
 ## P5 - Cinema como primeiro caso de uso
 
