@@ -39,7 +39,16 @@ Local verification on Node 20.20.1 after the changes:
 | Deterministic pilot | EQUIVALENT |
 | Restricted assistant pilot | ASSISTANT_LOOP_EQUIVALENT, REPAIR_BRIEF->PASS |
 
-The final commit will also be installed and verified in a separate clean checkout.
+The first clean-checkout run used Node 22.23.2. Install/build/docs and all 190
+unit/CLI tests passed. Browser checks exposed that the new test assumed an
+existing `artifacts/` parent; the test now creates that directory itself.
+One capture-suite test also returned INCONCLUSIVE during the parallel run;
+the same six capture tests passed when rerun with Node 22 at unchanged limits.
+Its original cause was not established; failure assertions now include only safe
+structural capture diagnostics. Final browser validation runs separately from
+unit/CLI work, matching the order used in CI.
+
+The corrected commit will be installed and verified in a fresh clean checkout.
 The clean-checkout revision and results will be recorded after that verification.
 
 ## Remaining product evidence

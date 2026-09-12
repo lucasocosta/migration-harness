@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -18,6 +18,7 @@ test('published component-first example verifies both dependent units in one sta
 
   // Copy beneath the repository so esbuild resolves the installed framework
   // dependencies, without editing the example or reusing a developer's session.
+  await mkdir(resolve('artifacts'), { recursive: true });
   const root = await mkdtemp(resolve('artifacts/component-first-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await cp('examples/component-first', join(root, 'examples/component-first'), {

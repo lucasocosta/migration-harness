@@ -8,6 +8,10 @@ import { buildWorkspace, write, listen, close } from '../helpers/build-workspace
 import { captureProjectSuite } from '../../packages/engine/dist/capture-suite.js';
 import { captureScenario } from '../../packages/scenario-runner/dist/index.js';
 
+const diagnostics = report => JSON.stringify({ failureCode: report.failureCode,
+  captures: report.captures.map(({ scenarioId, side, runIndex, status, reason, stepId, executionCode }) =>
+    ({ scenarioId, side, runIndex, status, reason, stepId, executionCode })) });
+
 async function fixture(t, commandReset = true) {
   const value = await buildWorkspace(); t.after(() => rm(value.root, { recursive: true, force: true }));
   let count = 0; const actions = [];
@@ -47,7 +51,7 @@ async function portsReleased(config) {
 
 test('suite resets real backend before every bound scenario run and records build-linked sanitized evidence', async t => {
   const value = await fixture(t), report = await run(value);
-  assert.equal(report.status, 'COMPLETED'); assert.equal(report.captures.length, 6);
+  assert.equal(report.status, 'COMPLETED', diagnostics(report)); assert.equal(report.captures.length, 6);
   assert.deepEqual(value.actions, Array.from({ length: 6 }, () => ['reset', 'read']).flat());
   assert.ok(report.stability.every(item => item.result.observations.status === 'STABLE'));
   assert.equal(new Set(report.captures.map(item => item.traceRunId)).size, 6);
@@ -65,7 +69,7 @@ test('suite resets real backend before every bound scenario run and records buil
 
 test('fresh browser contexts alone do not make a stateful source stable', async t => {
   const value = await fixture(t, false), report = await run(value);
-  assert.equal(report.status, 'COMPLETED');
+  assert.equal(report.status, 'COMPLETED', diagnostics(report));
   assert.ok(report.stability.every(item => item.result.observations.status === 'UNSTABLE'));
   assert.equal(value.actions.filter(action => action === 'reset').length, 0);
   assert.ok(report.stability[0].result.unstableCodes.length > 0);
