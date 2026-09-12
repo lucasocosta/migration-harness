@@ -6,7 +6,7 @@ It is not the RFC v0.3 standard end-to-end assistant workflow. See
 
 Run `pnpm pilot` from the repository root after installing dependencies and Chromium.
 
-The fixture boots real Angular 19 in Chromium, transforms a supported standalone component to React with the codemod, and executes the same scenario using the TypeScript ScenarioRunner. Angular's async code is compiled for ES2016 so Zone.js can track Promise continuations.
+The fixture boots real Angular 20 in Chromium, transforms a supported standalone component to React with the codemod, and executes the same scenario using the TypeScript ScenarioRunner. Angular's async code is compiled for ES2016 so Zone.js can track Promise continuations.
 
 The pilot records three source runs, synthesizes a draft, simulates approval of synthetic invariants, validates equivalent React, injects PUT -> POST, classifies the divergence, runs a bounded deterministic repair provider, rebuilds React and verifies equivalence again. It asserts that the entire approved contract remains byte-for-byte unchanged and verifies the hash-chained audit. Generated React is independently typechecked.
 

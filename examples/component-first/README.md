@@ -6,13 +6,14 @@ authorized host routes, and **two units ordered by dependency** (`formulario-ped
 consumes `seletor-quantidade`). Dependencies come from the installed harness workspace;
 each app is an independent esbuild bundle inside the example, like `examples/validation-first`.
 
-Unlike `validation-first`, the destination is **intentionally incomplete**: this example starts
-NOT_EQUIVALENT so a standard-profile session has something real to implement.
+The committed destination is **implemented**. A fresh session should verify PASS.
+The historical exercise implemented Unit A before its first verification and then
+repaired Unit B; that earlier incomplete state is described below as history.
 
 | Unit | Scenario ids | Source (Angular :4210) | Target (React :5175) |
 | --- | --- | --- | --- |
-| A `seletor-quantidade` (no route) | `seletor-incrementar-ate-maximo`, `seletor-decrementar-ate-minimo`, `seletor-teclado`, `seletor-callback-host` | `/host/seletor` implemented | `/host/seletor` shell: buttons disabled, no `onChange` |
-| B `formulario-pedido` (uses A) | `pedido-fluxo-completo` | `/host/pedido` total + confirm | `/host/pedido` shell: total placeholder `—` |
+| A `seletor-quantidade` (no route) | `seletor-incrementar-ate-maximo`, `seletor-decrementar-ate-minimo`, `seletor-teclado`, `seletor-callback-host` | `/host/seletor` implemented | `/host/seletor` bounds, keyboard and `onChange` implemented |
+| B `formulario-pedido` (uses A) | `pedido-fluxo-completo` | `/host/pedido` total + confirm | `/host/pedido` total and confirmation implemented |
 
 ## Layout
 
@@ -20,7 +21,7 @@ NOT_EQUIVALENT so a standard-profile session has something real to implement.
 migration.json            profile "standard", 5 scenarios, 11 unit-scoped requirements
 angular/                  main.ts (hosts + path switch), seletor-quantidade.ts, formulario-pedido.ts,
                           design-system.ts, design-system.css, build.mjs, package.json
-react/                    App.tsx (hosts), SeletorQuantidade.tsx (TODO), FormularioPedido.tsx (shell),
+react/                    App.tsx (hosts), SeletorQuantidade.tsx, FormularioPedido.tsx,
                           design-system.mjs + design-system.test.mjs (protected), build.mjs, package.json
 fixtures/README.md        no mocks: both hosts are static, so nothing is fetched
 ```
@@ -40,7 +41,7 @@ npm test --prefix examples/component-first/react      # protected design-system 
 Both apps are self-contained: `build.mjs` bundles the app and copies `design-system.css` to
 `dist/styles.css`. `dist/` is disposable managed build output and must stay out of scope edits.
 
-## Standard session (not run by this scaffold)
+## Verify the implemented example
 
 Ports 4210/5175 must be free; the harness owns and closes both servers. Use a fresh
 `--artifact-path` for preparation, and never reset a session to dodge a budget.
@@ -52,13 +53,17 @@ node packages/cli/dist/index.js prepare-migration \
 node packages/cli/dist/index.js start-migration-session \
   --config examples/component-first/migration.json --workspace-root . \
   --preparation artifacts/component-first/prepared/preparation.json
-# Implement Unit A in the authorized writePaths (react/SeletorQuantidade.tsx, App.tsx),
-# then the total integration (react/FormularioPedido.tsx), then verify:
+# The committed components are implemented; verify the complete integrated suite:
 node packages/cli/dist/index.js verify-migration \
   --config examples/component-first/migration.json --workspace-root . --allow-project-commands
 node packages/cli/dist/index.js migration-session-status \
   --config examples/component-first/migration.json --workspace-root .
 ```
+
+If this workspace already has a session, inspect it with `migration-session-status`
+and continue it within its remaining budget. For an independent automated check,
+run `node --test tests/browser/component-first.test.mjs` after building the harness;
+the test copies the example and creates its own isolated session.
 
 Recorded sequence (2026-09-12 session `16afbd43dd389ed382272b9939e73dae`): run 0000
 was INCONCLUSIVE with Unit A's four scenarios already PASS (Unit A was implemented

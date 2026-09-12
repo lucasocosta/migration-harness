@@ -19,9 +19,10 @@ Prepare a stable source reference
 The same assistant should run this end to end. Independent validation means protected
 criteria and tool-issued results, not a different agent or a mandatory fresh session.
 
-**P0-P3 are complete; P4 is available incrementally.** Set `profile: "standard"`
-in the migration configuration to use scoped normal edits and persistent sessions.
-Session reference updates and the complete P4/P5 acceptance remain pending.
+**The standard workflow is implemented through P4 acceptance and exercised by
+Cinema (P5) and component-first (P6).** Set `profile: "standard"` in the migration
+configuration to use scoped normal edits and persistent sessions. Controlled
+reference updates preserve history and budgets.
 Existing restricted commands and hooks keep their semantics. There is no CLI
 `--profile` flag. See the manual for current commands and limitations.
 
@@ -38,9 +39,13 @@ Existing restricted commands and hooks keep their semantics. There is no CLI
 
 Selected payload values and required semantic assertions now block incorrect
 standard candidates. The restricted repair adapter remains method-only; standard
-repairs use the assistant's coding abilities. No real migration has yet completed
-the standard acceptance. A pilot passing does not certify a user migration.
-See [current status](docs/STATUS.md).
+repairs use the assistant's coding abilities.
+
+Cinema has a recorded PASS (36 scenarios, 131 requirements); component-first
+exercises two dependent units (5 scenarios, 11 requirements). These are synthetic
+applications; the Cinema-specific three-regression acceptance item remains open.
+A pilot passing does not certify a user migration. See the
+[public Cinema evidence](docs/CINEMA-EVIDENCE.md) and [current status](docs/STATUS.md).
 
 ## Start here
 
@@ -73,3 +78,14 @@ native Linux filesystem. Docker execution remains unverified in this environment
 Clones under `apps/angular` and `apps/react` keep their own Git histories.
 `apps/`, `migrations/` and `artifacts/` are ignored by this repository: arrange
 approved versioning of migration specifications separately. Never commit secrets.
+
+## Reproducibility and distribution
+
+Use Node `^20.19.0`, `^22.12.0` or `>=24.0.0`; CI uses Node 22. Angular 20.3.31
+is pinned for the framework fixtures and compiler helpers. `pnpm test` and
+`pnpm test:browser` build first and run serially. GitHub Actions also exercises
+both executable examples, the smokes, restricted pilots, dependency advisories
+and links against the files actually tracked by Git.
+
+The packages are private and `UNLICENSED`; no open-source reuse license has been
+selected. Local assistant settings in `.codex/` and `.serena/` are ignored.

@@ -13,3 +13,7 @@ artifacts/*
 
 .migration-private/
 *.tsbuildinfo
+
+# Local assistant settings and indexes are not project distribution inputs.
+/.codex/
+/.serena/

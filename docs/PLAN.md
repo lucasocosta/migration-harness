@@ -1,11 +1,12 @@
 # Plano de implementacao - validacao primeiro
 
-Atualizado: 2026-09-12. P0-P4 implementadas; Cinema tem PASS registrado e P6 tem
-PASS reproduzido no working tree. A auditoria encontrou dependencias de codigo
-ainda nao commitadas, contradicoes documentais e criterios de aceite sem evidencia
-especifica suficiente para declarar encerramento integral. Publicacao da entrega
-pendente das acoes em "Auditoria de intencao e prontidao" abaixo. Evidencia:
-[AUDIT-2026-09-12.md](AUDIT-2026-09-12.md). Autoridade: [RFC v0.3](RFC.md).
+Atualizado: 2026-09-12. P0-P4 implementadas e aceitas; Cinema tem PASS registrado
+e P6 tem PASS integrado. O runtime antes ausente foi commitado em `58d0d27`.
+Manutencao de publicacao em andamento com autorizacao explicita para commit/push;
+[PUBLICATION.md](PUBLICATION.md) registra a revisao e os checks finais.
+As tres regressoes controladas especificas do Cinema e a medicao completa de
+usabilidade permanecem pendentes. Autoridade: [RFC v0.3](RFC.md).
+
 Inventario entregue: [STATUS.md](STATUS.md). Nao confundir decisao com entrega.
 
 ## Objetivo e ordem
@@ -30,7 +31,7 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 
 Commits de implementacao (2026-09-07): P1/P2 em `c4f319b`; P3 em `5079579`,
 `378d730`, `adc61d4` e `75100c9`. Commit nao
-substitui evidencia; aceites registrados em VALIDATION.md. P5/P6 fechados em
+substitui evidencia; aceites registrados em VALIDATION.md. Execucoes P5/P6 registradas em
 2026-09-12: candidato Cinema commitado como `2c98611` em apps/react (repositorio
 separado, autorizacao explicita) e P6 (exemplo component-first + docs) como
 `92f73cd` no harness, ambos com autorizacao explicita, sem merge/push.
@@ -423,7 +424,8 @@ atualizacao preservando orcamentos.
 ## P5 - Cinema como primeiro caso de uso
 
 Entradas locais: migrations/cinema/SPEC.md e HANDOFF.md. Apps foram criadas para
-o exercicio; nao sao evidencia de aplicacao de terceiros. Nenhuma pagina foi migrada.
+o exercicio; nao sao evidencia de aplicacao de terceiros. FilmeEditar foi migrada
+e commitada como `2c98611` no repositorio React separado.
 
 - [x] Registrar adocao operacional do padrao apos P1-P4, confirmar baselines e
   reconciliar configuracao nova com o escopo existente; nao ampliar arquivos por inercia.
@@ -449,7 +451,7 @@ o exercicio; nao sao evidencia de aplicacao de terceiros. Nenhuma pagina foi mig
   registrar relatorio, revisao/build, cobertura e limitacoes. Commit conforme autorizacao.
   Regressao login/lista/sessao no run 0001 (6 cenarios PASS); revisao humana
   aprovada com apps servidos lado a lado; relatorio entregue; commit `2c98611`.
-- [x] Medir intervenções humanas e trabalho manual de artefatos; ajustar UX antes
+- [ ] Completar a medicao de intervenções humanas e trabalho manual de artefatos; ajustar UX antes
   de ampliar adapters. Nenhuma pausa obrigatoria apenas para JSON/brief/contrato formal.
   Medicoes: 2/4 tentativas e tempo ativo registrado pela sessao (1.800.000 ->
   1.526.431 ms); diagnostico manual limitou-se a dois probes sinteticos; nenhuma
@@ -458,6 +460,10 @@ o exercicio; nao sao evidencia de aplicacao de terceiros. Nenhuma pagina foi mig
 Aceite de usabilidade: o usuario fornece escopo/decisoes reais, o agente preenche
 detalhes e conduz execucao. Registrar tempo de preparo/verificacao, tentativas e
 motivos das pausas; nao prometer ganho percentual sem comparacao medida.
+
+Os checkpoints P5.1-P5.3 abaixo sao historicos. O checklist acima e o resumo
+publico Cinema indicam o estado atual; pendencias antigas de implementacao/commit
+nesses checkpoints nao reabrem trabalho ja executado.
 
 ### P5.1 - Retomada e conflitos da referencia (2026-09-08)
 
@@ -552,43 +558,35 @@ autorizacao explicita.
 
 ## Auditoria de intencao e prontidao - 2026-09-12
 
-Esta conferencia qualifica os estados historicos de conclusao acima: PASS de uma
-suite nao fecha automaticamente todos os criterios de produto nem garante que os
-arquivos necessarios estejam no Git. Relatorio: [AUDIT-2026-09-12.md](AUDIT-2026-09-12.md).
+A [auditoria inicial](AUDIT-2026-09-12.md) descreve `5d01da6` mais o working tree
+daquela execucao. As correcoes posteriores estao em `58d0d27`, `dd47241`, `e54c21d`
+e na manutencao descrita em [PUBLICATION](PUBLICATION.md). PASS de uma suite nao
+substitui os criterios de aceite de produto ainda sem evidencia.
 
-- [x] Confrontar RFC, implementacao, aceites e reproducao em checkout limpo.
-  HEAD `5d01da6` instala com lockfile congelado e compila, mas rejeita a propria
-  configuracao P6 por `text`/`captureStepCheckpoints` desconhecidos.
-- [x] Revalidar o working tree preexistente: build, 190/190 unit/CLI, 31/31 browser,
-  ambos os smokes e pilotos PASS. P6 em copia isolada com as 13 mudancas locais
-  de codigo/testes: prepare PASS, sessao COMPLETE, 5/5 cenarios, 11/11 requisitos,
-  3/3 checks. Nenhuma sessao existente foi reiniciada.
-- [x] Conferir o relatorio publico Cinema run 0001: PASS, 36/36 cenarios,
-  131/131 requisitos, 3/3 checks; evidencia historica, sem nova execucao Cinema.
-- [ ] Antes de publicar a entrega, revisar/incluir as dez alteracoes rastreadas e
-  tres arquivos novos de codigo/testes que sustentam os aceites P5/P6; verificar
-  o commit resultante em checkout limpo. Commit/push dependem de autorizacao.
-- [ ] Reconciliar README, STATUS, RFC, AGENTS, checklist P5 e README component-first
-  com disponibilidade e evidencias reais. O exemplo P6 ja contem a implementacao;
-  seu README ainda descreve placeholders e uma falha inicial obrigatoria.
-- [ ] Vincular evidencia especifica das tres regressoes controladas ao aceite P5,
-  ou explicitar a decisao de aceitar a prova sintetica P4 como substituta; registrar
-  intervencoes humanas e esforco de preparacao/verificacao exigidos pelo RFC.
-  Nao marcar estes itens completos apenas pelo reparo de blur observado no Cinema.
-- [ ] Adicionar CI de instalacao congelada, build, testes e exercicio dos exemplos;
-  a suite atual nao impediu que o exemplo P6 fosse commitado sem suporte no schema.
-- [ ] Triar os advisories de Angular 19.2.25: audit registrou 6 ocorrencias altas e
-  4 moderadas nos pacotes de exemplos/testes. Atualizar ou documentar aplicabilidade
-  e tratamento antes de apresentar a entrega como pronta para uso externo.
-- [ ] Definir licenca caso a intencao seja distribuicao publica para reutilizacao;
-  decidir o destino dos metadados locais .codex/.serena e oferecer resumo publico
-  autocontido da evidencia Cinema sem versionar dados privados/apps por inercia.
+- [x] Registrar a falha de reproducao de HEAD e a regressao local inicial:
+  190/190 unit/CLI, 31/31 browser, smokes/pilotos PASS; Cinema run 0001 confirmado.
+- [x] Incluir o runtime e os tres testes/arquivos novos de P5/P6: `58d0d27`.
+- [x] Reconciliar disponibilidade em README/STATUS/RFC/AGENTS e o tutorial P6;
+  preservar os criterios P5 ainda abertos, sem inventar regressao ou aprovacao.
+- [x] Adicionar CI com instalacao congelada, build, unit/CLI, Chromium sem skips,
+  exemplos reais, smokes/pilotos, audit e verificacao de links rastreados.
+  O novo teste browser cobre a configuracao e o fluxo standard completo de P6.
+- [x] Atualizar Angular de 19.2.25 para 20.3.31 no workspace, incluindo compiler
+  usado por codemods/static-analyzer; pnpm audit apos instalacao: zero advisories.
+- [x] Ignorar metadados locais .codex/.serena; declarar pacotes UNLICENSED e
+  publicar [resumo Cinema](CINEMA-EVIDENCE.md) sem copiar apps/dados privados.
+- [ ] Concluir a verificacao do commit final em checkout limpo e fazer push da
+  branch atual conforme autorizacao explicita deste pedido; evidencias em PUBLICATION.
+- [ ] Demonstrar as tres regressoes controladas no Cinema dentro de escopo e
+  orcamento autorizados. P4 prova as classes em fixture; o reparo de blur do Cinema
+  nao comprova essas tres injecoes. Nao substituir/resetar sua sessao para esta tarefa.
+- [ ] Completar medicao de preparacao/intervencoes humanas do P5. Tempos de
+  verificacao e dois probes ja constam do registro; o restante nao foi medido.
 
-Handoff: avaliacao do harness, ambos os perfis preservados; revisao testada
-`5d01da6` mais diff preexistente identificado no relatorio. Alteracoes desta
-auditoria somente em documentos. Sem commit, merge, push ou alteracao de apps.
-Riscos restantes: publicacao incompleta, aceites/documentos desalinhados, triagem de
-dependencias; provas sinteticas e API mockada nao demonstram backend de producao.
+Handoff: manutencao do harness; perfis standard/restricted preservados. Commit e
+push do harness autorizados; nenhum merge, push dos apps ou alteracao de contratos
+Cinema faz parte desta tarefa. Licenca permissiva continua sendo decisao futura do
+responsavel; UNLICENSED preserva a ausencia atual de concessao de reutilizacao.
 
 ## Adiado, nao requisito do primeiro ciclo
 

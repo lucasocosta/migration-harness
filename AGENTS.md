@@ -8,10 +8,11 @@ implement, compare and repair in one conversation. Independence means protected
 evaluation and evidence-backed conclusions, not a separate model or conversation.
 Read `docs/RFC.md`, `docs/STATUS.md` and `docs/PLAN.md` before choosing a workflow.
 
-**The standard profile is implemented and exercised: P0-P6 are complete.** P5
-(Cinema) closed on 2026-09-12 with harness PASS and authorized commit `2c98611`
-in apps/react; P6 closed the same day with the component-first example (run
-0001 PASS) and updated manual/template. Use explicit `profile: "standard"` in
+**The standard profile is implemented through P4 acceptance and exercised by
+Cinema (P5) and component-first (P6).** Cinema has a recorded harness PASS and
+authorized commit `2c98611` in apps/react; its three controlled regressions remain
+an open acceptance item. P6 has run 0001 PASS and an updated manual/template.
+Use explicit `profile: "standard"` in
 MigrationConfig and an authorized SPEC. `prepare-migration` ->
 `start-migration-session` -> normal scoped edits -> `verify-migration` -> repair
 uses a fixed reference and persistent budgets.

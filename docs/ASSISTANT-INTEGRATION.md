@@ -3,7 +3,7 @@
 Direction: [RFC v0.3](RFC.md). Status: [STATUS.md](STATUS.md).
 This replaces the mandatory brief-only product model. No model API is required.
 
-## Standard profile: P4 increment
+## Standard profile: implemented through P4 acceptance
 
 One assistant, in the same conversation, can:
 1. Read relevant application code and fill technical details of the owner's scope.
@@ -56,8 +56,9 @@ Preparation can create scenarios. After capture, additions/binding adaptations
 need recorded new versions and validation on both sides. Removing requirements,
 accepting a new difference or broadening ignore rules requires owner review.
 A missing payload field is normally a target defect, not a contract-review request.
-The current session freezes config/reference; its refresh lifecycle is the remaining
-P4 integration work, not permission to edit criteria or restart the counter.
+The session freezes config/reference. Use `update-migration-session` for a
+controlled refresh; it preserves history and counters and requires an explicit
+owner decision when the proposed reference weakens evaluation criteria.
 
 Escalate ambiguity, scope/permission changes, secret exposure, unsupported evidence,
 unsafe execution and exhausted budgets. Diagnose infrastructure separately from

@@ -1,7 +1,8 @@
 # RFC - Migration Harness v0.3
 
-Date: 2026-09-06. Availability updated 2026-09-12: P0-P6 complete; the RFC v0.3
-checklist is closed (Cinema P5 PASS/committed, component-first P6 PASS).
+Date: 2026-09-06. Availability updated 2026-09-12: P0-P4 implemented and accepted;
+Cinema P5 and component-first P6 have recorded PASS results. The Cinema-specific
+three-regression acceptance item remains open; see PLAN.md for its evidence gap.
 Supersedes v0.2 as the target specification, not existing CLI semantics or approved
 contracts. Delivery: [STATUS.md](STATUS.md). Execution plan: [PLAN.md](PLAN.md).
 
@@ -38,7 +39,7 @@ diagnostic hint; neither it nor a confidence score can override failing evidence
 
 ## 3. Profiles and transition
 
-**Standard (target default, P4 increment available):** normal scoped destination edits,
+**Standard (implemented through P4 acceptance):** normal scoped destination edits,
 including styles, assets and tests; one assistant operates the whole lifecycle.
 No mandatory brief, patch JSON, discovery success, codemod or manifest.
 Dependency/configuration changes still need declared scope and execution permissions.

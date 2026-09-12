@@ -1,0 +1,58 @@
+name: Validate harness
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned package manager and dependencies
+        run: |
+          npm install --global pnpm@10.15.0
+          pnpm install --frozen-lockfile
+      - name: Check dependency advisories
+        run: pnpm audit --audit-level=moderate
+      - name: Check published documentation links
+        run: pnpm check:docs
+      - name: Build
+        run: pnpm build
+      - name: Unit and CLI tests
+        run: node --test --test-concurrency=1 tests/*.test.mjs
+      - name: Install and preflight Chromium
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          node --input-type=module -e "import { chromium } from '@playwright/test'; const browser = await chromium.launch(); await browser.close();"
+      - name: Browser and executable example tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 tests/browser/*.test.mjs | tee "$RUNNER_TEMP/browser-tests.tap"
+          if grep -Eq '^# skipped [1-9][0-9]*' "$RUNNER_TEMP/browser-tests.tap"; then
+            echo 'Browser tests must execute without skips in CI.'
+            exit 1
+          fi
+      - name: Smokes and restricted compatibility pilots
+        run: |
+          pnpm smoke
+          pnpm smoke:v02
+          node scripts/pilot.mjs
+          node scripts/pilot-assistant.mjs
+      - name: Verify checks preserved the checkout
+        run: |
+          git diff --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
