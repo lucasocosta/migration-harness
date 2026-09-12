@@ -67,7 +67,7 @@ Evidence outputs are created exclusively. Standalone P3 verification takes a new
 path; standard sessions choose their own outputs. Restricted assistant commands may
 replace their current `--out` brief/apply result; archived records remain exclusive.
 
-## Standard assistant session (P4 increment)
+## Standard assistant session
 
 Use `.github/agents/migracao-padrao.agent.md`, an authorized SPEC and a config with
 `"profile": "standard"` **before preparation**. There is no `--profile` flag. The

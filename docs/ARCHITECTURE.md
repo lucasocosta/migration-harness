@@ -3,7 +3,7 @@
 Target: [RFC v0.3](RFC.md). Delivered behavior: [STATUS.md](STATUS.md).
 Implementation sequence: [PLAN.md](PLAN.md).
 
-## Validation-first flow (P4 incremental)
+## Validation-first flow (implemented standard profile)
 
 ```text
 Owner scope -> assistant prepares project configuration and scenarios

@@ -1,5 +1,9 @@
 # Review record
 
+The dated reviews below preserve the decisions and availability at review time.
+Current implementation and remaining acceptance are in [STATUS](STATUS.md) and
+[PLAN](PLAN.md); historical pending labels are not current availability.
+
 ## Product reconciliation - 2026-09-06
 
 RFC v0.3 supersedes the product workflow assumed by older reviews below. Those

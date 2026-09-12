@@ -1,6 +1,6 @@
 ---
 name: migracao-padrao
-description: Migra para o React existente com edicoes normais, referencia fixa e verificacao independente pelo harness. P4 incremental; consulte os limites no manual.
+description: Migra para o React existente com edicoes normais, referencia fixa e verificacao independente pelo harness. Perfil standard implementado; consulte os limites no manual.
 tools: ['read/readFile', 'search/codebase', 'search/fileSearch', 'search/listDirectory', 'search/textSearch', 'search/usages', 'edit/createFile', 'edit/editFiles', 'execute/runInTerminal', 'execute/getTerminalOutput', 'todo']
 agents: []
 ---

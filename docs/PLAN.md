@@ -575,8 +575,11 @@ substitui os criterios de aceite de produto ainda sem evidencia.
   usado por codemods/static-analyzer; pnpm audit apos instalacao: zero advisories.
 - [x] Ignorar metadados locais .codex/.serena; declarar pacotes UNLICENSED e
   publicar [resumo Cinema](CINEMA-EVIDENCE.md) sem copiar apps/dados privados.
-- [ ] Concluir a verificacao do commit final em checkout limpo e fazer push da
-  branch atual conforme autorizacao explicita deste pedido; evidencias em PUBLICATION.
+- [x] Verificar a entrega em checkout limpo com Node 22: `27ee47c`, install/build,
+  32/32 browser, smokes/pilotos, audit sem advisories e checkout preservado. Unit/CLI
+  190/190 em `3cc22d8`, com fontes/dependencias/testes dessa suite identicos no
+  commit seguinte. Evidencia e falhas intermediarias registradas em PUBLICATION.
+- [ ] Confirmar push autorizado da branch atual no origin e acompanhar o CI remoto.
 - [ ] Demonstrar as tres regressoes controladas no Cinema dentro de escopo e
   orcamento autorizados. P4 prova as classes em fixture; o reparo de blur do Cinema
   nao comprova essas tres injecoes. Nao substituir/resetar sua sessao para esta tarefa.

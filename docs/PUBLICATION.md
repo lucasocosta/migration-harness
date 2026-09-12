@@ -34,7 +34,7 @@ Local verification on Node 20.20.1 after the changes:
 | Chromium suite, serial | 32/32 PASS, zero skips; includes the new full P6 session test |
 | Targeted P6 test | PASS; complete coverage, VERIFIED reference and current persisted report |
 | Dependency audit | Zero advisories |
-| Documentation links | 80 tracked targets checked, PASS |
+| Documentation links | All tracked local link targets PASS |
 | Smokes | Both PASS |
 | Deterministic pilot | EQUIVALENT |
 | Restricted assistant pilot | ASSISTANT_LOOP_EQUIVALENT, REPAIR_BRIEF->PASS |
@@ -48,8 +48,31 @@ Its original cause was not established; failure assertions now include only safe
 structural capture diagnostics. Final browser validation runs separately from
 unit/CLI work, matching the order used in CI.
 
-The corrected commit will be installed and verified in a fresh clean checkout.
-The clean-checkout revision and results will be recorded after that verification.
+Clean-checkout verification completed on
+`27ee47ce87b6112651db51af2dc37671e2e9f9f7`, using a fresh detached worktree,
+frozen pnpm 10.15.0 install and Node 22.23.2:
+
+| Clean-checkout check | Result |
+| --- | --- |
+| Frozen install and workspace build | PASS |
+| Chromium suite, run without concurrent unit/CLI work | 32/32 PASS, zero skips, 157.4 s |
+| Both smokes | PASS |
+| Deterministic / restricted assistant pilots | EQUIVALENT / ASSISTANT_LOOP_EQUIVALENT |
+| Dependency audit | Zero advisories |
+| Checkout after checks | No tracked changes or untracked non-ignored files |
+
+The 190/190 Node 22 unit/CLI result was obtained on `3cc22d8` in a separate clean
+worktree. Package sources, manifests, lockfile and top-level unit/CLI tests are
+identical in `27ee47c`; its changes only fix the browser test setup and diagnostic
+messages and document that verification. Subsequent edits are documentation and
+agent-description reconciliation. Published documentation links were rechecked
+against the final tracked file set, with 82 targets passing. A limited scan of 231
+tracked files found no recognizable credential-key patterns; this is not a full
+history or comprehensive security audit.
+
+No evaluation criterion, budget or timeout was relaxed to obtain these results.
+The initial transient capture result remains recorded above. CI runs the suites
+sequentially and will independently verify the published revision.
 
 ## Remaining product evidence
 

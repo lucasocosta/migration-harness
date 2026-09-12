@@ -38,8 +38,9 @@ adds native checks, managed static build servers, suite capture with reset, obse
 source stability and consolidated prepare/verify with source/target comparison and
 aggregate reports. P4 adds normal scoped edits, persistent attempts/time and
 repair decisions around that verifier. Hashes do not authenticate provenance.
-The real assistant migration acceptance was demonstrated on 2026-09-12 (Cinema
-P5 and component-first P6, both run 0001 PASS). Limits: USAGE.md.
+Passing Cinema and component-first runs were recorded on 2026-09-12. The
+Cinema-specific three controlled regressions and complete effort measurement
+remain open in PLAN.md; the passing runs alone do not close those criteria.
 
 ## Evaluation independence
 
