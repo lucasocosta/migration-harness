@@ -579,7 +579,9 @@ substitui os criterios de aceite de produto ainda sem evidencia.
   32/32 browser, smokes/pilotos, audit sem advisories e checkout preservado. Unit/CLI
   190/190 em `3cc22d8`, com fontes/dependencias/testes dessa suite identicos no
   commit seguinte. Evidencia e falhas intermediarias registradas em PUBLICATION.
-- [ ] Confirmar push autorizado da branch atual no origin e acompanhar o CI remoto.
+- [x] Confirmar push autorizado da branch atual no origin: `31088ae` recebido em
+  `next/angular-forms-and-io`. GitHub Actions iniciou a execucao `34710609341`;
+  cada push seguinte recebe nova verificacao automatica. Link em PUBLICATION.
 - [ ] Demonstrar as tres regressoes controladas no Cinema dentro de escopo e
   orcamento autorizados. P4 prova as classes em fixture; o reparo de blur do Cinema
   nao comprova essas tres injecoes. Nao substituir/resetar sua sessao para esta tarefa.

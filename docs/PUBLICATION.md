@@ -85,3 +85,14 @@ production migration, complete accessibility or Docker operation.
 
 The task authorizes a normal push of the harness branch, not a merge, forced
 push, permissive licensing decision or publication of the separate applications.
+
+## Publication record
+
+The authorized push to `origin/next/angular-forms-and-io` was confirmed at
+`31088ae2a67ff078a5bf9fb8b7826a5814ea719a`; GitHub Actions started run
+`34710609341`. The publication-record commit adds only documentation. Each later
+push receives its own verification; consult the
+[workflow runs](https://github.com/lucasocosta/migration-harness/actions/workflows/ci.yml)
+for the result corresponding to the latest branch revision.
+
+No merge, force push or push of either Cinema application repository was performed.
