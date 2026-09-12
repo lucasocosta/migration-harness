@@ -31,12 +31,12 @@ jobs:
         run: pnpm check:docs
       - name: Build
         run: pnpm build
-      - name: Unit and CLI tests
-        run: node --test --test-concurrency=1 tests/*.test.mjs
       - name: Install and preflight Chromium
         run: |
           pnpm exec playwright install --with-deps chromium
           node --input-type=module -e "import { chromium } from '@playwright/test'; const browser = await chromium.launch(); await browser.close();"
+      - name: Unit and CLI tests
+        run: node --test --test-concurrency=1 tests/*.test.mjs
       - name: Browser and executable example tests
         shell: bash
         run: |

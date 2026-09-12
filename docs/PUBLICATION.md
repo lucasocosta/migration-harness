@@ -74,6 +74,16 @@ No evaluation criterion, budget or timeout was relaxed to obtain these results.
 The initial transient capture result remains recorded above. CI runs the suites
 sequentially and will independently verify the published revision.
 
+The first CI run on `c560a45` (run `34710650762`) failed 2 of 190 unit/CLI tests
+(`migration-session-update.test.mjs` 117/120) with
+`SESSION_REFERENCE_UPDATE_INCONCLUSIVE` / an unexpected `MIGRATION_PREFLIGHT`:
+those are the only unit tests that execute a real `prepareMigration`, whose
+preflight requires a browser, and the workflow installed Chromium after the
+unit/CLI step. Local reproduction confirmed the cause (`PLAYWRIGHT_BROWSERS_PATH`
+pointed at an empty directory reproduced both failures exactly); the same tests
+pass when Chromium is present. The workflow now installs and preflights Chromium
+before the unit/CLI suite. No test or criterion was changed.
+
 ## Remaining product evidence
 
 Publishing this harness does not close the Cinema-specific three-regression
