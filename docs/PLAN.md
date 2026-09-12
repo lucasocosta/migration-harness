@@ -27,7 +27,10 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 
 Commits de implementacao (2026-09-07): P1/P2 em `c4f319b`; P3 em `5079579`,
 `378d730`, `adc61d4` e `75100c9`. Commit nao
-substitui evidencia; aceites registrados em VALIDATION.md.
+substitui evidencia; aceites registrados em VALIDATION.md. P5/P6 fechados em
+2026-09-12: candidato Cinema commitado como `2c98611` em apps/react (repositorio
+separado, autorizacao explicita) e P6 (exemplo component-first + docs) como
+`92f73cd` no harness, ambos com autorizacao explicita, sem merge/push.
 
 ## P0 - Documentacao e transicao
 
