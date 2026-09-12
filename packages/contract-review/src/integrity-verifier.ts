@@ -1,17 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { BehaviorContract } from '@migration-harness/core';
-
-export function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, child]) => [key, canonicalize(child)]),
-    );
-  }
-  return value;
-}
+import { parseContract, canonical } from '@migration-harness/core';
+export { canonicalize } from '@migration-harness/core';
 
 export function protectedContractContent(contract: BehaviorContract): unknown {
   return {
@@ -23,11 +13,11 @@ export function protectedContractContent(contract: BehaviorContract): unknown {
 }
 
 export function computeContractHash(contract: BehaviorContract): string {
-  const canonical = JSON.stringify(canonicalize(protectedContractContent(contract)));
-  return createHash('sha256').update(canonical).digest('hex');
+  return createHash('sha256').update(canonical(protectedContractContent(contract))).digest('hex');
 }
 
 export function verifyContractIntegrity(contract: BehaviorContract): boolean {
+  contract = parseContract(contract);
   if (contract.status !== 'APPROVED') {
     throw new Error(`Contract ${contract.contractId} is not APPROVED.`);
   }
@@ -39,8 +29,11 @@ export function approveContract(
   approvedBy: string,
   approvedAt = new Date().toISOString(),
 ): BehaviorContract {
+  contract = parseContract(contract);
+  if (contract.status !== 'REVIEW') throw new Error('Contract must enter REVIEW before approval.');
+  if (!approvedBy.trim()) throw new Error('A human reviewer is required.');
   const approved: BehaviorContract = {
-    ...contract,
+    ...structuredClone(contract),
     status: 'APPROVED',
     integrity: {
       algorithm: 'sha256',
@@ -50,5 +43,11 @@ export function approveContract(
     },
   };
   approved.integrity.contentHash = computeContractHash(approved);
-  return approved;
+  return parseContract(approved);
+}
+
+export function reviewContract(input: BehaviorContract): BehaviorContract {
+  const contract = parseContract(input);
+  if (contract.status !== 'DRAFT') throw new Error('Only draft contracts can enter review.');
+  return { ...structuredClone(contract), status: 'REVIEW' };
 }

@@ -16,6 +16,13 @@
     "@migration-harness/core": "workspace:*",
     "@migration-harness/contract-review": "workspace:*",
     "@migration-harness/contract-synthesizer": "workspace:*",
-    "@migration-harness/equivalence-validator": "workspace:*"
+    "@migration-harness/equivalence-validator": "workspace:*",
+    "@migration-harness/scenario-runner": "workspace:*",
+    "@migration-harness/static-analyzer": "workspace:*",
+    "@migration-harness/transformation-planner": "workspace:*",
+    "@migration-harness/codemods": "workspace:*",
+    "@migration-harness/engine": "workspace:*",
+    "@migration-harness/llm-worker": "workspace:*",
+    "@migration-harness/quality-gates": "workspace:*"
   }
 }

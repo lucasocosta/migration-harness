@@ -1,2 +1,2 @@
-export * from './transform/index.js';
-export * from './repair/index.js';
+export * from './bounded-worker.js';
+export * from './sandbox.js';

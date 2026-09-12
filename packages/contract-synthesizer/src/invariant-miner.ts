@@ -19,6 +19,9 @@ export interface RuntimeHttpEvidence {
 export class InvariantMiner {
   static mineHttpRuntimeEvidence(runs: RawObservedTrace[]): RuntimeHttpEvidence {
     if (runs.length < 3) throw new Error('At least 3 runs are required for invariant mining.');
+    if (new Set(runs.map(run => run.scenarioId)).size !== 1) throw new Error('Mining requires one scenario.');
+    if (new Set(runs.map(run => run.runIndex)).size !== runs.length) throw new Error('Mining requires distinct run indices.');
+    if (new Set(runs.map(run => run.runId ?? run.startedAt)).size !== runs.length) throw new Error('Mining requires distinct execution identities; changing runIndex does not create a new observation.');
 
     const operationMap = new Map<string, ObservedOpInstance[]>();
     for (const run of runs) {
@@ -46,21 +49,23 @@ export class InvariantMiner {
       const pathname = key.slice(separator + 1);
       const runsObserved = new Set(observations.map((o) => o.runIndex)).size;
       const presenceRatio = runsObserved / runs.length;
-      const fieldCounts = new Map<string, number>();
+      const fieldRuns = new Map<string, Set<number>>();
 
       for (const observation of observations) {
         if (!isRecord(observation.request.payload)) continue;
         for (const field of Object.keys(observation.request.payload)) {
-          fieldCounts.set(field, (fieldCounts.get(field) ?? 0) + 1);
+          const seen = fieldRuns.get(field) ?? new Set<number>();
+          seen.add(observation.runIndex);
+          fieldRuns.set(field, seen);
         }
       }
 
-      const ignoredVolatileFields = ['timestamp', 'requestId', '_nonce', 'correlationId'];
+      const ignoredVolatileFields: string[] = [];
       const observedAlwaysFields: string[] = [];
       const observedSometimesFields: string[] = [];
-      for (const [field, count] of fieldCounts) {
+      for (const [field, seen] of fieldRuns) {
         if (ignoredVolatileFields.includes(field)) continue;
-        (count === observations.length ? observedAlwaysFields : observedSometimesFields).push(field);
+        (seen.size === runs.length ? observedAlwaysFields : observedSometimesFields).push(field);
       }
 
       const statuses = [...new Set(observations.flatMap((o) => o.response ? [o.response.statusCode] : []))];

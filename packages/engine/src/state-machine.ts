@@ -28,7 +28,10 @@ export interface HarnessExecutionContext {
 
 export class MigrationEngineStateMachine {
   private state: EngineState = 'IDLE';
-  constructor(private readonly context: HarnessExecutionContext) {}
+  constructor(private readonly context: HarnessExecutionContext) {
+    if (![context.repairAttempts, context.maxRepairAttempts].every(value => Number.isSafeInteger(value) && value >= 0) || context.repairAttempts > context.maxRepairAttempts) throw new Error('Invalid repair budget.');
+    this.context = { ...context };
+  }
 
   getState(): EngineState { return this.state; }
   getRepairAttempts(): number { return this.context.repairAttempts; }
@@ -41,14 +44,12 @@ export class MigrationEngineStateMachine {
     this.state = runCount >= 3 ? 'CONTRACT_SYNTHESIS' : 'NEEDS_SCENARIOS';
   }
   scenariosReady(): void { this.require('NEEDS_SCENARIOS'); this.state = 'SOURCE_TRACE_CAPTURE'; }
-  synthesisCompleted(needsReview: boolean): void {
+  synthesisCompleted(): void {
     this.require('CONTRACT_SYNTHESIS');
-    this.state = needsReview ? 'CONTRACT_REVIEW' : 'CONTRACT_APPROVED';
+    this.state = 'CONTRACT_REVIEW';
   }
   contractApproved(): void {
-    if (this.state !== 'CONTRACT_REVIEW' && this.state !== 'CONTRACT_SYNTHESIS') {
-      throw new Error(`Cannot approve contract from ${this.state}`);
-    }
+    this.require('CONTRACT_REVIEW');
     this.state = 'CONTRACT_APPROVED';
   }
   contractIntegrityVerified(): void { this.require('CONTRACT_APPROVED'); this.state = 'TRANSFORMATION_PLAN'; }

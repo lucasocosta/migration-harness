@@ -32,6 +32,56 @@ export interface DependencyEdge {
   isDynamic: boolean;
 }
 
+export type RxjsStreamSemantics =
+  | 'request-response'
+  | 'event-stream'
+  | 'state-stream'
+  | 'cancellation-sensitive'
+  | 'orchestration';
+
+export interface ComponentInputRef {
+  symbolId: string;
+  name: string;
+  alias?: string;
+  type: string;
+}
+
+export interface ComponentOutputRef {
+  symbolId: string;
+  name: string;
+  alias?: string;
+  eventType: string;
+}
+
+export interface AsyncValidatorEvidence {
+  field: string;
+  validators: string[];
+  /** 'local' = defined inside the analyzed unit, 'imported' = external binding (explicit unresolved edge), 'unknown' = anything else. */
+  scope: 'local' | 'imported' | 'unknown';
+}
+
+export interface ReactiveFormsRef {
+  symbolId: string;
+  formsSymbols: string[];
+  templateDirectives: string[];
+  controls: string[];
+  validators: string[];
+  hasAsyncValidators: boolean;
+  hasFormArray: boolean;
+  hasDynamicControlCreation: boolean;
+  subscriptions: Array<{ source: string; semantics: RxjsStreamSemantics }>;
+  /** True only when every FormBuilder group in the component normalized statically to control entries. */
+  builderInferred: boolean;
+  asyncValidatorEvidence: AsyncValidatorEvidence[];
+}
+
+export interface ProviderScopeRef {
+  symbolId: string;
+  providedIn: 'root' | 'platform' | 'any' | 'type' | 'unknown' | 'none';
+  token?: string;
+  componentProviders: string[];
+}
+
 export interface StaticResolutionMetrics {
   totalSymbolsIdentified: number;
   resolvedSymbolsCount: number;
@@ -56,6 +106,10 @@ export interface MigrationUnit {
   runtimeRoutes: string[];
   symbols: SymbolRef[];
   dependencyGraph: DependencyEdge[];
+  inputs: ComponentInputRef[];
+  outputs: ComponentOutputRef[];
+  reactiveForms: ReactiveFormsRef[];
+  providerScopes: ProviderScopeRef[];
   boundary: MigrationBoundary;
   resolutionMetrics: StaticResolutionMetrics;
   metadata: {

@@ -50,7 +50,7 @@ export interface BehaviorContract {
   unitId: string;
   contractId: string;
   version: string;
-  status: 'DRAFT' | 'APPROVED' | 'DEPRECATED';
+  status: 'DRAFT' | 'REVIEW' | 'APPROVED' | 'DEPRECATED';
   integrity: {
     contentHash: string;
     algorithm: 'sha256';
@@ -61,8 +61,9 @@ export interface BehaviorContract {
     scenarioId: string;
     invariants: {
       network: Invariant<HttpEndpointInvariant>[];
-      accessibilityAriaYaml: Invariant<string>;
-      accessibilityAriaJson: Invariant<Record<string, unknown>>;
+      accessibilityAriaYaml?: Invariant<string>;
+      accessibilityAriaJson?: Invariant<Record<string, unknown>>;
+      navigation?: Invariant<{ destination: string }>[];
       storageDeltas: Invariant<Array<{
         storageType: 'localStorage' | 'sessionStorage';
         mutationType: 'SET' | 'REMOVE' | 'CLEAR';

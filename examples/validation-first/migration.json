@@ -1,0 +1,52 @@
+{
+  "kind": "MIGRATION_CONFIG", "version": "1", "migrationId": "validation-example",
+  "source": {
+    "root": "examples/validation-first/angular", "baseUrl": "http://127.0.0.1:43120",
+    "relevantFiles": ["main.ts", "build.mjs", "package.json"],
+    "commands": [{"id":"build","kind":"build","argv":["npm","run","build"],"cwd":".","timeoutMs":30000}],
+    "build": {"commandId":"build","outputDir":"dist","cleanOutput":true}
+  },
+  "target": {
+    "root": "examples/validation-first/react", "baseUrl": "http://127.0.0.1:43153",
+    "relevantFiles": ["App.tsx", "build.mjs", "package.json", "existing.mjs", "regression.test.mjs"],
+    "writePaths": ["App.tsx"], "protectedPaths": ["existing.mjs", "regression.test.mjs"],
+    "commands": [
+      {"id":"build","kind":"build","argv":["npm","run","build"],"cwd":".","timeoutMs":30000},
+      {"id":"regression","kind":"test","argv":["npm","test"],"cwd":".","timeoutMs":10000}
+    ],
+    "build": {"commandId":"build","outputDir":"dist","cleanOutput":true}
+  },
+  "scenarios": [
+    {
+      "definition": {
+        "scenarioId":"save","unitId":"profile","name":"Save email","description":"Synthetic mocked save", "entryUrl":"http://127.0.0.1:43120/profile",
+        "preconditions":{"mockInitialApiResponses":[{"urlPattern":"**/api/customer","method":"PUT","statusCode":200,"fixturePath":"saved.json"}]},
+        "steps":[
+          {"stepId":"email","action":"fill","targetRole":"textbox","targetName":"Email","inputValue":"updated@example.test"},
+          {"stepId":"save","action":"click","targetRole":"button","targetName":"Save","completionSignal":{"type":"LOCATOR_VISIBLE","targetRole":"alert","targetName":"Saved","timeoutMs":5000}}
+        ], "testDataProfile":"standard"
+      },
+      "required":true, "fixtureRoot":"examples/validation-first/fixtures",
+      "bindings":{"source":{"entryUrl":"http://127.0.0.1:43120/profile","steps":[]},"target":{"entryUrl":"http://127.0.0.1:43153/account/profile","steps":[]}}
+    },
+    {
+      "definition":{"scenarioId":"mount","unitId":"profile","name":"Open profile","description":"Initial controls and existing shell","entryUrl":"http://127.0.0.1:43120/profile","preconditions":{},"steps":[],"testDataProfile":"standard"},
+      "required":true,"fixtureRoot":"examples/validation-first/fixtures",
+      "bindings":{"source":{"entryUrl":"http://127.0.0.1:43120/profile","steps":[]},"target":{"entryUrl":"http://127.0.0.1:43153/account/profile","steps":[]}}
+    }
+  ],
+  "checks":[
+    {"id":"source-build","side":"source","commandId":"build","required":true},
+    {"id":"target-build","side":"target","commandId":"build","required":true},
+    {"id":"existing-regression","side":"target","commandId":"regression","required":true}
+  ],
+  "requirements":[
+    {"id":"saved","scenarioId":"save","description":"Save confirmation","origin":"SPECIFICATION","sourceReference":"example","required":true,"assertion":{"checkpoint":{"kind":"SCENARIO_END"},"claim":{"kind":"NODE_PRESENT","role":"alert","name":"Saved"}}},
+    {"id":"existing-shell","scenarioId":"mount","description":"Keep existing React shell","origin":"EXISTING_TEST","sourceReference":"example","required":true,"assertion":{"checkpoint":{"kind":"SCENARIO_END"},"claim":{"kind":"NODE_PRESENT","role":"banner","name":"Existing React"}}}
+  ],
+  "acceptedDifferences":[],
+  "policy":{"sanitization":{"allowedPayloadKeys":["email","saved"],"allowedStorageKeys":["profile.saved"]}},
+  "reset":{"kind":"ISOLATED_FIXTURES"},
+  "environment":{"browser":"chromium","locale":"en-US","viewport":{"width":1280,"height":720}},
+  "limits":{"sourceRuns":2,"maxRepairAttempts":3,"maxDurationMs":120000}
+}

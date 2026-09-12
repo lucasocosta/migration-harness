@@ -5,13 +5,15 @@ export type TraceEventType =
   | 'HTTP_FAILED'
   | 'ARIA_STATE_CHANGE'
   | 'STORAGE_DELTA'
-  | 'NAVIGATION';
+  | 'NAVIGATION'
+  | 'WEBSOCKET_FRAME';
 
 export interface BaseTraceEvent {
   eventId: string;
   timestampMs: number;
   sequenceIndex: number;
   correlationId?: string;
+  causedByEventIds?: string[];
 }
 
 export interface UserInteractionEvent extends BaseTraceEvent {
@@ -39,6 +41,13 @@ export interface HttpResponseEvent extends BaseTraceEvent {
   headers: Record<string, string>;
   body: unknown;
   requestToResponseEndMs: number;
+  /**
+   * NON-COMPARABLE EVIDENCE METADATA — never an equivalence input. True only when Playwright reports the
+   * response as fulfilled by a service worker's fetch handler; absent otherwise. Whether a response came from
+   * a worker is an implementation detail, not observable behavior: equivalence stays on network shapes,
+   * status, storage and ARIA. A schema mutation adding/removing this field must not change any comparison.
+   */
+  servedByServiceWorker?: boolean;
 }
 
 export interface HttpFailedEvent extends BaseTraceEvent {
@@ -70,6 +79,17 @@ export interface NavigationEvent extends BaseTraceEvent {
   toUrl: string;
 }
 
+export type WebSocketFrameDirection = 'sent' | 'received';
+
+export interface WebSocketFrameEvent extends BaseTraceEvent {
+  type: 'WEBSOCKET_FRAME';
+  /** Connection URL; correlationId identifies the individual connection across frames. */
+  url: string;
+  direction: WebSocketFrameDirection;
+  /** Text frames parsed to JSON when possible, otherwise the string; binary/oversized frames are replaced by an omission record. */
+  payload: unknown;
+}
+
 export type TraceEvent =
   | UserInteractionEvent
   | HttpRequestEvent
@@ -77,7 +97,8 @@ export type TraceEvent =
   | HttpFailedEvent
   | AriaStateEvent
   | StorageDeltaEvent
-  | NavigationEvent;
+  | NavigationEvent
+  | WebSocketFrameEvent;
 
 export interface TraceEnvironment {
   browser: string;
@@ -87,10 +108,12 @@ export interface TraceEnvironment {
 
 export interface RawObservedTrace {
   scenarioId: string;
+  runId?: string;
   runIndex: number;
   startedAt: string;
   events: TraceEvent[];
   environment: TraceEnvironment;
+  completion?: { status: 'COMPLETED' | 'FAILED'; completedStepIds: string[] };
 }
 
 export interface SanitizedObservedTrace extends RawObservedTrace {

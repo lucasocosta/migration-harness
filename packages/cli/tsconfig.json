@@ -9,6 +9,12 @@
     "src/**/*.ts"
   ],
   "references": [
+    { "path": "../scenario-runner" },
+    { "path": "../static-analyzer" },
+    { "path": "../transformation-planner" },
+    { "path": "../codemods" },
+    { "path": "../engine" },
+    { "path": "../llm-worker" },
     {
       "path": "../core"
     },
@@ -20,6 +26,9 @@
     },
     {
       "path": "../equivalence-validator"
+    },
+    {
+      "path": "../quality-gates"
     }
   ]
 }

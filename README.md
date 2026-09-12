@@ -1,103 +1,91 @@
-# Migration Harness v0.2
+# Migration Harness
 
-Evidence-Guided Translation Validation for behavior-preserving software migration.
+The assistant migrates; the harness verifies observable behavior.
 
-The first adapter targets **Angular → React**, but the core architecture is framework-agnostic.
+Initial use cases: migrate an Angular page, component or application incrementally
+into an **existing React application**, preserving its conventions and functionality.
+The assistant uses its own coding capabilities. The harness does not need a model API.
 
-## Core idea
-
-The harness does not trust a transformation because it generated compilable code. It executes equivalent scenarios against source and target implementations and independently evaluates behavioral equivalence.
-
-```text
-Angular ──execute──► SourceTrace
-   │
-   ▼
-Transformation ───► TransformationManifest
-   │
-   ▼
-React ───execute──► TargetTrace
-
-SourceTrace + TargetTrace + Critical Contract + Manifest hints
-                           │
-                           ▼
-                  EquivalenceValidator
-```
-
-The `TransformationManifest` is evidence/hints only. It cannot make a failing candidate pass.
-
-## v0.2 implemented foundation
-
-- core schemas for `TransformationPlan`, `TransformationManifest` and `EquivalenceResult`;
-- deterministic v0.2 state machine;
-- `ScenarioRunner` separated from trace observation;
-- hardened Playwright trace recorder with navigation events, async request draining, configurable request filtering and response-body caps;
-- initial network `EquivalenceValidator`;
-- method, path, query, payload-shape and status comparison;
-- volatile query parameter support;
-- contract integrity and initial trace sanitization from v0.1;
-- CLI `compare` command;
-- executable PUT→POST regression smoke test.
-
-## Not implemented yet
-
-- production runtime schema validation;
-- end-to-end browser CLI for `trace`;
-- full navigation/storage/ARIA equivalence validators;
-- causal DAG comparison;
-- EvidenceFusionEngine;
-- production-grade raw/sanitized artifact isolation;
-- Angular static analyzer implementation;
-- automatic codemods/LLM migration;
-- bounded LLM repair sandbox.
-
-## First milestone
-
-Before automatic migration, prove differential equivalence:
+## Product direction
 
 ```text
-Angular PUT /api/customers/:id
-React   PUT /api/customers/:id
-→ EQUIVALENT
-
-Intentional React regression: PUT → POST
-→ NOT_EQUIVALENT / NETWORK_METHOD_MISMATCH
+Prepare a stable source reference
+  -> migrate into the existing target
+  -> run project checks and compare scenarios
+  -> fix regressions and repeat
+  -> deliver evidence and coverage limits
 ```
 
-This behavior is covered by `scripts/smoke-v02.mjs`.
+The same assistant should run this end to end. Independent validation means protected
+criteria and tool-issued results, not a different agent or a mandatory fresh session.
 
-## Commands
+**The standard workflow is implemented through P4 acceptance and exercised by
+Cinema (P5) and component-first (P6).** Set `profile: "standard"` in the migration
+configuration to use scoped normal edits and persistent sessions. Controlled
+reference updates preserve history and budgets.
+Existing restricted commands and hooks keep their semantics. There is no CLI
+`--profile` flag. See the manual for current commands and limitations.
 
-After dependencies are installed:
+## What exists
+
+- `prepare-migration` / `verify-migration`: managed builds, full declared suite, fixed reference and consolidated report.
+- `start-migration-session` / `migration-session-status`: standard scoped edits, persistent attempts and repair decisions.
+- `check-projects`: preflight and native checks with baseline reports and bounded execution; not a migration verdict.
+- Playwright scenario execution, trace recording, sanitization and private artifacts.
+- Network shapes/status/params, navigation, storage, ARIA and declared-causality comparison.
+- Optional critical-contract validation and evidence import.
+- Discovery, limited Angular codemods, project-check helpers and deterministic pilots.
+- A restricted `brief / apply-patch / run` assistant workflow with scope/integrity checks.
+
+Selected payload values and required semantic assertions now block incorrect
+standard candidates. The restricted repair adapter remains method-only; standard
+repairs use the assistant's coding abilities.
+
+Cinema has a recorded PASS (36 scenarios, 131 requirements); component-first
+exercises two dependent units (5 scenarios, 11 requirements). These are synthetic
+applications; the Cinema-specific three-regression acceptance item remains open.
+A pilot passing does not certify a user migration. See the
+[public Cinema evidence](docs/CINEMA-EVIDENCE.md) and [current status](docs/STATUS.md).
+
+## Start here
+
+- [RFC](docs/RFC.md): the agreed target and boundaries.
+- [Implementation plan](docs/PLAN.md): ordered work, checklists and acceptance evidence.
+- [Copilot manual](docs/COPILOT-MIGRATION.md) and [scope template](docs/templates/MIGRATION-SPEC.md).
+- [CLI reference](docs/USAGE.md): commands that actually exist.
+- [Architecture](docs/ARCHITECTURE.md), [assistant integration](docs/ASSISTANT-INTEGRATION.md)
+  and [agent protocol](AGENTS.md).
+- [Research](docs/research.md): retained foundations and limits.
+- [Validation](docs/VALIDATION.md) and [review decisions](docs/REVIEWS.md): historical evidence.
+
+## Development
 
 ```bash
-pnpm build
-pnpm smoke:v02
+npx --yes pnpm@10.15.0 install --frozen-lockfile
+npx --yes pnpm@10.15.0 exec playwright install chromium
+npx --yes pnpm@10.15.0 build
+node --test tests/*.test.mjs
+node --test tests/browser/*.test.mjs
+node scripts/pilot.mjs
+node scripts/pilot-assistant.mjs
 ```
 
-Compare two sanitized traces:
+Tests import built `dist/`. Pilots use real framework runtimes but synthetic data,
+approval and deterministic transformations. Neither demonstrates the new standard
+agent workflow. Private traces are never assistant inputs; on WSL they stay on the
+native Linux filesystem. Docker execution remains unverified in this environment.
 
-```bash
-harness compare \
-  --source source.sanitized.json \
-  --target target.sanitized.json \
-  --out equivalence.json
-```
+Clones under `apps/angular` and `apps/react` keep their own Git histories.
+`apps/`, `migrations/` and `artifacts/` are ignored by this repository: arrange
+approved versioning of migration specifications separately. Never commit secrets.
 
-## Read before continuing implementation
+## Reproducibility and distribution
 
-- `docs/research.md` — consolidated research, decisions, invariants and implementation handoff.
-- `docs/ARCHITECTURE.md` — current architecture summary.
-- `docs/MVP-PLAN.md` — recommended implementation sequence.
-- `docs/VALIDATION.md` — validations already executed and environment limitations.
+Use Node `^20.19.0`, `^22.12.0` or `>=24.0.0`; CI uses Node 22. Angular 20.3.31
+is pinned for the framework fixtures and compiler helpers. `pnpm test` and
+`pnpm test:browser` build first and run serially. GitHub Actions also exercises
+both executable examples, the smokes, restricted pilots, dependency advisories
+and links against the files actually tracked by Git.
 
-## Reproducible browser vertical slice
-
-Run:
-
-```bash
-bash scripts/e2e-fixture.sh
-```
-
-This executes a real Chromium scenario, compares source and target traces, then injects a `PUT → POST` regression and verifies that the `EquivalenceValidator` blocks it with `NETWORK_METHOD_MISMATCH`.
-
-See `examples/e2e-customer-profile/` and `docs/VALIDATION.md` for scope and environment limitations.
+The packages are private and `UNLICENSED`; no open-source reuse license has been
+selected. Local assistant settings in `.codex/` and `.serena/` are ignored.

@@ -1,0 +1,1 @@
+{"name":"@migration-harness/transformation-planner","version":"0.3.0","private":true,"type":"module","main":"dist/index.js","types":"dist/index.d.ts","dependencies":{"@migration-harness/core":"workspace:*","@migration-harness/static-analyzer":"workspace:*"},"scripts":{"build":"tsc -b"}}

@@ -22,7 +22,7 @@ export interface GateResult {
   timestamp: string;
   contractIntegrityVerified: boolean;
   eligibility: ReleaseEligibility;
-  disposition: FailureDisposition;
+  disposition: FailureDisposition | null;
   experimentalConfidenceScore: number;
   contractCoverageMetrics: {
     routesCovered: number;

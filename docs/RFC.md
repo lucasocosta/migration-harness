@@ -1,1343 +1,276 @@
-# RFC — Migration Harness v0.2
+# RFC - Migration Harness v0.3
 
-**Status:** Draft  
-**Objetivo inicial:** Angular → React  
-**Arquitetura:** Framework-agnostic  
-**Abordagem:** Evidence-Guided Translation Validation
+Date: 2026-09-06. Availability updated 2026-09-12: P0-P4 implemented and accepted;
+Cinema P5 and component-first P6 have recorded PASS results. The Cinema-specific
+three-regression acceptance item remains open; see PLAN.md for its evidence gap.
+Supersedes v0.2 as the target specification, not existing CLI semantics or approved
+contracts. Delivery: [STATUS.md](STATUS.md). Execution plan: [PLAN.md](PLAN.md).
 
----
+## 1. Product objective
+
+The assistant migrates; the harness independently checks observable behavior.
+The owner supplies scope and intended differences. The assistant prepares,
+implements, compares and repairs using its own coding capabilities.
 
-## 1. Resumo
-
-O Migration Harness é uma plataforma para migração assistida de software cujo objetivo principal não é traduzir código, mas **preservar comportamento durante uma transformação**.
-
-Para uma migração Angular → React, o sistema deve responder:
-
-> A implementação React preserva suficientemente o comportamento relevante da implementação Angular?
-
-O Harness utiliza três fontes principais de evidência:
-
-1. **Differential Execution** — comparação do comportamento observado no sistema original e no sistema migrado.
-2. **BehaviorContract** — invariantes críticos que explicitamente não podem mudar.
-3. **TransformationManifest** — correspondência entre elementos da implementação original e da implementação transformada.
-
-A transformação pode utilizar codemods, AST transformations e LLMs, mas nenhuma transformação é considerada correta apenas porque foi gerada com sucesso.
-
-Cada resultado deve passar por validação de equivalência.
-
----
-
-## 2. Princípio fundamental
-
-A arquitetura segue o princípio de **Translation Validation**:
-
-> Não precisamos provar que o migrador sempre gera código correto. Precisamos validar cada transformação concreta produzida por ele.
-
-Portanto:
-
-```text
-Source
-  │
-  ▼
-Transformation
-  │
-  ▼
-Target
-  │
-  ▼
-Equivalence Validation
-  │
-  ├── equivalent → accept
-  │
-  └── divergent → reject / repair
-```
-
-No primeiro adapter:
-
-```text
-Angular
-  │
-  ▼
-Codemod / LLM
-  │
-  ▼
-React
-  │
-  ▼
-Equivalence Validator
-```
-
-O LLM é um mecanismo de transformação, não uma fonte de verdade.
-
----
-
-## 3. Objetivos
-
-O Migration Harness deve:
-
-- identificar uma unidade coerente de migração;
-- entender estruturalmente o código legado;
-- executar cenários reproduzíveis;
-- observar comportamento relevante;
-- preservar invariantes críticos;
-- transformar código de forma determinística quando possível;
-- utilizar LLM somente quando a transformação exigir interpretação semântica;
-- registrar a correspondência entre source e target;
-- comparar comportamento source ↔ target;
-- localizar divergências;
-- realizar reparos limitados quando seguro;
-- produzir evidências auditáveis da migração.
-
----
-
-## 4. Não objetivos
-
-O MVP não pretende:
-
-- provar equivalência matemática completa entre aplicações;
-- inferir automaticamente toda regra de negócio;
-- substituir revisão humana;
-- garantir conformidade WCAG apenas através de ferramentas automatizadas;
-- migrar um repositório inteiro em uma única operação;
-- permitir que agentes alterem critérios de validação para fazer uma migração passar;
-- permitir execução irrestrita de código gerado por LLM.
-
-O objetivo é obter **evidência suficiente e explícita de preservação de comportamento dentro do escopo definido da MigrationUnit**.
-
----
-
-## 5. Conceitos fundamentais
-
-### 5.1 MigrationUnit
-
-`MigrationUnit` é a unidade mínima coerente de migração.
-
-Ela pode conter múltiplos arquivos e componentes.
-
-Exemplo:
-
-```text
-CustomerProfile
-├── CustomerProfileComponent
-├── CustomerFormComponent
-├── CustomerService
-├── CustomerDto
-├── /customers/:id
-└── PUT /api/customers/:id
-```
-
-A unidade é determinada por análise estrutural e dependências, não simplesmente por arquivos individuais.
-
-Ela define o boundary da validação.
-
----
-
-### 5.2 ScenarioDefinition
-
-Um cenário descreve uma interação reproduzível com a funcionalidade.
-
-Exemplo:
-
-```text
-Given:
-customer 123 exists
-
-When:
-open /customers/123
-change email
-click "Salvar"
-
-Then:
-wait for PUT /api/customers/123
-```
-
-Cenários devem utilizar uma DSL tipada e serializável.
-
-Ações suportadas inicialmente:
-
-```text
-click
-fill
-select
-press
-focus
-```
-
-Completion signals suportados:
-
-```text
-LOCATOR_VISIBLE
-RESPONSE_RECEIVED
-STORAGE_KEY_SET
-```
-
-O executor deve instalar mocks, storage e demais precondições **antes da inicialização da aplicação**.
-
----
-
-## 6. Observed Behavior
-
-Ao executar um cenário, o Harness registra comportamento observável.
-
-Exemplos:
-
-```text
-USER_INTERACTION
-HTTP_REQUEST
-HTTP_RESPONSE
-HTTP_FAILED
-NAVIGATION
-ARIA_STATE_CHANGE
-STORAGE_DELTA
-```
-
-Esses eventos formam:
-
-```text
-ObservedBehaviorTrace
-```
-
-Um trace representa **evidência de uma execução**, não uma especificação.
-
-Portanto:
-
-> Observado ≠ obrigatório.
-
-Se um campo apareceu em todas as execuções observadas, isso não significa automaticamente que ele é uma regra obrigatória do sistema.
-
----
-
-## 7. Segurança dos traces
-
-Dados capturados da aplicação devem ser tratados como:
-
-> dados não confiáveis.
-
-Isso inclui conteúdo potencialmente utilizado em indirect prompt injection.
-
-O fluxo obrigatório é:
-
-```text
-RawObservedTrace
-       │
-       ▼
-denylist
-       │
-       ▼
-schema allowlist
-       │
-       ▼
-PII scrubber
-       │
-       ▼
-pseudonymization
-       │
-       ▼
-SanitizedObservedTrace
-       │
-       ▼
-LLM-safe projection
-```
-
-### Regra
-
-`RawObservedTrace` nunca pode atravessar a fronteira de um LLM.
-
-Nenhum prompt deve receber:
-
-- HAR bruto;
-- cookies;
-- Authorization headers;
-- tokens;
-- secrets;
-- dados pessoais não necessários;
-- payload arbitrário da aplicação.
-
----
-
-## 8. BehaviorContract
-
-O `BehaviorContract` deixa de representar todo o comportamento observado.
-
-Ele contém somente **invariantes críticos explicitamente aprovados**.
-
-Exemplo:
-
-```yaml
-scenario: update-customer
-
-critical_invariants:
-
-  network:
-    method: PUT
-    path: /api/customers/:id
-
-  validation:
-    email:
-      required: true
-
-  success:
-    navigation: /customers
-
-  accessibility:
-    error:
-      role: alert
-```
-
-Possíveis fontes:
-
-```text
-HUMAN_SPECIFICATION
-OPENAPI
-EXISTING_TESTS
-STATIC_ANALYSIS
-RUNTIME_OBSERVATION
-```
-
-Runtime observation isoladamente não deve promover automaticamente uma observação para um invariant `BLOCKING`.
-
----
-
-## 9. Aprovação do contrato
-
-Um contrato passa por:
-
-```text
-DRAFT
-  ↓
-REVIEW
-  ↓
-APPROVED
-```
-
-Ao ser aprovado:
-
-```text
-canonical contract
-       ↓
-SHA-256
-       ↓
-integrity hash
-```
-
-O conteúdo protegido inclui pelo menos:
-
-```text
-unitId
-contractId
-version
-scenarios
-critical invariants
-```
-
-A canonicalização deve ser recursiva.
-
-`approvedBy` registra a aprovação humana.
-
-Hash SHA-256 representa integridade, não assinatura digital.
-
----
-
-## 10. Contract Immutability
-
-Após aprovação:
-
-> Nenhum agente de transformação ou repair pode modificar o BehaviorContract.
-
-Se:
-
-```text
-React
-  ↓
-validation
-  ↓
-FAIL
-```
-
-o agente pode:
-
-```text
-corrigir React
-```
-
-mas nunca:
-
-```text
-alterar contrato
-para fazer o React passar
-```
-
-Mudanças no contrato exigem novo processo explícito de revisão.
-
----
-
-## 11. TransformationPlan
-
-Antes da transformação, o Harness cria um plano.
-
-Exemplo:
-
-```text
-Angular                     React
-
-@Input                  →   Props
-
-Angular Service         →   API module /
-                            TanStack Query
-
-Reactive Forms          →   React Hook Form
-
-Angular DI              →   module / hook /
-                            state / factory
-
-RxJS request-response   →   TanStack Query
-
-RxJS event stream       →   RxJS / XState /
-                            Zustand
-```
-
-Nenhum mapping arquitetural deve ser universal.
-
-Exemplo:
-
-```text
-Angular DI ≠ sempre React Context
-RxJS       ≠ sempre TanStack Query
-```
-
-O plano deve considerar a semântica encontrada.
-
----
-
-## 12. Classes de transformação
-
-Cada transformação é classificada como:
-
-```text
-STRUCTURE_PRESERVING
-STRUCTURE_CHANGING
-BEHAVIORAL_REIMPLEMENTATION
-```
-
-### STRUCTURE_PRESERVING
-
-Exemplo:
-
-```text
-TypeScript interface
-        ↓
-TypeScript interface
-```
-
-Preferência:
-
-```text
-codemod / AST
-```
-
-Validação:
-
-```text
-static validation
-```
-
-### STRUCTURE_CHANGING
-
-Exemplo:
-
-```text
-Angular Reactive Forms
-        ↓
-React Hook Form
-```
-
-Pode utilizar:
-
-```text
-codemod + LLM
-```
-
-Validação:
-
-```text
-static
-+
-contract
-+
-differential execution
-```
-
-### BEHAVIORAL_REIMPLEMENTATION
-
-Exemplo:
-
-```text
-Angular orchestration
-        ↓
-React hooks + state machine
-```
-
-Validação forte:
-
-```text
-BehaviorContract
-+
-Differential Execution
-```
-
----
-
-## 13. Transformação
-
-O princípio é:
-
-> Determinístico quando possível; LLM quando necessário.
-
-Pipeline:
-
-```text
-MigrationUnit
-      │
-      ▼
-TransformationPlan
-      │
-      ├── deterministic
-      │       ↓
-      │    Codemods
-      │
-      └── semantic
-              ↓
-         LLM Transform
-              │
-              ▼
-        React Candidate
-```
-
-O LLM deve receber apenas contexto necessário.
-
-Nunca o repositório inteiro por padrão.
-
----
-
-## 14. TransformationManifest
-
-Toda transformação deve produzir evidência de correspondência entre source e target.
-
-Exemplo:
-
-```json
-{
-  "mappings": [
-    {
-      "source": "CustomerService.update",
-      "target": "useUpdateCustomer",
-      "preserves": [
-        "HTTP_METHOD",
-        "HTTP_PAYLOAD",
-        "SUCCESS_BEHAVIOR"
-      ]
-    },
-    {
-      "source": "CustomerFormComponent.save",
-      "target": "CustomerForm.handleSubmit",
-      "preserves": [
-        "VALIDATION",
-        "SUBMISSION_FLOW"
-      ]
-    }
-  ]
-}
-```
-
-O manifest não prova equivalência.
-
-Ele fornece **hints verificáveis** ao validator.
-
-Portanto:
-
-> TransformationManifest é evidência, não autoridade.
-
----
-
-## 15. Differential Execution
-
-O mesmo `ScenarioDefinition` deve ser executado contra:
-
-```text
-Source
-```
-
-e:
-
-```text
-Target
-```
-
-No primeiro adapter:
-
-```text
-Angular
-React
-```
-
-Produzindo:
-
-```text
-SourceTrace
-TargetTrace
-```
-
-Os traces são então normalizados antes da comparação.
-
-Exemplo:
-
-```text
-Angular:
-PUT /api/customers/123?timestamp=123456
-
-React:
-PUT /api/customers/123?timestamp=987654
-```
-
-Campos explicitamente classificados como voláteis não devem causar divergência.
-
----
-
-## 16. Causal comparison
-
-Requests não devem ser comparados simplesmente por ordem temporal.
-
-Exemplo:
-
-```text
-A ──► B
-│
-└──► C
-```
-
-B e C podem terminar em ordens diferentes sem alterar o comportamento.
-
-O Harness deve representar dependências relevantes como relações causais.
-
-Portanto:
-
-```text
-strict sequence
-```
-
-não é o modelo padrão.
-
-Preferência:
-
-```text
-causal ordering / partial order
-```
-
----
-
-## 17. EquivalenceValidator
-
-Esta é a peça central da arquitetura.
-
-Entrada:
-
-```text
-SourceTrace
-TargetTrace
-BehaviorContract
-TransformationManifest
-MigrationUnit
-```
-
-Processamento:
-
-```text
-             Equivalence Validator
-
-          ┌──────────┼───────────┐
-          │          │           │
-          ▼          ▼           ▼
-
-      Contract    Differential  Transformation
-      Invariants    Behavior       Hints
-
-          │          │           │
-          └──────────┼───────────┘
-                     ▼
-
-             EquivalenceResult
-```
-
----
-
-## 18. Dimensões de equivalência
-
-O MVP verifica:
-
-### Network
-
-```text
-HTTP method
-path template
-path parameters
-query parameters
-request structure
-response status
-causal dependencies
-```
-
-### Navigation
-
-```text
-route transitions
-redirects relevantes
-```
-
-### State
-
-```text
-localStorage
-sessionStorage
-observable state transitions
-```
-
-### Accessibility / semantics
-
-```text
-ARIA tree
-roles
-names
-states
-interactive controls
-```
-
-### Critical Contract
-
-```text
-explicit approved invariants
-```
-
-Visual pixel comparison pode existir como evidência secundária, mas não é o oráculo principal.
-
----
-
-## 19. EquivalenceResult
-
-Resultado:
-
-```text
-EQUIVALENT
-```
-
-ou:
-
-```text
-NOT_EQUIVALENT
-```
-
-com divergências estruturadas.
-
-Exemplo:
-
-```text
-NOT_EQUIVALENT
-
-scenario:
-update-customer
-
-dimension:
-NETWORK
-
-source:
-PUT /api/customers/:id
-
-target:
-POST /api/customers/:id
-
-mapping:
-CustomerService.update
-→
-useUpdateCustomer
-```
-
-Isso permite localizar a falha antes do repair.
-
----
-
-## 20. Quality Gates
-
-Nem toda evidência tem a mesma importância.
-
-Existem:
-
-```text
-BLOCKING
-WARNING
-INFORMATIONAL
-```
-
-Exemplos BLOCKING:
-
-```text
-BehaviorContract violation
-contract integrity failure
-critical network divergence
-required scenario failure
-security boundary violation
-```
-
-Exemplos WARNING:
-
-```text
-ARIA difference não crítica
-visual difference
-missing known error scenario
-```
-
----
-
-## 21. Release Eligibility
-
-Resultado final:
-
-```text
-ELIGIBLE
-ELIGIBLE_WITH_REVIEW
-NOT_ELIGIBLE
-```
-
-Regra fundamental:
-
-> Nenhum Confidence Score pode tornar uma migração ELIGIBLE quando um blocking gate falhou.
-
-Confidence Score pode existir como informação experimental.
-
-Nunca como override.
-
----
-
-## 22. Failure Classification
-
-Uma divergência é classificada antes de qualquer repair.
-
-```text
-AUTO_REPAIRABLE
-
-REQUIRES_CONTRACT_REVIEW
-
-REQUIRES_SECURITY_REVIEW
-
-REQUIRES_ARCHITECTURAL_REVIEW
-
-NON_DETERMINISTIC
-
-UNKNOWN
-```
-
-Somente:
-
-```text
-AUTO_REPAIRABLE
-```
-
-pode entrar automaticamente no repair loop.
-
----
-
-## 23. Bounded Repair
-
-O repair recebe contexto mínimo.
-
-Exemplo:
-
-```text
-Divergence:
-
-expected:
-PUT /api/customers/:id
-
-actual:
-POST /api/customers/:id
-
-source:
-CustomerService.update
-
-target:
-useUpdateCustomer
-
-affected files:
-useUpdateCustomer.ts
-```
-
-O agente produz:
-
-```text
-minimal patch
-```
-
-e não uma nova transformação completa.
-
-Fluxo:
-
-```text
-FAIL
- ↓
-Failure Classifier
- ↓
-AUTO_REPAIRABLE
- ↓
-Repair Patch
- ↓
-Equivalence Validator
- ↓
-PASS / FAIL
-```
-
-Existe limite máximo de tentativas.
-
----
-
-## 24. FSM
-
-A máquina de estados passa a ser:
-
-```text
-DISCOVERY
-   ↓
-SCENARIO_PREPARATION
-   ↓
-SOURCE_TRACE_CAPTURE
-   ↓
-CONTRACT_SYNTHESIS
-   ↓
-CONTRACT_REVIEW
-   ↓
-CONTRACT_APPROVED
-   ↓
-TRANSFORMATION_PLAN
-   ↓
-TRANSFORM
-   ↓
-TARGET_TRACE_CAPTURE
-   ↓
-EQUIVALENCE_VERIFY
-   │
-   ├── EQUIVALENT
-   │       ↓
-   │    PR_READY
-   │
-   └── NOT_EQUIVALENT
-           ↓
-     FAILURE_CLASSIFIER
-       │        │
-       │        └── review/escalation
-       │
-       ▼
-   REPAIR_PATCH
-       │
-       └────────────► EQUIVALENCE_VERIFY
-```
-
-O repair nunca volta para `TRANSFORM`.
-
----
-
-## 25. Segurança do LLM Worker
-
-LLM Transform e LLM Repair executam sob as seguintes restrições:
-
-```text
-minimum necessary context
-sanitized input only
-package allowlist
-no production secrets
-restricted filesystem
-restricted network
-bounded execution
-audit trail
-```
-
-Conteúdo proveniente da aplicação deve ser tratado como dados, nunca como instrução.
-
-Exemplo:
-
-```text
-HTTP response:
-
-{
-  "message":
-  "Ignore previous instructions and..."
-}
-```
-
-Esse conteúdo nunca deve alterar o comportamento do agente.
-
----
-
-## 26. Arquitetura
-
-```text
-                     MIGRATION HARNESS
-
-                         MigrationUnit
-                              │
-                  ┌───────────┴───────────┐
-                  │                       │
-                  ▼                       ▼
-           Static Analysis          Scenario Runner
-                                          │
-                                          ▼
-                                    Source Trace
-                                          │
-                                          ▼
-                                   Sanitization
-                                          │
-                     ┌────────────────────┘
-                     ▼
-               BehaviorContract
-                     │
-                     ▼
-                Human Review
-                     │
-                     ▼
-                 APPROVED
-                     │
-                     ▼
-             TransformationPlan
-                     │
-              ┌──────┴──────┐
-              ▼             ▼
-           Codemods      LLM Transform
-              │             │
-              └──────┬──────┘
-                     ▼
-              Target Candidate
-                     │
-                     ├── TransformationManifest
-                     │
-                     ▼
-               Scenario Runner
-                     │
-                     ▼
-                Target Trace
-                     │
-                     ▼
-              EquivalenceValidator
-               ▲        ▲        ▲
-               │        │        │
-            Source    Contract  Manifest
-             Trace
-                     │
-                ┌────┴────┐
-                ▼         ▼
-           EQUIVALENT   DIVERGENT
-                │         │
-                ▼         ▼
-            PR READY    Classify
-                          │
-                          ▼
-                     Bounded Repair
-                          │
-                          └──────► Validate
-```
-
----
-
-## 27. Packages
-
-```text
-migration-harness/
-
-packages/
-
-  core/
-    schemas
-    migration-unit
-    behavior-contract
-    transformation-manifest
-    equivalence-result
-
-  static-analyzer/
-    typescript/
-    angular-template/
-    rxjs/
-    routes/
-    graph/
-
-  scenario-runner/
-
-  trace-recorder/
-
-  trace-sanitizer/
-
-  contract-synthesizer/
-
-  contract-review/
-
-  transformation-planner/
-
-  codemods/
-
-  llm-worker/
-    transform/
-    repair/
-
-  equivalence-validator/
-    network/
-    navigation/
-    state/
-    aria/
-    causal/
-
-  quality-gates/
-
-  engine/
-
-  cli/
-```
-
----
-
-## 28. MVP
-
-O MVP não começa pela migração automática.
-
-Primeiro devemos provar que conseguimos determinar divergência entre duas implementações.
-
-### MVP 1 — Equivalence Engine
-
-Dado:
-
-```text
-Angular implementation
-React implementation manual
-ScenarioDefinition
-```
-
-o Harness deve:
-
-```text
-execute Angular
-      ↓
-capture SourceTrace
-
-execute React
-      ↓
-capture TargetTrace
-
-normalize
-      ↓
-compare
-      ↓
-EquivalenceResult
-```
-
-### Critério de sucesso
-
-Introduzir propositalmente uma regressão no React:
-
-```text
-PUT → POST
-```
-
-O Harness deve retornar:
-
-```text
-NOT_EQUIVALENT
-
-NETWORK_METHOD_MISMATCH
-expected PUT
-actual POST
-```
-
-Corrigir a regressão deve produzir:
-
-```text
-EQUIVALENT
-```
-
----
-
-## 29. MVP 2 — Critical Contracts
-
-Adicionar:
-
-```text
-BehaviorContract
-```
-
-com invariantes explicitamente aprovados.
-
-O Harness deve detectar uma violação mesmo quando ela não puder ser inferida apenas por comparação diferencial.
-
----
-
-## 30. MVP 3 — Automated Transformation
-
-Adicionar:
-
-```text
-TransformationPlan
-      ↓
-Codemods
-      +
-LLM Transform
-      ↓
-React Candidate
-      +
-TransformationManifest
-```
-
-O candidate passa pelo mesmo `EquivalenceValidator`.
-
----
-
-## 31. MVP 4 — Automated Repair
-
-Adicionar:
-
-```text
-NOT_EQUIVALENT
-      ↓
-FailureClassifier
-      ↓
-AUTO_REPAIRABLE
-      ↓
-LLM Repair
-      ↓
-minimal patch
-      ↓
-EquivalenceValidator
-```
-
-O agente não pode modificar:
-
-```text
-BehaviorContract
-SourceTrace
-validation rules
-blocking gates
-```
-
----
-
-## 32. Definition of Done
-
-O primeiro piloto completo deve demonstrar:
-
-```text
-1. selecionar MigrationUnit Angular
-
-2. executar cenário no Angular
-
-3. capturar comportamento source
-
-4. sanitizar evidências
-
-5. aprovar invariantes críticos
-
-6. transformar Angular → React
-
-7. produzir TransformationManifest
-
-8. executar o mesmo cenário no React
-
-9. comparar source ↔ target
-
-10. detectar uma regressão proposital
-
-11. classificar a divergência
-
-12. produzir repair limitado
-
-13. executar novamente
-
-14. obter EQUIVALENT
-
-15. provar que o BehaviorContract
-    permaneceu inalterado
-
-16. gerar audit trail
-```
-
-O piloto só é considerado bem-sucedido se uma regressão intencional for detectada e corrigida sem alteração do oráculo aprovado.
-
----
-
-## 33. Invariantes arquiteturais
-
-### I. Contract Immutability
-
-Transformation e Repair Agents não podem modificar contratos aprovados.
-
-### II. Zero Raw-Trace Leakage
-
-RawObservedTrace nunca atravessa a fronteira do LLM.
-
-### III. Gate Override Precedence
-
-Blocking gate sempre prevalece sobre scores ou heurísticas.
-
-### IV. Transformation Evidence Is Not Truth
-
-TransformationManifest auxilia validação, mas não determina equivalência.
-
-### V. Source Observation Is Evidence, Not Specification
-
-Comportamento observado não é automaticamente uma regra obrigatória.
-
-### VI. Validation Is Independent From Transformation
-
-O mecanismo responsável por gerar código não pode decidir sozinho se sua própria transformação está correta.
-
----
-
-## 34. Direção arquitetural
-
-A arquitetura do produto pode ser resumida em:
-
-```text
-UNDERSTAND
-    ↓
-TRANSFORM
-    ↓
-COMPARE
-    ↓
-REPAIR
-```
-
-Ou, formalmente:
-
-```text
-Source Program
-      +
-Critical Invariants
-      ↓
-Transformation
-      ↓
-Target Program
-      ↓
-Translation Validation
-      ↓
-Behavioral Equivalence Evidence
-```
-
-Angular → React é apenas o primeiro adapter.
-
-O núcleo do Migration Harness deve permanecer independente do framework de origem e destino.
-
----
-
-## 35. Decisão
-
-O Migration Harness será desenvolvido como um sistema de **Evidence-Guided Translation Validation para Behavior-Preserving Software Migration**.
-
-O `EquivalenceValidator`, e não o LLM, é o centro da arquitetura.
-
-O LLM é substituível.
-
-O transformador é substituível.
-
-Angular e React são substituíveis.
-
-O mecanismo de evidência e validação de equivalência constitui o núcleo do produto.
+Initial use cases: Angular page or component into an existing React application;
+whole application migration through ordered units and integrated regression.
+Preserve the destination's architecture, design system, authentication and existing
+functionality. Do not create a replacement React application.
+
+Success is evidence under declared scope and policy, not a formal proof of all
+behaviors, pixel identity, accessibility compliance or permission to merge.
+
+## 2. Roles and independence
+
+| Actor | Responsibility |
+| --- | --- |
+| Owner | Scope, intended differences, sensitive permissions, unresolved business decisions, release approval |
+| Assistant | Explore relevant code, prepare scenarios, implement, operate tools, diagnose, repair and explain evidence |
+| Harness | Reproducible execution, protected reference, comparisons, checks and attributable results |
+
+One assistant may prepare and transform in one conversation. It may inspect public
+synthetic tests. A separate model, fresh conversation and hidden test steps are not
+requirements for independent validation. Independence means the evaluator and its
+criteria cannot be replaced by the assistant's judgment.
+
+Assistant-authored tests can miss behavior. Expose coverage gaps and exercise
+multiple data sets and intentional regressions. A mapping manifest is an optional
+diagnostic hint; neither it nor a confidence score can override failing evidence.
+
+## 3. Profiles and transition
+
+**Standard (implemented through P4 acceptance):** normal scoped destination edits,
+including styles, assets and tests; one assistant operates the whole lifecycle.
+No mandatory brief, patch JSON, discovery success, codemod or manifest.
+Dependency/configuration changes still need declared scope and execution permissions.
+
+**Restricted (implemented):** existing brief-only workflow, issued patches,
+approved critical contracts, package/file boundaries and hooks. Keep its checks
+and compatibility tests. A recorded clean-context session proves this profile,
+not the standard product's universal Definition of Done.
+
+Select standard with `profile: "standard"` in config and a recorded SPEC choice;
+there is no `--profile` flag. Full milestone acceptance remains in PLAN.md.
+No silent downgrade of active restricted migrations or relabeling of old evidence.
+
+## 4. Minimal workflow
+
+```text
+Owner's specification
+  -> assistant prepares scenarios and project commands
+  -> harness checks source reproducibility and fixes a reference
+  -> assistant edits the existing target
+  -> harness builds/checks, runs the suite and compares
+  -> assistant repairs implementation defects -> verify again
+  -> consolidated evidence report -> owner reviews integration/release
+```
+
+The harness exposes operations and feedback, not model API calls or a mandatory
+code generator. Optional discovery/codemods can save work; an unsupported Angular
+construct must not block validation merely because there is no automatic conversion.
+
+## 5. Specification and reference
+
+One specification identifies source/target roots, functional scope, allowed edits,
+integration constraints, commands/cwd, test URLs, scenario inventory, data/reset
+strategy, required checks and retry budget. The assistant fills technical details;
+the owner need not manually author CLI JSON.
+
+P1 provides versioned runtime-validated configuration and reference schemas plus the
+reference collection/verification and change-classification library APIs. P3 binds
+these to `prepare-migration` / `verify-migration`; P4 adds persistent scoped sessions.
+Commands and current limitations: USAGE.md.
+
+A reference records:
+- Source revision and relevant working-tree fingerprints, including untracked inputs.
+- Scenario identities, semantic steps, source/target bindings, fixtures and reset.
+- Comparison/normalization policy and explicitly intended differences.
+- Requirements from the specification/tests and optional approved critical contracts.
+- Browser/environment and build configuration affecting observation.
+- Independent repeated source executions sufficient to evaluate stability.
+
+Do not discard user changes to obtain a clean tree. Hashes detect inconsistency,
+not malicious same-user mutation or authenticated approval. Reuse cached reference
+evidence only for matching inputs/environment; otherwise declare it stale.
+
+## 6. Preservation versus requirements
+
+Differential evidence asks whether target preserves observed source behavior.
+Critical requirements ask whether desired behavior holds, even if source has a bug.
+Report these separately: two equally wrong implementations do not meet a requirement.
+
+The standard profile can compare without a formal approved BehaviorContract.
+The owner authorizes preservation in scope; repeated observations do not thereby
+become universal business requirements. Mining may suggest assertions, not invent
+normative obligations. Approved critical contracts remain optional additional
+constraints, immutable during repair and never auto-approved by an agent.
+
+Disclose preserved known legacy defects. A requested legacy fix needs an explicit
+expected difference and requirement; neither copy a bug blindly nor normalize it
+away without authorization.
+
+## 7. Changes to evaluation inputs
+
+During preparation the assistant creates scenarios/fixtures and checks the source.
+After a reference exists:
+- Ordinary repair changes target code, not the reference or blocking criteria.
+- Added scenarios/data extend coverage in a new reference version, executed on both
+  sides while retaining existing required checks and historical results.
+- Route/locator bindings may adapt to integration only without changing semantic
+  actions or expectations. Record deltas, invalidate affected evidence and rerun both
+  sides. Ambiguous mappings require owner review.
+- Removing required scenarios/assertions, accepting new differences, broadening ignore
+  rules or changing critical requirements requires explicit owner review and a new
+  version. Never rewrite past verdicts or approved contracts in place.
+
+Do not turn a failure-to-pass loop into repeated weakening of the test suite.
+P4 implements adoption of reference updates with `update-migration-session`,
+preserving history and budgets. P3 preparation versioning alone does not update a session.
+
+## 8. Scenario execution
+
+Reuse the typed ScenarioRunner and Playwright recorder. Install storage/mocks before
+boot, isolate contexts, pre-arm completion signals, correlate requests by identity
+and drain asynchronous recording. Completion is explicit, not generic network idle.
+
+Run the same semantic scenario with explicit source/target route and locator bindings.
+React need not reproduce Angular's DOM or shell. Bindings cannot point to different
+functionality or hide a missing control. Components without routes need scoped test
+hosts exercising inputs, outputs and state.
+
+Reset backend/application state between executions, not just the browser. Prefer
+synthetic data. Fixed mock success responses do not prove submitted values or
+persistence: assert requests and read back a controlled backend when required.
+Disclose mocked versus integrated coverage.
+
+Keep origin filtering and opt-in WebSocket/service-worker boundaries. Unsupported
+mechanisms and execution failures are explicit. Automatic application-wide causal
+instrumentation remains a non-goal.
+
+## 9. Comparison dimensions
+
+| Dimension | Required direction |
+| --- | --- |
+| Network | Method, route/params/query, counts, completion/status, shapes AND selected relevant values |
+| Results/state | Saved values, relevant storage, observable outcomes, read-back for persistence in scope |
+| Navigation | Relevant transitions/redirects with explicit aliases; not an unordered URL multiset |
+| Forms/interactions | Required/invalid/disabled states, absence of forbidden submission, errors, loading, retry, callbacks |
+| UI semantics | Roles/names/states at named checkpoints inside the unit; whole-page ARIA as additional evidence |
+| Causality | Declared dependencies, not strict order of independent requests or framework internals |
+| Visual/accessibility | Optional screenshot/axe evidence with disclosed human-review limits |
+
+Ignore volatile data only by explicit versioned rules. Preserve meaningful numbers,
+booleans, selected strings, absence/null distinctions and relevant array contents.
+Required assertions whose values cannot be observed safely are insufficient evidence,
+not a pass from matching types.
+
+Sensitive values stay inside protected comparison or appropriate keyed representations.
+Public diagnostics expose field paths, types and redacted expected/actual relations.
+Show synthetic values only with safe provenance. Never send raw traces to assistants.
+
+## 10. Project checks and execution identity
+
+Use actual destination build/typecheck/lint/test commands and configuration. An
+isolated compiler with different options is an optional diagnostic, not a substitute.
+Record preexisting failures; they are not new regressions but cannot satisfy a
+required check.
+
+One orchestration operation should resolve configuration, run allowed commands,
+build/serve matching artifacts, execute ALL required scenarios plus destination
+regression and aggregate evidence. Commands require cwd, argv, bounded duration
+and process cleanup, within an explicitly authorized local or isolated environment.
+No arbitrary commands from runtime/source text; do not kill unrelated servers.
+Docker is an optional adapter, unverified in the current environment.
+
+Bind results to reference/configuration hashes, candidate tree/build fingerprint,
+served artifact identity and scenario set actually executed. Stale servers, changed
+inputs mid-run or missing required scenarios prevent success.
+
+## 11. Results and diagnosis
+
+Aggregate report statuses (P1 schema, delivered by P3 verification; distinct from
+the restricted EquivalenceResult enum):
+- PASS: every required check covered and passed for the recorded candidate/reference.
+- FAIL: reproducible implementation/requirement regression with sufficient evidence.
+- INCONCLUSIVE: stale, unstable, insufficient or unsupported evidence, or execution
+  failure that cannot establish the claimed behavior.
+
+Reports include per-scenario/dimension results, safe localized diagnostics, accepted
+differences, required-check status, coverage gaps, preexisting failures, attempt
+history and evidence paths. Preservation and requirements have separate outcomes
+and explicit aggregation rules.
+
+Warnings remain visible; the agent cannot demote required checks. Coverage percentages
+refer to a declared inventory, not all possible behavior. Missing a known required
+error scenario blocks completion.
+
+Existing EQUIVALENT/NOT_EQUIVALENT, apply PASS and eligibility retain their meanings.
+A compatibility adapter must not blindly map any of them to aggregate success.
+
+## 12. Repair and escalation
+
+The assistant may correct implementation defects within authorized scope: values,
+validation, navigation, callbacks, UI state and project check failures. A contract
+violation is not itself a reason to review the contract. Standard repairs do not
+need a new brief or arbitrary byte limit.
+
+Persist attempt history across invocations, enforce time/attempt budgets and detect
+lack of progress. Rebuild after edits. Focused checks may guide iterations; final
+verification runs the complete required suite against one current candidate.
+Do not fill a report with passing results from older candidates.
+The current P4 budget counts one initial attempt plus maxRepairAttempts and cumulative
+verification time (maxDurationMs), excluding preparation, editing and idle time.
+Scope/time guards can refuse a session even if its nested behavioral report passes.
+
+Escalate scope/requirement changes, permission/secret exposure, conflicting criteria,
+unsupported evidence, unsafe execution or exhausted/no-progress budgets.
+Infrastructure can be repaired within authorized operations; a failed run cannot be
+called behavioral success. Harness maintenance is separate from candidate repair
+and invalidates affected evidence until revalidation.
+
+## 13. Proportional security
+
+Keep data minimization, raw isolation from the assistant channel, default-deny
+sensitive fields, origins, retention, protected evaluation inputs and scope checks.
+Hashes, static scans and hooks are not a sandbox against the same user.
+
+Check normal edits as a diff against authorized scope, including new/deleted files,
+symlinks and protected paths. Preserve unrelated user edits. Restricted issuance
+and rollback remain unchanged. Encryption, rotation, backups and anchoring are
+optional operations, not prerequisites for a synthetic local migration.
+
+## 14. Architecture and compatibility
+
+Reuse core schemas (version new formats), runner, recorder, sanitizer, validator,
+quality gates and artifacts. Add orchestration/reporting incrementally.
+Discovery, codemods, importers, manifests and bounded workers remain optional.
+Do not rewrite the monorepo for package topology.
+
+Keep v0.2 command/result tests and restricted pilots passing. A new standard
+classifier must not silently grant more authority to restricted workers.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for current versus proposed boundaries.
+
+## 15. Definition of Done
+
+One standard assistant session must:
+- Start from scoped existing Angular/React repositories and prepare a stable reference.
+- Implement a page normally without mandatory formal contract/brief/patch JSON.
+- Operate consolidated verification and receive safe actionable feedback.
+- Detect and repair wrong values, missing validation and wrong navigation, not only
+  PUT/POST, without weakening criteria or clerical owner intervention.
+- Demonstrate failure/inconclusive handling, protected-input integrity, persisted
+  budget, current served build identity and destination regression.
+- Deliver an honest report and completed/pending tracking before release review.
+
+Cinema is the first integration exercise, not production/third-party proof.
+A component-host and multi-unit integration case follow before claiming those uses.
+Measure owner interruptions, manual artifact preparation and verification effort;
+the harness should reduce validation work, not transfer it to the owner.
+
+## 16. Decision
+
+Adopt validation-first standard direction and retain restricted compatibility.
+Formal contract approval and clean-context proof are no longer universal product
+gates. Protect evidence and requirements, not a prescribed way of writing React.
+[PLAN.md](PLAN.md) defines delivery; [research.md](research.md) preserves historical
+principles, not an instruction to finish every v0.2 extension first.

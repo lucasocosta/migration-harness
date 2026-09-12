@@ -5,6 +5,7 @@ export interface ScenarioInteractionStep {
   action: InteractionActionType;
   targetRole: string;
   targetName?: string;
+  targetLabel?: string;
   inputValue?: string;
   description?: string;
   completionSignal?: CompletionSignal;
@@ -15,6 +16,8 @@ export interface MockApiResponse {
   method: string;
   statusCode: number;
   fixturePath: string;
+  delayMs?: number;
+  sequence?: Array<{ statusCode: number; fixturePath: string; delayMs?: number }>;
 }
 
 export interface ScenarioPrecondition {
@@ -25,11 +28,17 @@ export interface ScenarioPrecondition {
   mockInitialApiResponses?: MockApiResponse[];
 }
 
+/** Declared structural matcher over valueShape(payload): leaf type names, 'any', or nested shapes. An empty record matches any object payload. */
+export interface ScenarioFrameShape {
+  [key: string]: 'any' | 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | ScenarioFrameShape;
+}
+
 export type CompletionSignal =
   | {
       type: 'LOCATOR_VISIBLE';
       targetRole: string;
       targetName?: string;
+      text?: string;
       timeoutMs: number;
     }
   | {
@@ -43,7 +52,17 @@ export type CompletionSignal =
       storageType: 'localStorage' | 'sessionStorage';
       storageKey: string;
       timeoutMs: number;
+    }
+  | {
+      type: 'WEBSOCKET_FRAME';
+      urlPattern: string;
+      direction: 'sent' | 'received';
+      payloadShape: ScenarioFrameShape;
+      timeoutMs: number;
     };
+
+/** Scenario-level policy. The harness defaults to block; allow supports verified transparent network proxies only. */
+export type ServiceWorkerMode = 'block' | 'allow';
 
 export interface ScenarioDefinition {
   scenarioId: string;
@@ -54,5 +73,8 @@ export interface ScenarioDefinition {
   preconditions: ScenarioPrecondition;
   steps: ScenarioInteractionStep[];
   completionSignal?: CompletionSignal;
+  captureStepCheckpoints?: boolean;
+  /** Opt-in transparent service workers. Cached, rewritten or autonomous exchanges require review. */
+  serviceWorkers?: ServiceWorkerMode;
   testDataProfile: 'standard' | 'edge_case' | 'error_flow';
 }
