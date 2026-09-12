@@ -1,8 +1,13 @@
 # Manual de migracao com Copilot
 
 Atualizado: 2026-09-07. Direcao: [RFC v0.3](RFC.md).
-**P0-P3 completas; perfil padrao disponivel como incremento da P4.**
-Atualizacao da referencia dentro de uma sessao e aceite completo ainda pendentes.
+**P0-P6 completas (2026-09-12): perfil padrao operacional nos tres casos de uso
+(pagina, componente, aplicacao incremental).**
+
+Atualizacao da referencia dentro de uma sessao e aceite completo de reparo estao
+implementados (`update-migration-session` preserva historico/orcamento; aceite em
+tests/browser/migration-acceptance.test.mjs). Cinema fechado com PASS e commit
+autorizado; exemplo component-first cobre componente sem rota e unidades ordenadas.
 Veja [STATUS.md](STATUS.md), [PLAN.md](PLAN.md) e [USAGE.md](USAGE.md).
 
 ## 1. O que voce entrega e recebe
@@ -63,8 +68,9 @@ O limite persiste entre chamadas: uma tentativa inicial mais maxRepairAttempts,
 tempo acumulado de verificacao (sem tempo de edicao) e parada por repeticao sem
 progresso. A sessao nao e um sandbox; comandos locais precisam de autorizacao.
 Config/criterios ficam congelados. Se for necessario adicionar cobertura ou adaptar
-bindings apos iniciar a sessao, registre e pare: a adocao de nova referencia com
-preservacao de orcamento ainda falta nesta P4. Nao apague/recrie a sessao como atalho.
+bindings apos iniciar a sessao, use `update-migration-session` (implementado na P4.2:
+preserva historico e orcamento, registra decisao do responsavel e invalida resultados
+superseded). Nao apague/recrie a sessao como atalho.
 
 ## 4. Instrucao para o agente
 

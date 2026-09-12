@@ -60,11 +60,17 @@ node packages/cli/dist/index.js migration-session-status \
   --config examples/component-first/migration.json --workspace-root .
 ```
 
-Expected sequence, and the point of the example: verification of Unit A's four scenarios fails
-first (the placeholder `Aumentar quantidade` is disabled, so the click never completes), the
-session implements `SeletorQuantidade` and re-verifies, and only then does `pedido-fluxo-completo`
-become satisfiable — the total and the confirm payload depend on the migrated component. That
-dependency ordering is why A and B are separate `unitId`s instead of one scenario set.
+Recorded sequence (2026-09-12 session `16afbd43dd389ed382272b9939e73dae`): run 0000
+was INCONCLUSIVE with Unit A's four scenarios already PASS (Unit A was implemented
+before the first verification) and `pedido-fluxo-completo` failing at `ajustar-dois`
+because the Unit B integration was still the placeholder; the harness requested
+REPAIR_IMPLEMENTATION, the session implemented the Unit B total/confirm integration,
+and run 0001 passed the full integrated suite (5/5 scenarios, 11/11 requirements,
+zero diagnostics). The point of the example stands: `pedido-fluxo-completo` is only
+satisfiable once the migrated `SeletorQuantidade` is wired into `FormularioPedido` —
+the total and the confirm payload depend on the migrated component. That dependency
+ordering is why A and B are separate `unitId`s instead of one scenario set, and it is
+declared in [SPEC.md](SPEC.md).
 
 ## What is observable, and what is not
 

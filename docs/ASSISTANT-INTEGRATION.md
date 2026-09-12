@@ -28,17 +28,18 @@ Implemented integration capabilities:
 
 Select `profile: "standard"` in config before preparation, not a `--profile` flag.
 Use the new `migracao-padrao` agent and the session commands in [USAGE.md](USAGE.md).
-Versioned reference updates are implemented by P3, but adopting them into an existing
-P4 session without resetting budgets remains pending. Stop on that need for now.
+Versioned reference updates are adopted into an existing session by
+`update-migration-session` (P4.2) with preserved history/budgets.
 Implementation milestones and acceptance live in [PLAN.md](PLAN.md).
 
 P1/P2 implement configuration/report schemas, reference collection from declared
 project files, change verification, comparison and aggregation as libraries. P3
 adds native checks, managed static build servers, suite capture with reset, observed
 source stability and consolidated prepare/verify with source/target comparison and
-aggregate reports. P4 now adds normal scoped edits, persistent attempts/time and
+aggregate reports. P4 adds normal scoped edits, persistent attempts/time and
 repair decisions around that verifier. Hashes do not authenticate provenance.
-The real assistant migration acceptance remains pending. Limits: USAGE.md.
+The real assistant migration acceptance was demonstrated on 2026-09-12 (Cinema
+P5 and component-first P6, both run 0001 PASS). Limits: USAGE.md.
 
 ## Evaluation independence
 

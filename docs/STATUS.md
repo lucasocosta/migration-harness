@@ -1,7 +1,9 @@
 # Status
 
-Updated: 2026-09-12. Harness branch: `next/angular-forms-and-io`, pushed to
-`origin` with owner authorization. Base of the v0.3 transition: `c663b40`.
+Updated: 2026-09-12. Harness branch: `next/angular-forms-and-io`. The branch was
+pushed to `origin` at `4c7332f` with earlier owner authorization; the 2026-09-12
+P5/P6 commits (`92f73cd`, `5d01da6`, `58d0d27`) are local only — no push was
+authorized for them. Base of the v0.3 transition: `c663b40`.
 P1/P2 libraries committed as `c4f319b`; P3 committed as `5079579` (native checks),
 `378d730` (managed builds), `adc61d4` (suite capture) and `75100c9` (consolidated
 verification). RFC v0.3 direction is agreed; P0-P4 are implemented. P4 is complete: scoped normal
@@ -239,7 +241,7 @@ by the harness.
 
 2026-09-12 P5 execution checkpoint: standard profile, session
 `7746d541d4ad0d27d9a86a2f8972c234` (generation 0, reference `p5-prepared-02`
-VERIFIED, 36 scenarios/131 requirements). Run 0000 INCONCLUSIVE (6 STEP_FAILED at
+VERIFIED, 36 scenarios/131 requirements). Run 0000 INCONCLUSIVE (7 STEP_FAILED at
 the salvar step: blur-induced button displacement prevented the first click from
 submitting). Synthetic probe localized the defect; authorized repair in
 `FilmeEditar.tsx` (mousedown preventDefault while validation errors exist,
@@ -251,8 +253,8 @@ against mocked APIs (MOCKED_COVERAGE disclosed). Final suite on the same build:
 190/190 unit/CLI, 31/31 browser, both smokes, pilot EQUIVALENT,
 pilot-assistant ASSISTANT_LOOP_EQUIVALENT. Human code/accessibility review
 completed on 2026-09-12 with both apps served side by side: sides declared
-identical, ARIA warnings resolved by inspection, no findings. Authorized commit
-remains pending; no merge/push.
+identical, ARIA warnings resolved by inspection, no findings. Candidate
+committed to apps/react as `2c98611` with explicit authorization; no merge/push.
 
 The local handoff now directs continuation to P1-P5, not to mandatory human contract
 approval and a fresh brief-only conversation. No policy/scenario/contract changes

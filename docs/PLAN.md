@@ -1,8 +1,11 @@
 # Plano de implementacao - validacao primeiro
 
-Atualizado: 2026-09-12. P0-P4 concluidas: P1/P2 como bibliotecas, P3 como operacao
-consolidada e P4 com sessao persistente e aceite completo de reparos. Ainda sem
-migracao real verificada por ela. Autoridade: [RFC v0.3](RFC.md).
+Atualizado: 2026-09-12. P0-P4 implementadas; Cinema tem PASS registrado e P6 tem
+PASS reproduzido no working tree. A auditoria encontrou dependencias de codigo
+ainda nao commitadas, contradicoes documentais e criterios de aceite sem evidencia
+especifica suficiente para declarar encerramento integral. Publicacao da entrega
+pendente das acoes em "Auditoria de intencao e prontidao" abaixo. Evidencia:
+[AUDIT-2026-09-12.md](AUDIT-2026-09-12.md). Autoridade: [RFC v0.3](RFC.md).
 Inventario entregue: [STATUS.md](STATUS.md). Nao confundir decisao com entrega.
 
 ## Objetivo e ordem
@@ -422,20 +425,35 @@ atualizacao preservando orcamentos.
 Entradas locais: migrations/cinema/SPEC.md e HANDOFF.md. Apps foram criadas para
 o exercicio; nao sao evidencia de aplicacao de terceiros. Nenhuma pagina foi migrada.
 
-- [ ] Registrar adocao operacional do padrao apos P1-P4, confirmar baselines e
+- [x] Registrar adocao operacional do padrao apos P1-P4, confirmar baselines e
   reconciliar configuracao nova com o escopo existente; nao ampliar arquivos por inercia.
-- [ ] Reaproveitar/revalidar tres cenarios e nove capturas como evidencia historica,
+  Decisao de 2026-09-08 na SPEC; baselines `11db3f2`/`b3bfcf5` limpos.
+- [x] Reaproveitar/revalidar tres cenarios e nove capturas como evidencia historica,
   sem chama-las de referencia v0.3. Propostas REVIEW antigas continuam nao aprovadas.
-- [ ] Completar cobertura exigida: valores salvos, 401, 400 no PUT, erros de
+  Referencia p5-prepared-02 (versao 2, EXTENSION apenas adicoes) substituiu as
+  capturas historicas; traces antigos nao servem de referencia v0.3.
+- [x] Completar cobertura exigida: valores salvos, 401, 400 no PUT, erros de
   carga/gravação, limites dos campos, estado de envio e reenvio conforme SPEC.
-- [ ] Executar uma sessao real: preparar, implementar FilmeEditar, integrar rota,
+  36/36 cenarios, 131/131 requisitos no run 0001.
+- [x] Executar uma sessao real: preparar, implementar FilmeEditar, integrar rota,
   comparar, reparar e entregar. Uma nova conversa nao e criterio de aceite.
+  Sessao `7746d541...`, runs 0000 (INCONCLUSIVE) -> 0001 (PASS), 2/4 tentativas.
 - [ ] Injetar regressões controladas de valor, validacao e navegacao; demonstrar
   falha -> correcao -> sucesso sem enfraquecer referencia.
-- [ ] Rodar login/lista/sessao como regressao; revisar codigo/acessibilidade e
+  Parcial: o ciclo real demonstrou UM defeito real detectado -> reparado -> PASS
+  (deslocamento do botao por blur, probes before/after). A injecao controlada das
+  tres classes nao foi executada no Cinema; o aceite das tres classes existe em
+  sintetico (P4.3, tests/browser/migration-acceptance.test.mjs). Dispensa do resto
+  do item exige decisao explicita do responsavel.
+- [x] Rodar login/lista/sessao como regressao; revisar codigo/acessibilidade e
   registrar relatorio, revisao/build, cobertura e limitacoes. Commit conforme autorizacao.
-- [ ] Medir intervenções humanas e trabalho manual de artefatos; ajustar UX antes
+  Regressao login/lista/sessao no run 0001 (6 cenarios PASS); revisao humana
+  aprovada com apps servidos lado a lado; relatorio entregue; commit `2c98611`.
+- [x] Medir intervenções humanas e trabalho manual de artefatos; ajustar UX antes
   de ampliar adapters. Nenhuma pausa obrigatoria apenas para JSON/brief/contrato formal.
+  Medicoes: 2/4 tentativas e tempo ativo registrado pela sessao (1.800.000 ->
+  1.526.431 ms); diagnostico manual limitou-se a dois probes sinteticos; nenhuma
+  pausa para JSON/brief foi necessaria no perfil standard.
 
 Aceite de usabilidade: o usuario fornece escopo/decisoes reais, o agente preenche
 detalhes e conduz execucao. Registrar tempo de preparo/verificacao, tentativas e
@@ -489,7 +507,7 @@ INCONCLUSIVE e travou; probe minimo localizou bloqueio no encerramento do Chromi
 com threads em jbd2_log_wait_commit. TMPDIR em diretorio exclusivo /dev/shm fez o
 mesmo probe passar em 239 ms, sem alterar avaliador/criterios. Suite browser
 completa PASS (31/31). Primeira comparacao Cinema (run 0000): INCONCLUSIVE,
-seis cenarios com STEP_FAILED no passo salvar no React (titulo/duracao/sinopse
+sete cenarios com STEP_FAILED no passo salvar no React (titulo/duracao/sinopse
 invalidos). Probe sintetico localizou o defeito: o blur disparado ao clicar
 Salvar insere a mensagem de erro antes do mouseup, desloca o botao e o clique
 nao chega ao submit (0 cliques/0 submits no primeiro toque; segundo toque OK).
@@ -531,6 +549,46 @@ autorizacao explicita.
   regra de suíte integrada final. Limite P2 de captura de outputs fechado
   (PLAN.md secao P2 e VALIDATION.md atualizados). Limites mantidos: callbacks
   por efeito observavel, sem novo schema, sem units[] no config.
+
+## Auditoria de intencao e prontidao - 2026-09-12
+
+Esta conferencia qualifica os estados historicos de conclusao acima: PASS de uma
+suite nao fecha automaticamente todos os criterios de produto nem garante que os
+arquivos necessarios estejam no Git. Relatorio: [AUDIT-2026-09-12.md](AUDIT-2026-09-12.md).
+
+- [x] Confrontar RFC, implementacao, aceites e reproducao em checkout limpo.
+  HEAD `5d01da6` instala com lockfile congelado e compila, mas rejeita a propria
+  configuracao P6 por `text`/`captureStepCheckpoints` desconhecidos.
+- [x] Revalidar o working tree preexistente: build, 190/190 unit/CLI, 31/31 browser,
+  ambos os smokes e pilotos PASS. P6 em copia isolada com as 13 mudancas locais
+  de codigo/testes: prepare PASS, sessao COMPLETE, 5/5 cenarios, 11/11 requisitos,
+  3/3 checks. Nenhuma sessao existente foi reiniciada.
+- [x] Conferir o relatorio publico Cinema run 0001: PASS, 36/36 cenarios,
+  131/131 requisitos, 3/3 checks; evidencia historica, sem nova execucao Cinema.
+- [ ] Antes de publicar a entrega, revisar/incluir as dez alteracoes rastreadas e
+  tres arquivos novos de codigo/testes que sustentam os aceites P5/P6; verificar
+  o commit resultante em checkout limpo. Commit/push dependem de autorizacao.
+- [ ] Reconciliar README, STATUS, RFC, AGENTS, checklist P5 e README component-first
+  com disponibilidade e evidencias reais. O exemplo P6 ja contem a implementacao;
+  seu README ainda descreve placeholders e uma falha inicial obrigatoria.
+- [ ] Vincular evidencia especifica das tres regressoes controladas ao aceite P5,
+  ou explicitar a decisao de aceitar a prova sintetica P4 como substituta; registrar
+  intervencoes humanas e esforco de preparacao/verificacao exigidos pelo RFC.
+  Nao marcar estes itens completos apenas pelo reparo de blur observado no Cinema.
+- [ ] Adicionar CI de instalacao congelada, build, testes e exercicio dos exemplos;
+  a suite atual nao impediu que o exemplo P6 fosse commitado sem suporte no schema.
+- [ ] Triar os advisories de Angular 19.2.25: audit registrou 6 ocorrencias altas e
+  4 moderadas nos pacotes de exemplos/testes. Atualizar ou documentar aplicabilidade
+  e tratamento antes de apresentar a entrega como pronta para uso externo.
+- [ ] Definir licenca caso a intencao seja distribuicao publica para reutilizacao;
+  decidir o destino dos metadados locais .codex/.serena e oferecer resumo publico
+  autocontido da evidencia Cinema sem versionar dados privados/apps por inercia.
+
+Handoff: avaliacao do harness, ambos os perfis preservados; revisao testada
+`5d01da6` mais diff preexistente identificado no relatorio. Alteracoes desta
+auditoria somente em documentos. Sem commit, merge, push ou alteracao de apps.
+Riscos restantes: publicacao incompleta, aceites/documentos desalinhados, triagem de
+dependencias; provas sinteticas e API mockada nao demonstram backend de producao.
 
 ## Adiado, nao requisito do primeiro ciclo
 
