@@ -82,7 +82,9 @@ preflight requires a browser, and the workflow installed Chromium after the
 unit/CLI step. Local reproduction confirmed the cause (`PLAYWRIGHT_BROWSERS_PATH`
 pointed at an empty directory reproduced both failures exactly); the same tests
 pass when Chromium is present. The workflow now installs and preflights Chromium
-before the unit/CLI suite. No test or criterion was changed.
+before the unit/CLI suite. No test or criterion was changed. The follow-up run
+on the fix (`34712354514`, commit `94c7cd0`) completed with every step passing,
+including the browser suite without skips and the checkout-preservation check.
 
 ## Remaining product evidence
 
