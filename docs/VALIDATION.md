@@ -1,5 +1,76 @@
 # Validation record
 
+## P5 session continuation and environment recovery - 2026-09-12
+
+Tested harness: `4c7332f` plus the existing P5 preparation working-tree changes
+(expected differences, payload assertions, step checkpoints, delayed/sequenced
+mocks and label locators). No runtime code or evaluation criteria were changed
+in this continuation to address the environment failure.
+
+- `npx --yes pnpm@10.15.0 build`: PASS.
+- `node --test --test-concurrency=1 tests/*.test.mjs`: 190/190 PASS, no skips,
+  402.8 s. Smokes PASS; deterministic pilot PASS (`artifacts/pilot-2zXh1U`);
+  protocol pilot PASS (`artifacts/pilot-assistant-i2MP5b`).
+- Initial browser suite: two capture tests returned INCONCLUSIVE; the execution
+  later hung and was interrupted. An isolated capture retry reproduced the issue.
+  A minimal Chromium page/click probe also hung during close. Process inspection
+  found Chromium threads in `jbd2_log_wait_commit`, waiting on filesystem I/O.
+- A fresh 0700 temporary directory under `/dev/shm`, supplied through `TMPDIR`,
+  made the unchanged minimal probe pass in 239 ms. With this environment only:
+  `node --test --test-concurrency=1 tests/browser/*.test.mjs`: 31/31 PASS,
+  no skips, 146.2 s. No timeout, assertion or policy was relaxed. The original
+  filesystem stall is not claimed to be repaired; the runtime uses memory-backed
+  temporary browser profiles. Tests import the same rebuilt dist files.
+- Cinema: `check-projects --preflight-only` PASS, recorded in
+  `artifacts/cinema/filme-editar/p5-preflight-20260912.json`; native React build
+  and lint PASS. Existing generation-0 session status: scope PASS, VERIFIED,
+  0/4 attempts used, 1,800,000 ms remaining. Recorded in
+  `artifacts/cinema/filme-editar/p5-status-before-20260912.json`.
+- The existing p5-prepared-02 reference contains 36 required scenarios,
+  131 requirements and 72 source captures, STABLE over two executions. The
+  existing candidate page/route and session were preserved. Full Cinema
+  verification and controlled regressions are in progress; no Cinema success
+  is inferred from harness test results.
+
+## P5 preparation and source conflicts - 2026-09-08
+
+Tested harness revision: `4c7332f`. Standard is the intended Cinema profile;
+operational adoption and SPEC/source conflicts await an owner decision. No Cinema
+session or candidate implementation started. This increment changes documentation
+and adds a local public synthetic diagnostic, not harness runtime behavior.
+
+- `npx --yes pnpm@10.15.0 build`: PASS.
+- `git diff --check` and syntax check of the local diagnostic: PASS.
+- `node --test --test-concurrency=1 tests/*.test.mjs`: 185/185 PASS, no skips
+  (191 s); browser suite with the same concurrency option: 30/30 PASS, no skips
+  (205 s). The two suites ran concurrently, internally serialized.
+- `node scripts/smoke.mjs` and `node scripts/smoke-v02.mjs`: PASS.
+- Deterministic pilot: EQUIVALENT, `artifacts/pilot-2i9u3F`; protocol pilot:
+  ASSISTANT_LOOP_EQUIVALENT, `artifacts/pilot-assistant-jxUu8h`. Both use synthetic
+  approval and prove their fixture/protocol only.
+- App baselines: Angular `11db3f2cd84155f12ce137b8d7b8111d977f6da9`, React
+  `b3bfcf5a5bbe43f1ee288e23f5665cffc013413b`, clean before/after. Initial native
+  builds failed due to absent local dependencies (Angular CLI unavailable; React
+  Vite/plugin/types missing). `npm ci --no-audit --no-fund` restored each app from
+  its existing lockfile. Subsequent `npm run build` on both and React
+  `npm run lint`: PASS, with no source/lockfile changes.
+- `node apps/verificar-apps.mjs`: 18/18 baseline checks PASS. Includes existing
+  login/list/session and Angular edit behavior; the expected React fallback proves
+  the edit page is still absent, not a completed migration.
+- `node migrations/cinema/probe-source-boundaries.mjs`: two public synthetic
+  Chromium cases on the newly built Angular source. Each emitted one PUT;
+  `titleTrimmed=false`, `synopsisTrimmed=false`, `durationIsInteger=false`,
+  `clientBlockedSubmission=false`. Responses were mocked; output exposes boolean
+  facts/counts only. This confirms two source/SPEC conflicts, not persistence or
+  equivalence. Source locations: filme-editar.ts validators/getRawValue and
+  core/filmes.ts direct PUT. No private raw artifacts were inspected.
+
+Remaining: decide standard adoption and treatment of legacy defects, implement
+the complete declared coverage, fix a reference and run the Cinema session. The
+coverage/decision inventory and reproducible probe are under migrations/cinema
+(ignored by harness Git); key findings are retained here and in PLAN.md.
+No acceptance criteria, historical policy/scenarios or REVIEW contracts changed.
+
 ## P4.3 complete repair acceptance - 2026-09-07
 
 Based on 1f8add9 (P4.2 session reference updates). Added
@@ -362,8 +433,9 @@ declared role. Declared expected texts are owner configuration, so label and mes
 literals must be declared, not user data.
 
 Not established by this work: per-side control/visual bindings, persistence read-back,
-source-stability verification, direct capture of component output callbacks (P6 host),
-and any executable verification operation or migration verdict. Checkpoint windows for
+source-stability verification, direct capture of component output callbacks (later
+exercised by the P6 host via rendered effects; see the 2026-09-12 section), and any
+executable verification operation or migration verdict. Checkpoint windows for
 a step run from that interaction to the next one and rely on the recorder draining a
 step's asynchronous activity rather than on wall-clock timing.
 
@@ -482,6 +554,47 @@ Two synthetic probes used the built EquivalenceValidator and tests/helpers.mjs:
 These are findings, not fixes. No full build/unit/browser/pilot rerun was performed
 for that assessment. RFC v0.3 and PLAN.md address them; existing green suites do
 not certify the new design. Documentation verification is recorded separately below.
+
+## P6 component-first exercise - 2026-09-12
+
+New executable example `examples/component-first/` (scaffolded and reconciled
+this date) demonstrates the remaining two use cases of the standard profile on
+synthetic apps, following the validation-first precedent:
+
+- Unit A `seletor-quantidade`: routeless component exercised by authorized host
+  pages served by the managed builds on both sides (`/host/seletor`), covering
+  props (`valor/minimo/maximo/rotulo`), the `onChange` callback observed through
+  its rendered effect in the host DOM, keyboard (native buttons via `press`,
+  Enter and Space checkpoints), disabled states at min/max limits and reuse of
+  the existing design-system tokens.
+- Unit B `formulario-pedido`: consumes Unit A (dependency ordering A -> B),
+  derives the total, and emits `onConfirmar`; the host renders the payload as
+  observable text (`role="alert"`).
+
+Execution: `prepare-migration` PASS (reference version 1, source STABLE across
+2 executions with identical hashes, 5 scenarios/11 requirements/3 checks).
+Standard session `16afbd43dd389ed382272b9939e73dae` (generation 0, 4 attempts,
+180000 ms active budget): run 0000 INCONCLUSIVE — Unit A scenarios 4/4 PASS
+(including keyboard and callback) while `pedido-fluxo-completo` failed at
+`ajustar-dois` because Unit B integration was deliberately pending; the harness
+requested REPAIR_IMPLEMENTATION and the Unit B integration was implemented
+within `writePaths`. Run 0001: COMPLETE/PASS — preservation, requirements and
+project checks PASS, 5/5 scenarios, 11/11 requirements, 3/3 checks, zero
+diagnostics (no MOCKED_COVERAGE: hosts are static, no API mocks), 2/4 attempts
+used, 25.3s active verification time, `lastReportMatchesWorkspace=true`.
+
+Same-build final suite on the harness revision used for the exercise: build
+PASS; unit/CLI 190/190 PASS; browser 31/31 PASS; both smokes PASS; pilot
+EQUIVALENT; pilot-assistant ASSISTANT_LOOP_EQUIVALENT with repair
+REPAIR_BRIEF->PASS.
+
+Limits: this is a synthetic example, not a third-party migration; the design
+system integration is guaranteed by identical accessible structure plus a
+protected-token native regression, not by a machine-checkable class assertion
+(classes are not in the ARIA tree); callback capture remains through observable
+effects (direct output capture was not added and no schema was changed);
+dependency ordering is demonstrated by the unit structure and the run history,
+not by a new `units[]` config field.
 
 ## Documentation transition checks - 2026-09-06
 

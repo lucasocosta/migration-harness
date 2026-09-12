@@ -1,0 +1,150 @@
+{
+  "kind": "MIGRATION_CONFIG", "version": "1", "migrationId": "component-first-example", "profile": "standard",
+  "source": {
+    "root": "examples/component-first/angular", "baseUrl": "http://127.0.0.1:4210",
+    "relevantFiles": ["main.ts", "seletor-quantidade.ts", "formulario-pedido.ts", "design-system.ts", "design-system.css", "build.mjs", "package.json"],
+    "commands": [{"id":"build","kind":"build","argv":["npm","run","build"],"cwd":".","timeoutMs":30000}],
+    "build": {"commandId":"build","outputDir":"dist","cleanOutput":true}
+  },
+  "target": {
+    "root": "examples/component-first/react", "baseUrl": "http://127.0.0.1:5175",
+    "relevantFiles": ["App.tsx", "SeletorQuantidade.tsx", "FormularioPedido.tsx", "design-system.mjs", "design-system.test.mjs", "design-system.css", "build.mjs", "package.json"],
+    "writePaths": ["App.tsx", "SeletorQuantidade.tsx", "FormularioPedido.tsx"],
+    "protectedPaths": ["design-system.mjs", "design-system.test.mjs"],
+    "commands": [
+      {"id":"build","kind":"build","argv":["npm","run","build"],"cwd":".","timeoutMs":30000},
+      {"id":"regression","kind":"test","argv":["npm","test"],"cwd":".","timeoutMs":10000}
+    ],
+    "build": {"commandId":"build","outputDir":"dist","cleanOutput":true}
+  },
+  "scenarios": [
+    {
+      "definition": {
+        "scenarioId":"seletor-incrementar-ate-maximo","unitId":"seletor-quantidade","name":"Incrementar ate o maximo",
+        "description":"Unidade A (sem rota) incrementa pelo host ate o maximo 5 e desabilita o botao mais",
+        "entryUrl":"http://127.0.0.1:4210/host/seletor","preconditions":{},
+        "steps":[
+          {"stepId":"mais-um","action":"click","targetRole":"button","targetName":"Aumentar quantidade"},
+          {"stepId":"mais-dois","action":"click","targetRole":"button","targetName":"Aumentar quantidade"},
+          {"stepId":"mais-tres","action":"click","targetRole":"button","targetName":"Aumentar quantidade","completionSignal":{"type":"LOCATOR_VISIBLE","targetRole":"status","targetName":"Quantidade atual","text":"5","timeoutMs":5000}}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/component-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:4210/host/seletor","steps":[],"unitScope":{"role":"main","name":"Host seletor de quantidade"}},
+        "target":{"entryUrl":"http://127.0.0.1:5175/host/seletor","steps":[],"unitScope":{"role":"main","name":"Host seletor de quantidade"}}
+      }
+    },
+    {
+      "definition": {
+        "scenarioId":"seletor-decrementar-ate-minimo","unitId":"seletor-quantidade","name":"Decrementar ate o minimo",
+        "description":"Unidade A decrementa do valor inicial 2 ate o minimo 0 e desabilita o botao menos",
+        "entryUrl":"http://127.0.0.1:4210/host/seletor","preconditions":{},
+        "steps":[
+          {"stepId":"menos-um","action":"click","targetRole":"button","targetName":"Diminuir quantidade"},
+          {"stepId":"menos-dois","action":"click","targetRole":"button","targetName":"Diminuir quantidade","completionSignal":{"type":"LOCATOR_VISIBLE","targetRole":"status","targetName":"Quantidade atual","text":"0","timeoutMs":5000}}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/component-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:4210/host/seletor","steps":[],"unitScope":{"role":"main","name":"Host seletor de quantidade"}},
+        "target":{"entryUrl":"http://127.0.0.1:5175/host/seletor","steps":[],"unitScope":{"role":"main","name":"Host seletor de quantidade"}}
+      }
+    },
+    {
+      "definition": {
+        "scenarioId":"seletor-teclado","unitId":"seletor-quantidade","name":"Alterar valor pelo teclado",
+        "description":"Unidade A responde a Enter e Espaco no botao focado, sem depender do mouse",
+        "entryUrl":"http://127.0.0.1:4210/host/seletor","preconditions":{},
+        "captureStepCheckpoints":true,
+        "steps":[
+          {"stepId":"tecla-enter","action":"press","targetRole":"button","targetName":"Aumentar quantidade","inputValue":"Enter"},
+          {"stepId":"tecla-espaco","action":"press","targetRole":"button","targetName":"Aumentar quantidade","inputValue":"Space","completionSignal":{"type":"LOCATOR_VISIBLE","targetRole":"status","targetName":"Quantidade atual","text":"4","timeoutMs":5000}}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/component-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:4210/host/seletor","steps":[],"unitScope":{"role":"main","name":"Host seletor de quantidade"}},
+        "target":{"entryUrl":"http://127.0.0.1:5175/host/seletor","steps":[],"unitScope":{"role":"main","name":"Host seletor de quantidade"}}
+      }
+    },
+    {
+      "definition": {
+        "scenarioId":"seletor-callback-host","unitId":"seletor-quantidade","name":"Callback onChange refletido no host",
+        "description":"O host renderiza o valor recebido pelo callback como texto no DOM, tornando o efeito observavel",
+        "entryUrl":"http://127.0.0.1:4210/host/seletor","preconditions":{},
+        "steps":[
+          {"stepId":"callback-mais","action":"click","targetRole":"button","targetName":"Aumentar quantidade","completionSignal":{"type":"LOCATOR_VISIBLE","targetRole":"status","targetName":"Valor enviado pelo host","text":"3","timeoutMs":5000}}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/component-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:4210/host/seletor","steps":[],"unitScope":{"role":"main","name":"Host seletor de quantidade"}},
+        "target":{"entryUrl":"http://127.0.0.1:5175/host/seletor","steps":[],"unitScope":{"role":"main","name":"Host seletor de quantidade"}}
+      }
+    },
+    {
+      "definition": {
+        "scenarioId":"pedido-fluxo-completo","unitId":"formulario-pedido","name":"Ajustar, calcular total e confirmar",
+        "description":"Unidade B consome a Unidade A: ajuste da quantidade atualiza o total derivado e a confirmacao registra o payload no DOM do host",
+        "entryUrl":"http://127.0.0.1:4210/host/pedido","preconditions":{},
+        "captureStepCheckpoints":true,
+        "steps":[
+          {"stepId":"ajustar-um","action":"click","targetRole":"button","targetName":"Aumentar quantidade"},
+          {"stepId":"ajustar-dois","action":"click","targetRole":"button","targetName":"Aumentar quantidade","completionSignal":{"type":"LOCATOR_VISIBLE","targetRole":"status","targetName":"Total","text":"R$ 30,00","timeoutMs":5000}},
+          {"stepId":"confirmar","action":"click","targetRole":"button","targetName":"Confirmar pedido","completionSignal":{"type":"LOCATOR_VISIBLE","targetRole":"alert","targetName":"Pedido confirmado","text":"quantidade 3","timeoutMs":5000}}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/component-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:4210/host/pedido","steps":[],"unitScope":{"role":"main","name":"Host formulario de pedido"}},
+        "target":{"entryUrl":"http://127.0.0.1:5175/host/pedido","steps":[],"unitScope":{"role":"main","name":"Host formulario de pedido"}}
+      }
+    }
+  ],
+  "checks":[
+    {"id":"source-build","side":"source","commandId":"build","required":true},
+    {"id":"target-build","side":"target","commandId":"build","required":true},
+    {"id":"design-system-regression","side":"target","commandId":"regression","required":true}
+  ],
+  "requirements":[
+    {"id":"seletor-maximo-desabilitado","scenarioId":"seletor-incrementar-ate-maximo","description":"No maximo 5 o botao Aumentar quantidade fica desabilitado",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/seletor-quantidade.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"SCENARIO_END"},"scope":{"role":"main","name":"Host seletor de quantidade"},"claim":{"kind":"NODE_PRESENT","role":"button","name":"Aumentar quantidade","state":{"disabled":true}}}},
+    {"id":"seletor-maximo-valor","scenarioId":"seletor-incrementar-ate-maximo","description":"Tres incrementos a partir de 2 levam o valor a 5",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/seletor-quantidade.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"SCENARIO_END"},"scope":{"role":"main","name":"Host seletor de quantidade"},"claim":{"kind":"NODE_PRESENT","role":"status","name":"Quantidade atual","text":"5"}}},
+    {"id":"seletor-minimo-habilitado-no-maximo","scenarioId":"seletor-incrementar-ate-maximo","description":"Apenas o limite atingido fica desabilitado: Diminuir continua habilitado no maximo",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/seletor-quantidade.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"SCENARIO_END"},"scope":{"role":"main","name":"Host seletor de quantidade"},"claim":{"kind":"NODE_PRESENT","role":"button","name":"Diminuir quantidade","state":{"disabled":false}}}},
+    {"id":"seletor-minimo-desabilitado","scenarioId":"seletor-decrementar-ate-minimo","description":"No minimo 0 o botao Diminuir quantidade fica desabilitado",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/seletor-quantidade.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"SCENARIO_END"},"scope":{"role":"main","name":"Host seletor de quantidade"},"claim":{"kind":"NODE_PRESENT","role":"button","name":"Diminuir quantidade","state":{"disabled":true}}}},
+    {"id":"seletor-minimo-valor","scenarioId":"seletor-decrementar-ate-minimo","description":"Dois decrementos a partir de 2 levam o valor a 0",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/seletor-quantidade.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"SCENARIO_END"},"scope":{"role":"main","name":"Host seletor de quantidade"},"claim":{"kind":"NODE_PRESENT","role":"status","name":"Quantidade atual","text":"0"}}},
+    {"id":"seletor-teclado-enter","scenarioId":"seletor-teclado","description":"Enter no botao focado incrementa sem mouse",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/seletor-quantidade.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"AFTER_STEP","stepId":"tecla-enter"},"scope":{"role":"main","name":"Host seletor de quantidade"},"claim":{"kind":"NODE_PRESENT","role":"status","name":"Quantidade atual","text":"3"}}},
+    {"id":"seletor-teclado-espaco","scenarioId":"seletor-teclado","description":"Espaco no botao focado incrementa novamente, ou seja, cada tecla conta uma vez",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/seletor-quantidade.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"AFTER_STEP","stepId":"tecla-espaco"},"scope":{"role":"main","name":"Host seletor de quantidade"},"claim":{"kind":"NODE_PRESENT","role":"status","name":"Quantidade atual","text":"4"}}},
+    {"id":"seletor-callback-observavel","scenarioId":"seletor-callback-host","description":"O texto que o host renderiza a partir do callback onChange mostra o novo valor",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/main.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"SCENARIO_END"},"scope":{"role":"main","name":"Host seletor de quantidade"},"claim":{"kind":"NODE_PRESENT","role":"status","name":"Valor enviado pelo host","text":"3"}}},
+    {"id":"pedido-total-derivado","scenarioId":"pedido-fluxo-completo","description":"Total = quantidade x preco unitario, atualizado a cada ajuste da Unidade A",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/formulario-pedido.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"AFTER_STEP","stepId":"ajustar-dois"},"scope":{"role":"main","name":"Host formulario de pedido"},"claim":{"kind":"NODE_PRESENT","role":"status","name":"Total","text":"R$ 30,00"}}},
+    {"id":"pedido-callback-registrado","scenarioId":"pedido-fluxo-completo","description":"A confirmacao produz efeito observavel: o host renderiza o payload do callback onConfirmar como texto",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/main.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"SCENARIO_END"},"scope":{"role":"main","name":"Host formulario de pedido"},"claim":{"kind":"NODE_PRESENT","role":"alert","name":"Pedido confirmado","text":"quantidade 3, preço unitário R$ 10,00, total R$ 30,00","textMatch":"CONTAINS"}}},
+    {"id":"pedido-sem-requisicao","scenarioId":"pedido-fluxo-completo","description":"Confirmar no exemplo nao envia nada: apenas o efeito no host",
+      "origin":"SPECIFICATION","sourceReference":"examples/component-first/angular/formulario-pedido.ts","required":true,
+      "assertion":{"checkpoint":{"kind":"SCENARIO_END"},"claim":{"kind":"NO_REQUEST","pathPattern":"/api/pedido"}}}
+  ],
+  "acceptedDifferences":[],
+  "policy":{"sanitization":{"allowedPayloadKeys":["quantidade","precoUnitario","total"]}},
+  "reset":{"kind":"ISOLATED_FIXTURES"},
+  "environment":{"browser":"chromium","locale":"pt-BR","viewport":{"width":1280,"height":720}},
+  "limits":{"sourceRuns":2,"maxRepairAttempts":3,"maxDurationMs":180000}
+}

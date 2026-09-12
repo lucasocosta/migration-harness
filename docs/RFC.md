@@ -1,6 +1,7 @@
 # RFC - Migration Harness v0.3
 
-Date: 2026-09-06. Availability updated 2026-09-07: P0-P3 complete, P4 incremental.
+Date: 2026-09-06. Availability updated 2026-09-12: P0-P6 complete; the RFC v0.3
+checklist is closed (Cinema P5 PASS/committed, component-first P6 PASS).
 Supersedes v0.2 as the target specification, not existing CLI semantics or approved
 contracts. Delivery: [STATUS.md](STATUS.md). Execution plan: [PLAN.md](PLAN.md).
 
@@ -122,8 +123,8 @@ After a reference exists:
   version. Never rewrite past verdicts or approved contracts in place.
 
 Do not turn a failure-to-pass loop into repeated weakening of the test suite.
-Current P4 limit: adopting reference updates into a session while preserving its
-history/budget is pending. P3 preparation versioning alone does not close that gap.
+P4 implements adoption of reference updates with `update-migration-session`,
+preserving history and budgets. P3 preparation versioning alone does not update a session.
 
 ## 8. Scenario execution
 

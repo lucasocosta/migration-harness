@@ -2,14 +2,17 @@
 
 Reference for **implemented commands**. The consolidated standard verification
 operation exists; P4 adds scoped normal edits and persistent standard sessions with
-controlled in-session reference updates. Full milestone acceptance remains pending.
+controlled in-session reference updates. P4 acceptance is complete; the P5 Cinema
+migration closed with harness PASS (2026-09-12) and the P6 component/multi-unit
+exercise is recorded in VALIDATION.md.
 See [PLAN.md](PLAN.md) for the ordered checklist. The restricted profile below is
-unchanged and must not be bypassed. An executable standard example is in
-examples/validation-first/README.md.
+unchanged and must not be bypassed. Executable standard examples:
+examples/validation-first/README.md (page unit) and
+examples/component-first/README.md (routeless component plus two ordered units).
 
 | Need | Available operation | Limit |
 | --- | --- | --- |
-| Standard verification (prepare + verify) | `prepare-migration`, `verify-migration` | Declared suite only; not yet exercised by a real migration |
+| Standard verification (prepare + verify) | `prepare-migration`, `verify-migration` | Declared suite only; exercised by Cinema P5 (PASS) and the component-first example |
 | Standard assistant iteration | `start-migration-session`, `update-migration-session`, `migration-session-status`, `verify-migration` | Explicit config profile; fixed reference per generation, one persistent session per project pair |
 | Preflight and native build/typecheck/lint/test | `check-projects` | Project-check report only, not behavioral equivalence |
 | Capture a running application | `trace` | One scenario; caller serves the app |
@@ -23,6 +26,32 @@ Preparation PASS is not migration success; verify PASS applies only to the decla
 suite, requirements and native checks against an unchanged prepared reference.
 Raw-input examples are operator-only; they do not authorize an assistant to read
 private traces or keys.
+
+P5 additions support explicit scenario `captureStepCheckpoints: true`, exact
+`targetLabel` locators (including password fields), and `LOCATOR_VISIBLE.text`.
+Mocks may declare `delayMs` (0-10000) and a `sequence` of subsequent responses
+with their own status/fixture/delay; the last response repeats after exhaustion.
+Each fresh context resets the sequence; every fixture remains fingerprinted.
+These opt-in additions leave existing scenario execution unchanged.
+
+`REQUEST_OBSERVED` supports an exact `count` and `payloadValues`, a map of field
+paths to declared synthetic scalar expectations. Values are checked against
+sanitized evidence and never echoed in diagnostics; omitted required values cannot
+pass. `NODE_ABSENT` optionally matches `text`/`textMatch` to check that an old
+message disappeared even when other messages with the same role remain.
+
+An approved `acceptedDifferences` entry may supply `resolution` with
+`sourceAssertions`, mandatory `targetRequirementIds` in that scenario, and exact
+`matches`. Currently supported matches are `NETWORK_PAYLOAD_VALUE_MISMATCH`
+(`requestPath`, `field`, `count`) and `NETWORK_MISSING_REQUEST` (`requestPath`,
+`method`, `count`). Paths are exact normalized paths, including configured templates.
+The harness only resolves the declared number of matching divergences after every
+source and target guard passes. Other failures and insufficient evidence remain
+blocking. Text-only legacy entries remain annotations and resolve nothing.
+Comparisons retain `observedPreservation`, original diagnostic codes and per-rule
+outcomes; `EXPECTED_DIFFERENCE` discloses an applied exception. This does not change
+legacy EQUIVALENT results or modify traces. New/changed exceptions in a frozen
+reference still require the existing owner-decision/versioning protocol.
 
 Install and build:
 
@@ -109,8 +138,8 @@ superseded generations stop counting as current (`lastReportMatchesWorkspace` be
 false until a new attempt passes). Criteria weakening is only accepted with an
 explicit `--owner-decision <reference>`; anything else is refused.
 
-Full value/validation/navigation repair acceptance and the real Cinema migration
-remain P4/P5 work.
+Full value/validation/navigation repair acceptance passed in P4.3. The real Cinema
+migration remains P5 work.
 
 Verify exits: 0 COMPLETE; 3 scope/limit/no-progress/interruption; 4 behavioral FAIL;
 5 INCONCLUSIVE; 1 invalid state/input. The session decision overrides any nested
@@ -601,6 +630,32 @@ owner configuration — declare labels and messages, not user data — and diagn
 the requirement id, a reason code and the declared role only. Component output callbacks
 are asserted through their observable effects; direct output capture needs a component
 host. Requirements without an assertion still need caller-supplied evidence.
+
+### Components without routes and ordered units (P6)
+
+A routeless component is exercised through **authorized test host pages**: extra routes
+in each side's own build (`/host/<unit>`), declared as the binding `entryUrl` for that
+side and scoped with `unitScope` to the host container. No new entry kind or schema
+exists — the managed build servers serve the hosts like any other route, and the
+semantic projection stays shared between sides. Callbacks/outputs are asserted through
+their observable effects (the host renders the emitted payload as text/status in the
+DOM); keyboard coverage uses native controls exercised via `press` with
+`captureStepCheckpoints` checkpoints; state coverage uses the component's own disabled/
+derived states. Classes and styling are not machine-checkable (absent from the ARIA
+tree): guarantee design-system reuse through identical accessible structure plus a
+protected native regression (see the example's `design-system` check).
+
+Ordered units are declared in the SPEC's unit table (unit -> dependencies) and
+demonstrated by per-unit scenarios with distinct `unitId`s plus the integrated final
+suite on the same destination revision; there is no `units[]` config field and
+`criticalContract` remains single. Isolated per-unit PASS results from different
+revisions do not approve the whole application — the final integrated verification
+must pass on the final revision, like any other delivery gate.
+
+Measured example: `examples/component-first/` — unit A `seletor-quantidade`
+(props/callback/keyboard/limits, hosts on both sides), unit B `formulario-pedido`
+consuming A, run 0000 INCONCLUSIVE (unit A 4/4 PASS, unit B pending) -> run 0001
+PASS (5/5 scenarios, 11/11 requirements, zero diagnostics). Evidence in VALIDATION.md.
 
 Each scenario binding declares one application's `entryUrl`, control locator overrides
 and optional `unitScope`. `resolveScenarioForSide(config, scenarioId, side)` returns that

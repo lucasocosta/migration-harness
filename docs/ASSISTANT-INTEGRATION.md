@@ -118,4 +118,6 @@ page migration with ordinary edits and multiple non-method repairs, and the harn
 reports all required evidence without manual JSON preparation or mandatory context
 handoffs. Track owner interventions and verify candidate identity, failure handling,
 coverage, privacy and restricted compatibility. Exact acceptance: RFC section 15,
-PLAN P5/P6. Until then, this is a direction, not a completion claim.
+PLAN P5/P6 — both demonstrated on 2026-09-12 (Cinema run 0001 PASS, commit
+`2c98611`; component-first run 0001 PASS). The restricted-profile claims in this
+document remain unchanged and separate.

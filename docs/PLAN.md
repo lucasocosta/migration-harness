@@ -1,7 +1,7 @@
 # Plano de implementacao - validacao primeiro
 
-Atualizado: 2026-09-07. P0-P3 concluidas: P1/P2 como bibliotecas e P3 como operacao
-consolidada `prepare-migration`/`verify-migration` com exemplo executavel. Ainda sem
+Atualizado: 2026-09-12. P0-P4 concluidas: P1/P2 como bibliotecas, P3 como operacao
+consolidada e P4 com sessao persistente e aceite completo de reparos. Ainda sem
 migracao real verificada por ela. Autoridade: [RFC v0.3](RFC.md).
 Inventario entregue: [STATUS.md](STATUS.md). Nao confundir decisao com entrega.
 
@@ -22,8 +22,8 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 | P2 - Precisao da comparacao | Concluido | Valores, assertivas por unidade/checkpoint, bindings aplicados, read-back de persistencia e repetibilidade source/source |
 | P3 - Verificacao consolidada | Concluido | Operacao prepare/verify com referencia verificada, comparacao, requisitos, checks nativos e relatorio agregado |
 | P4 - Iteracao autonoma | Concluido | Sessao persistente repara valor/validacao/navegacao no mesmo ciclo, com refresh da referencia e orcamento preservado |
-| P5 - Cinema ponta a ponta | Pendente | Sessao real, relatorio final e regressao React |
-| P6 - Componente e varias unidades | Pendente | Host de componente e regressao integrada |
+| P5 - Cinema ponta a ponta | Concluido | Run 0001 PASS (36/36 cenarios, 131/131 requisitos), suite final PASS, revisao humana aprovada, commit `2c98611` em apps/react com autorizacao |
+| P6 - Componente e varias unidades | Concluido | Host de componente e regressao integrada: examples/component-first, run 0001 PASS (5/5 cenarios, 11/11 requisitos), suite final PASS, docs atualizados |
 
 Commits de implementacao (2026-09-07): P1/P2 em `c4f319b`; P3 em `5079579`,
 `378d730`, `adc61d4` e `75100c9`. Commit nao
@@ -156,9 +156,10 @@ Limites: comparacao posicional de arrays; valores dependem do que a sanitizacao
 retem, portanto campo obrigatorio removido resulta inconclusivo, nao aprovado.
 Janela de checkpoint por passo vai da interacao ate a proxima, dependendo da drenagem
 do gravador, nao de tempo de parede. Callbacks sao verificados pelos efeitos
-observaveis (DOM/storage/navegacao/request); captura direta de outputs depende do host
-de componente da P6. Requisito somente em prosa continua precisando de evidencia
-fornecida pelo chamador.
+observaveis (DOM/storage/navegacao/request); o host de componente da P6 tornou
+isso operacional via hosts autorizados com efeito renderizado no DOM
+(examples/component-first), sem captura direta de valor em novo schema. Requisito
+somente em prosa continua precisando de evidencia fornecida pelo chamador.
 
 Terceiro incremento: bindings aplicados por lado. O binding de cada aplicacao passou a
 declarar tambem `unitScope`, o escopo visual da unidade, e `resolveScenarioForSide`
@@ -437,14 +438,96 @@ Aceite de usabilidade: o usuario fornece escopo/decisoes reais, o agente preench
 detalhes e conduz execucao. Registrar tempo de preparo/verificacao, tentativas e
 motivos das pausas; nao prometer ganho percentual sem comparacao medida.
 
+### P5.1 - Retomada e conflitos da referencia (2026-09-08)
+
+Harness em `4c7332f`; Angular `11db3f2` e React `b3bfcf5`, ambos limpos na
+retomada. P4.2/P4.3 ja concluidas; reconciliados os roteiros locais obsoletos.
+Inventario de cobertura e diagnostico reproduzivel em
+`migrations/cinema/P5-PREPARATION.md` e `probe-source-boundaries.mjs` (locais,
+ignorados pelo Git do harness). Verificacoes desta retomada em VALIDATION.md.
+
+Checkpoint anterior: SPEC ainda autorizava apenas transicao documental; solicitada
+adocao operacional do standard no mesmo escopo de dois arquivos, sem commit.
+Encontrados conflitos entre requisitos e origem: ausencia de trim de titulo/sinopse
+e de validacao inteira da duracao. A decisao sobre preservacao versus correcao
+precisa preceder a referencia; nao alterar a origem ou enfraquecer criterios.
+`acceptedDifferences` e registrado, mas ainda nao resolve divergencias no comparador
+consolidado; verificar esse suporte conforme a decisao. Nenhuma sessao/candidato
+Cinema foi criada, e nenhum item de aceite P5 esta concluido.
+
+### P5.2 - Adocao e cobertura executavel (2026-09-08, em execucao)
+
+Lucas respondeu "Sim" a executar standard, cumprir a SPEC no React e registrar
+trim de titulo/sinopse e bloqueio de duracao fracionaria como diferencas intencionais.
+Decisao registrada na SPEC, sem ampliar os dois arquivos gravaveis ou autorizar commit.
+
+Manutencao necessaria antes da sessao: resolucao de diferencas de rede declaradas
+com caminho/campo/contagem exatos e assertivas independentes nos dois lados;
+valores/contagem de payload, capturas por etapa, texto na espera/ausencia, mocks
+com atraso/sequencia e locator por label para senha. Sem excecao generica de
+falhas ou alteracao dos traces/veredictos restritos. Manual: USAGE.md.
+Verificacao: build, 190/190 unit/CLI, 31/31 browser, smokes e pilotos PASS.
+Preparacao inicial Cinema: PASS, 34 cenarios/126 requisitos/68 capturas source,
+origem STABLE; apenas os requisitos das duas correcoes autorizadas falham na origem.
+Extensao para 36 cenarios/131 requisitos (retorno 404 e envio duplicado) em captura.
+Implementacao, regressoes controladas e suite final permanecem pendentes.
+
+### P5.3 - Retomada da sessao existente (2026-09-12, em execucao)
+
+A documentacao P5.2 estava atrasada em relacao aos artefatos locais. Reconferidos:
+preparacao p5-prepared-02 PASS, 36 cenarios/131 requisitos/72 capturas source,
+STABLE; sessao `7746d541d4ad0d27d9a86a2f8972c234`, geracao 0, VERIFIED e
+scope PASS, 0/4 tentativas usadas. Pagina/rota ja presentes no React foram
+preservadas; nao foi criada outra sessao. Handoff e units.md locais reconciliados.
+
+Build do harness, 190/190 unit/CLI, smokes e ambos os pilotos PASS. Build/lint
+nativos do candidato React PASS. A primeira suite browser sofreu dois resultados
+INCONCLUSIVE e travou; probe minimo localizou bloqueio no encerramento do Chromium,
+com threads em jbd2_log_wait_commit. TMPDIR em diretorio exclusivo /dev/shm fez o
+mesmo probe passar em 239 ms, sem alterar avaliador/criterios. Suite browser
+completa PASS (31/31). Primeira comparacao Cinema (run 0000): INCONCLUSIVE,
+seis cenarios com STEP_FAILED no passo salvar no React (titulo/duracao/sinopse
+invalidos). Probe sintetico localizou o defeito: o blur disparado ao clicar
+Salvar insere a mensagem de erro antes do mouseup, desloca o botao e o clique
+nao chega ao submit (0 cliques/0 submits no primeiro toque; segundo toque OK).
+Reparo autorizado em src/paginas/FilmeEditar.tsx: preventDefault no mousedown
+quando ha erros de validacao, preservando todas as validacoes (salvar marca
+os campos como tocados na submissao invalida). Probe pos-reparo: primeiro toque
+submete (1 clique/1 submit/0 blurs). Reexecucao (run 0001): PASS com
+preservation/requirements/projectChecks PASS, 36/36 cenarios, 131/131
+requisitos, 3/3 checks, referencia VERIFIED, 2/4 tentativas usadas. Restam 3
+EXPECTED_DIFFERENCE declaradas (trim x2, duracao-fracionaria) e 2
+STANDARD_WARNING de semantica ARIA, nao bloqueantes. Suite final no mesmo
+build do run 0001: 190/190 unit/CLI, 31/31 browser, smoke e smoke:v02 PASS,
+pilot EQUIVALENT, pilot-assistant ASSISTANT_LOOP_EQUIVALENT com reparo
+REPAIR_BRIEF->PASS. Revisao humana de codigo/acessibilidade executada em
+2026-09-12 com os dois apps servidos lado a lado: lados declarados identicos,
+avisos ARIA resolvidos por inspecao, sem achados. Pendente apenas commit com
+autorizacao explicita.
+
 ## P6 - Componente e aplicacao incremental
 
-- [ ] Demonstrar componente sem rota via hosts autorizados, props/callbacks,
+- [x] Demonstrar componente sem rota via hosts autorizados, props/callbacks,
   teclado, estados e integracao com design system existente.
-- [ ] Demonstrar duas ou mais unidades ordenadas por dependencia, com verificacao
+  `examples/component-first/`: unidade A `seletor-quantidade` com hosts
+  `/host/seletor` nos dois lados, callback onChange por efeito no DOM do host,
+  teclado via press (Enter/Espaco), estados disabled nos limites, tokens do
+  design system reutilizados; run 0000 INCONCLUSIVE -> run 0001 PASS
+  (sessao `16afbd43dd389ed382272b9939e73dae`), evidencia em VALIDATION.md.
+- [x] Demonstrar duas ou mais unidades ordenadas por dependencia, com verificacao
   por unidade e suite integrada final da mesma revisao do destino.
-- [ ] Atualizar manual/template com exemplos medidos; somente entao declarar
+  Unidade B `formulario-pedido` consome A (ordenacao A -> B declarada na SPEC);
+  run 0000 verificou A isolada 4/4 com B pendente; run 0001 PASS na suíte
+  integrada 5/5 na mesma revisao do destino (candidateHash 332eed7a...,
+  lastReportMatchesWorkspace true).
+- [x] Atualizar manual/template com exemplos medidos; somente entao declarar
   suporte operacional aos tres casos de uso, mantendo limites de cobertura.
+  USAGE.md: nova secao "Components without routes and ordered units (P6)" com
+  o exemplo medido; tabela de operacoes e cabecalho atualizados. Template
+  MIGRATION-SPEC.md: orientacoes de host/callbacks/teclado/design system e
+  regra de suíte integrada final. Limite P2 de captura de outputs fechado
+  (PLAN.md secao P2 e VALIDATION.md atualizados). Limites mantidos: callbacks
+  por efeito observavel, sem novo schema, sem units[] no config.
 
 ## Adiado, nao requisito do primeiro ciclo
 
