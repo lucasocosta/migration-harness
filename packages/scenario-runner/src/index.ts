@@ -69,7 +69,7 @@ export class ScenarioRunner {
 
       for (const step of scenario.steps) {
         stage = 'STEP_FAILED'; activeStep = step.stepId;
-        await this.executeStep(step, recorder);
+        await this.executeStep(step, recorder, scenario.captureStepCheckpoints);
         const afterStep = await recorder.captureStorage();
         recorder.recordStorageDeltas(beforeStorage, afterStep);
         beforeStorage = afterStep;
@@ -105,8 +105,10 @@ export class ScenarioRunner {
     }
 
     for (const mock of scenario.preconditions.mockInitialApiResponses ?? []) {
-      const fixturePath = await resolveMockFixture(this.options.fixtureBaseDir ?? process.cwd(), mock.fixturePath);
-      const fixture = await readFile(fixturePath, 'utf8');
+      const responses = await Promise.all([mock, ...(mock.sequence ?? [])].map(async response => ({ ...response,
+        fixture: await readFile(await resolveMockFixture(this.options.fixtureBaseDir ?? process.cwd(), response.fixturePath), 'utf8'),
+      })));
+      let responseIndex = 0;
       const origins = new Set(this.options.allowedOrigins ?? [new URL(scenario.entryUrl).origin]);
       const router = scenario.serviceWorkers === 'allow' ? this.page.context() : this.page;
       await router.route(mock.urlPattern, async (route) => {
@@ -115,13 +117,20 @@ export class ScenarioRunner {
           await route.fallback();
           return;
         }
-        await route.fulfill({ status: mock.statusCode, contentType: 'application/json', body: fixture });
+        const response = responses[Math.min(responseIndex++, responses.length - 1)]!;
+        if (response.delayMs) await new Promise<void>(resolve => {
+          const done = (): void => { clearTimeout(timer); this.controller.signal.removeEventListener('abort', done); resolve(); };
+          const timer = setTimeout(done, response.delayMs);
+          this.controller.signal.addEventListener('abort', done, { once: true });
+          if (this.controller.signal.aborted) done();
+        });
+        if (!this.controller.signal.aborted) await route.fulfill({ status: response.statusCode, contentType: 'application/json', body: response.fixture });
       });
     }
   }
 
-  private async executeStep(step: ScenarioInteractionStep, recorder: TemporalTraceRecorder): Promise<void> {
-    recorder.recordUserInteraction({
+  private async executeStep(step: ScenarioInteractionStep, recorder: TemporalTraceRecorder, captureCheckpoint = false): Promise<void> {
+    const interaction = recorder.recordUserInteraction({
       stepId: step.stepId,
       action: step.action,
       targetAriaRole: step.targetRole,
@@ -131,7 +140,8 @@ export class ScenarioRunner {
 
     const signalPromise = step.completionSignal ? this.armCompletionSignal(step.completionSignal) : undefined;
     void signalPromise?.catch(() => undefined);
-    const target = this.page.getByRole(step.targetRole as never, step.targetName !== undefined ? { name: step.targetName } : {});
+    const target = step.targetLabel !== undefined ? this.page.getByLabel(step.targetLabel, { exact: true })
+      : this.page.getByRole(step.targetRole as never, step.targetName !== undefined ? { name: step.targetName } : {});
 
     switch (step.action) {
       case 'click': await target.click(); break;
@@ -142,12 +152,13 @@ export class ScenarioRunner {
       default: assertNever(step.action);
     }
     await signalPromise;
+    if (captureCheckpoint) await recorder.captureAria(interaction.eventId);
   }
 
   private armCompletionSignal(signal: CompletionSignal): Promise<void> {
     switch (signal.type) {
       case 'LOCATOR_VISIBLE':
-        return this.page.getByRole(signal.targetRole as never, signal.targetName !== undefined ? { name: signal.targetName } : {})
+        return this.page.getByRole(signal.targetRole as never, signal.targetName !== undefined ? { name: signal.targetName } : {}).filter(signal.text !== undefined ? { hasText: signal.text } : {})
           .waitFor({ state: 'visible', timeout: signal.timeoutMs });
       case 'RESPONSE_RECEIVED':
         return this.page.waitForResponse((response) =>

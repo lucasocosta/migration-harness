@@ -39,7 +39,7 @@ const project = z.object({
 }).strict();
 const binding = z.object({
   entryUrl: httpUrl,
-  steps: z.array(z.object({ stepId: MigrationIdSchema, targetRole: label, targetName: label.optional() }).strict()).max(1000),
+  steps: z.array(z.object({ stepId: MigrationIdSchema, targetRole: label, targetName: label.optional(), targetLabel: label.optional() }).strict()).max(1000),
   /** How this application identifies the migrated unit's container; the shell around it is out of scope. */
   unitScope: UnitScopeSchema.optional(),
 }).strict();
@@ -70,6 +70,17 @@ export const MigrationConfigSchema = z.object({
   requirements: z.array(requirement).max(10000),
   acceptedDifferences: z.array(z.object({
     id: MigrationIdSchema, scenarioId: MigrationIdSchema, description: label, decisionReference: label,
+    /** Explicit, bounded exceptions with independently checked source and required target claims. */
+    resolution: z.object({
+      sourceAssertions: z.array(UnitAssertionBodySchema).min(1).max(100),
+      targetRequirementIds: z.array(MigrationIdSchema).min(1).max(100),
+      matches: z.array(z.discriminatedUnion('code', [
+        z.object({ code: z.literal('NETWORK_PAYLOAD_VALUE_MISMATCH'), requestPath: label,
+          field: z.string().regex(/^payload(?:\.[A-Za-z0-9_]+)+$/), count: z.number().int().positive().max(100) }).strict(),
+        z.object({ code: z.literal('NETWORK_MISSING_REQUEST'), requestPath: label,
+          method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']), count: z.number().int().positive().max(100) }).strict(),
+      ])).min(1).max(100),
+    }).strict().optional(),
   }).strict()).max(1000),
   criticalContract: z.object({ path: MigrationPathSchema, sha256: Sha256Schema }).strict().optional(),
   policy: HarnessPolicySchema.omit({ assistant: true }),
@@ -119,6 +130,11 @@ export const MigrationConfigSchema = z.object({
     if (!command || ['serve', 'reset'].includes(command.kind)) issue('Check must reference a project validation command');
   }
   for (const item of [...value.requirements, ...value.acceptedDifferences]) if (!ids.includes(item.scenarioId)) issue('Criterion references an unknown scenario');
+  for (const item of value.acceptedDifferences) if (item.resolution) {
+    if (!unique(item.resolution.targetRequirementIds) || item.resolution.targetRequirementIds.some(id =>
+      !value.requirements.some(requirement => requirement.id === id && requirement.scenarioId === item.scenarioId && requirement.required && requirement.assertion))) issue('Expected differences require mandatory machine-checkable target requirements in their scenario');
+    for (const match of item.resolution.matches) if (!match.requestPath.startsWith('/') || /[\s?#]/.test(match.requestPath)) issue('Expected difference requires an exact normalized request path');
+  }
   if (value.requirements.some(item => item.origin === 'CRITICAL_CONTRACT') && !value.criticalContract) issue('Critical-contract requirement needs a contract reference');
   // The standard profile compares values, not only shapes: a configuration cannot opt out of that criterion.
   if (value.policy.network?.comparePayloadValues === false || value.policy.network?.compareResponseValues === false
@@ -128,7 +144,7 @@ export const MigrationConfigSchema = z.object({
     for (const side of ['source', 'target'] as const) if (!value[side].commands.some(command => command.id === (value.reset.kind === 'COMMANDS' ? value.reset[`${side}CommandId`] : '') && command.kind === 'reset')) issue('Reset must reference a reset command on each side');
   }
   for (const item of value.scenarios) {
-    for (const mock of item.definition.preconditions.mockInitialApiResponses ?? []) if (!MigrationPathSchema.safeParse(mock.fixturePath).success) issue('Fixture must stay inside its scenario fixture root');
+    for (const mock of item.definition.preconditions.mockInitialApiResponses ?? []) for (const response of [mock, ...(mock.sequence ?? [])]) if (!MigrationPathSchema.safeParse(response.fixturePath).success) issue('Fixture must stay inside its scenario fixture root');
     for (const side of ['source', 'target'] as const) {
       const bound = item.bindings[side];
       if (httpUrl.safeParse(bound.entryUrl).success && httpUrl.safeParse(value[side].baseUrl).success
@@ -163,6 +179,7 @@ export function scenarioSemanticProjection(definition: ConfiguredScenario['defin
   return {
     unitId: definition.unitId, name: definition.name, description: definition.description,
     preconditions: definition.preconditions, testDataProfile: definition.testDataProfile,
+    ...(definition.captureStepCheckpoints !== undefined ? { captureStepCheckpoints: definition.captureStepCheckpoints } : {}),
     serviceWorkers: definition.serviceWorkers ?? null, completionSignal: definition.completionSignal ?? null,
     steps: definition.steps.map(step => ({
       stepId: step.stepId, action: step.action, inputValue: step.inputValue ?? null,
@@ -178,7 +195,8 @@ export function scenarioBindingProjection(scenario: ConfiguredScenario, side: Sc
     entryUrl: bound.entryUrl, unitScope: bound.unitScope ?? null,
     steps: scenario.definition.steps.map(step => {
       const override = bound.steps.find(item => item.stepId === step.stepId);
-      return { stepId: step.stepId, targetRole: override?.targetRole ?? step.targetRole, targetName: override?.targetName ?? step.targetName ?? null };
+      return { stepId: step.stepId, targetRole: override?.targetRole ?? step.targetRole, targetName: override?.targetName ?? step.targetName ?? null,
+        ...((override?.targetLabel ?? step.targetLabel) !== undefined ? { targetLabel: override?.targetLabel ?? step.targetLabel } : {}) };
     }),
   };
 }
@@ -204,7 +222,8 @@ export function resolveScenarioForSide(config: unknown, scenarioId: string, side
   const bound = scenario.bindings[side];
   const steps = scenario.definition.steps.map(step => {
     const override = bound.steps.find(item => item.stepId === step.stepId);
-    return override ? { ...step, targetRole: override.targetRole, ...(override.targetName !== undefined ? { targetName: override.targetName } : {}) } : step;
+    return override ? { ...step, targetRole: override.targetRole, ...(override.targetName !== undefined ? { targetName: override.targetName } : {}),
+      ...(override.targetLabel !== undefined ? { targetLabel: override.targetLabel } : {}) } : step;
   });
   const definition = ScenarioDefinitionSchema.parse({ ...scenario.definition, entryUrl: bound.entryUrl, steps }) as ConfiguredScenario['definition'];
   if (canonical(scenarioSemanticProjection(scenario.definition)) !== canonical(scenarioSemanticProjection(definition))) {

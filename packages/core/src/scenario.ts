@@ -5,6 +5,7 @@ export interface ScenarioInteractionStep {
   action: InteractionActionType;
   targetRole: string;
   targetName?: string;
+  targetLabel?: string;
   inputValue?: string;
   description?: string;
   completionSignal?: CompletionSignal;
@@ -15,6 +16,8 @@ export interface MockApiResponse {
   method: string;
   statusCode: number;
   fixturePath: string;
+  delayMs?: number;
+  sequence?: Array<{ statusCode: number; fixturePath: string; delayMs?: number }>;
 }
 
 export interface ScenarioPrecondition {
@@ -35,6 +38,7 @@ export type CompletionSignal =
       type: 'LOCATOR_VISIBLE';
       targetRole: string;
       targetName?: string;
+      text?: string;
       timeoutMs: number;
     }
   | {
@@ -69,6 +73,7 @@ export interface ScenarioDefinition {
   preconditions: ScenarioPrecondition;
   steps: ScenarioInteractionStep[];
   completionSignal?: CompletionSignal;
+  captureStepCheckpoints?: boolean;
   /** Opt-in transparent service workers. Cached, rewritten or autonomous exchanges require review. */
   serviceWorkers?: ServiceWorkerMode;
   testDataProfile: 'standard' | 'edge_case' | 'error_flow';

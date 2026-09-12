@@ -32,10 +32,13 @@ export const UnitAssertionClaimSchema = z.discriminatedUnion('kind', [
   /** A control or message must exist, optionally with declared state flags and text. */
   z.object({ kind: z.literal('NODE_PRESENT'), ...nodeMatch, text: label.optional(), textMatch: matchMode.optional(), state: nodeState.optional() }).strict(),
   /** A control or message must not exist: an absent error, an absent forbidden control. */
-  z.object({ kind: z.literal('NODE_ABSENT'), ...nodeMatch }).strict(),
+  z.object({ kind: z.literal('NODE_ABSENT'), ...nodeMatch, text: label.optional(), textMatch: matchMode.optional() }).strict(),
   /** No matching request may leave the application in this checkpoint window: forbidden submission. */
   z.object({ kind: z.literal('NO_REQUEST'), method: label.optional(), pathPattern: urlPattern }).strict(),
-  z.object({ kind: z.literal('REQUEST_OBSERVED'), method: label, pathPattern: urlPattern, requiredPayloadFields: z.array(label).max(1000).optional() }).strict(),
+  z.object({ kind: z.literal('REQUEST_OBSERVED'), method: label, pathPattern: urlPattern, requiredPayloadFields: z.array(label).max(1000).optional(),
+    count: z.number().int().positive().max(1000).optional(),
+    payloadValues: z.record(z.union([z.string().max(4096), z.number().finite(), z.boolean(), z.null()])).optional(),
+  }).strict(),
   z.object({ kind: z.literal('STORAGE_MUTATION'), storageType: StorageTypeSchema, key: label, mutationType: StorageMutationSchema, valuePattern: label.optional() }).strict(),
   z.object({ kind: z.literal('NAVIGATED'), pathPattern: urlPattern }).strict(),
   /**
@@ -59,7 +62,7 @@ export const UnitAssertionOutcomeSchema = z.object({
   status: z.enum(['SATISFIED', 'VIOLATED', 'NOT_EVALUABLE']),
   reason: z.enum(['CHECKPOINT_MISSING', 'CAPTURE_EMPTY', 'SCOPE_NOT_FOUND', 'NODE_MISSING', 'NODE_STATE_DIFFERS',
     'NODE_TEXT_DIFFERS', 'NODE_PRESENT_UNEXPECTED', 'REQUEST_OBSERVED_UNEXPECTED', 'REQUEST_MISSING',
-    'PAYLOAD_FIELD_MISSING', 'STORAGE_MUTATION_MISSING', 'NAVIGATION_MISSING', 'WRITE_MISSING',
+    'PAYLOAD_FIELD_MISSING', 'PAYLOAD_VALUE_DIFFERS', 'REQUEST_COUNT_DIFFERS', 'STORAGE_MUTATION_MISSING', 'NAVIGATION_MISSING', 'WRITE_MISSING',
     'READ_BACK_MISSING', 'READ_BACK_VALUE_DIFFERS', 'READ_BACK_MOCKED']).optional(),
   /** Declared role of the inspected node, echoed from the assertion itself for localization. */
   role: AriaRoleSchema.optional(),

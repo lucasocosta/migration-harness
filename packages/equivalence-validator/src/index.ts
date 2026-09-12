@@ -88,6 +88,7 @@ export * from './contract.js';
 export * from './websocket.js';
 export * from './values.js';
 export * from './assertions.js';
+export * from './expected-differences.js';
 export * from './stability.js';
 
 /**

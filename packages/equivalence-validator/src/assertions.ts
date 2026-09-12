@@ -95,7 +95,7 @@ function evaluate(trace: SanitizedObservedTrace, assertion: UnitAssertion, scope
     const resolved = resolveScope(capture, scope ?? assertion.scope);
     if (!resolved) return inconclusive('SCOPE_NOT_FOUND');
     const nodes = findNodes(resolved, roleMatcher(claim.role, claim.name, claim.nameMatch));
-    if (claim.kind === 'NODE_ABSENT') return nodes.length ? failed('NODE_PRESENT_UNEXPECTED') : satisfied;
+    if (claim.kind === 'NODE_ABSENT') return nodes.some(node => matches(nodeText(node), claim.text, claim.textMatch)) ? failed('NODE_PRESENT_UNEXPECTED') : satisfied;
     if (!nodes.length) return failed('NODE_MISSING');
     if (claim.state && !nodes.some(node => stateMatches(node, claim.state!))) return failed('NODE_STATE_DIFFERS');
     const stateful = claim.state ? nodes.filter(node => stateMatches(node, claim.state!)) : nodes;
@@ -109,8 +109,14 @@ function evaluate(trace: SanitizedObservedTrace, assertion: UnitAssertion, scope
       && urlPatternMatches(claim.pathPattern, requestPath(event.url)) ? [event] : []);
     if (claim.kind === 'NO_REQUEST') return requests.length ? failed('REQUEST_OBSERVED_UNEXPECTED') : satisfied;
     if (!requests.length) return failed('REQUEST_MISSING');
+    if (claim.count !== undefined && requests.length !== claim.count) return failed('REQUEST_COUNT_DIFFERS');
     const fields = claim.requiredPayloadFields ?? [];
-    return requests.some(request => fields.every(field => valuePathPresent(request.payload, field))) ? satisfied : failed('PAYLOAD_FIELD_MISSING');
+    const matching = requests.filter(request => fields.every(field => valuePathPresent(request.payload, field)));
+    if (!matching.length) return failed('PAYLOAD_FIELD_MISSING');
+    const values = Object.entries(claim.payloadValues ?? {});
+    if (values.length && requests.some(request => values.some(([field]) => !valuePathPresent(request.payload, field)))) return inconclusive('PAYLOAD_FIELD_MISSING');
+    return requests.every(request => values.every(([field, expected]) => canonical(resolveValuePath(request.payload, field).value) === canonical(expected)))
+      ? satisfied : failed('PAYLOAD_VALUE_DIFFERS');
   }
   if (claim.kind === 'STORAGE_MUTATION') {
     const pattern = claim.valuePattern === undefined ? undefined : new RegExp(claim.valuePattern);

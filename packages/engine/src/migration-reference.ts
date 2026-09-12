@@ -161,7 +161,7 @@ async function contractFingerprint(config: MigrationConfig, workspaceRoot: strin
 }
 
 async function scenarioFixtures(config: MigrationConfig, workspaceRoot: string, scenario: ConfiguredScenario): Promise<FileFingerprint[]> {
-  const declared = (scenario.definition.preconditions.mockInitialApiResponses ?? []).map(mock => `${scenario.fixtureRoot}/${mock.fixturePath}`);
+  const declared = (scenario.definition.preconditions.mockInitialApiResponses ?? []).flatMap(mock => [mock, ...(mock.sequence ?? [])].map(response => `${scenario.fixtureRoot}/${response.fixturePath}`));
   const exists = await lstat(resolve(workspaceRoot, scenario.fixtureRoot)).then(stat => stat.isDirectory(), () => false);
   if (!exists) {
     if (declared.length) throw new Error(`Scenario ${scenario.definition.scenarioId} declares mock fixtures but its fixture root is missing.`);

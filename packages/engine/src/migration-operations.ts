@@ -10,7 +10,7 @@ import {
   type MigrationConfig, type MigrationDiagnostic, type MigrationPreparation, type MigrationReport,
   type MigrationReference, type ScenarioVerification, type VerificationIdentity, type VerificationStatus,
 } from '@migration-harness/core';
-import { EquivalenceValidator, evaluateUnitAssertions, migrationComparisonPolicy, verifyCriticalContract, verifySourceStability } from '@migration-harness/equivalence-validator';
+import { EquivalenceValidator, evaluateUnitAssertions, resolveExpectedDifferences, migrationComparisonPolicy, verifyCriticalContract, verifySourceStability } from '@migration-harness/equivalence-validator';
 import { assertionRequirementStatuses, buildMigrationReport } from '@migration-harness/quality-gates';
 import { ArtifactStore, safeArtifactPath } from './artifacts.js';
 import { captureProjectSuite, type CaptureSuiteResult, type SuiteCapture } from './capture-suite.js';
@@ -240,14 +240,17 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
         } };
         const mocks = item.definition.preconditions.mockInitialApiResponses ?? [];
         const comparison = new EquivalenceValidator().validate({ source: source.trace, target: target.trace, policy, mocks });
-        const blocking = comparison.divergences.filter(item => item.severity === 'BLOCKING');
-        result.status = blocking.some(item => incompleteCodes.has(item.code) || item.dimension === 'SECURITY') ? 'INCONCLUSIVE' : blocking.length ? 'FAIL' : 'PASS';
-        result.diagnostics = comparison.divergences.map(item => ({ scenarioId, code: item.code === 'MOCKED_COVERAGE' ? 'MOCKED_COVERAGE'
-          : item.severity !== 'BLOCKING' ? 'STANDARD_WARNING' : result.status === 'FAIL' ? 'BEHAVIOR_DIVERGENCE' : 'EXECUTION_INCOMPLETE',
-          detailCode: item.code, category: item.severity === 'BLOCKING' ? 'IMPLEMENTATION' : 'EVIDENCE' }));
         const assertions = evaluateUnitAssertions({ source: source.trace, target: target.trace, assertions: unitAssertionsForScenario(config, scenarioId), mocks,
           unitScopes: { ...(item.bindings.source.unitScope ? { source: item.bindings.source.unitScope } : {}),
             ...(item.bindings.target.unitScope ? { target: item.bindings.target.unitScope } : {}) } });
+        const expected = resolveExpectedDifferences({ differences: config.acceptedDifferences, scenarioId, source: source.trace,
+          target: target.trace, divergences: comparison.divergences, targetOutcomes: assertions.outcomes, mocks });
+        const accepted = new Set(expected.acceptedDivergenceIds);
+        const blocking = comparison.divergences.filter(item => item.severity === 'BLOCKING' && !accepted.has(item.divergenceId));
+        result.status = blocking.some(item => incompleteCodes.has(item.code) || item.dimension === 'SECURITY') ? 'INCONCLUSIVE' : blocking.length ? 'FAIL' : 'PASS';
+        result.diagnostics = comparison.divergences.map(item => ({ scenarioId, code: accepted.has(item.divergenceId) ? 'EXPECTED_DIFFERENCE' : item.code === 'MOCKED_COVERAGE' ? 'MOCKED_COVERAGE'
+          : item.severity !== 'BLOCKING' ? 'STANDARD_WARNING' : result.status === 'FAIL' ? 'BEHAVIOR_DIVERGENCE' : 'EXECUTION_INCOMPLETE',
+          detailCode: item.code, category: item.severity === 'BLOCKING' ? 'IMPLEMENTATION' : 'EVIDENCE' }));
         const outcomes = assertionRequirementStatuses(assertions.outcomes);
         for (const requirement of requirements) {
           requirement.status = outcomes.find(item => item.requirementId === requirement.requirementId)?.status ?? 'INCONCLUSIVE';
@@ -262,7 +265,8 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
           if (failed) diagnostics.push({ code: 'CRITICAL_CONTRACT_VIOLATED', scenarioId, category: 'IMPLEMENTATION' });
         }
         const evidencePath = `comparisons/${scenarioId}.json`;
-        await store.write(evidencePath, { scenarioId, preservation: result.status, diagnostics: result.diagnostics, assertions: assertions.outcomes });
+        await store.write(evidencePath, { scenarioId, preservation: result.status, diagnostics: result.diagnostics, assertions: assertions.outcomes,
+          observedPreservation: comparison.status, expectedDifferences: expected.evidence });
         result.evidencePaths = [source.path, target.path, evidencePath];
       } catch {
         const failed = suite?.captures.find(record => record.scenarioId === scenarioId && record.status !== 'COMPLETED');

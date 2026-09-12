@@ -26,19 +26,23 @@ export const StorageMutationSchema = mutationType;
 const frameShape: z.ZodType<ScenarioFrameShape> = z.lazy(() => z.record(z.union([z.enum(['any', 'string', 'number', 'boolean', 'null', 'object', 'array']), frameShape])));
 const wsDirection = z.enum(['sent', 'received']);
 export const CompletionSignalSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('LOCATOR_VISIBLE'), targetRole: role, targetName: text.optional(), timeoutMs }).strict(),
+  z.object({ type: z.literal('LOCATOR_VISIBLE'), targetRole: role, targetName: text.optional(), text: text.optional(), timeoutMs }).strict(),
   z.object({ type: z.literal('RESPONSE_RECEIVED'), responseUrlPattern: id, responseMethod: id, timeoutMs }).strict(),
   z.object({ type: z.literal('STORAGE_KEY_SET'), storageType, storageKey: id, timeoutMs }).strict(),
   z.object({ type: z.literal('WEBSOCKET_FRAME'), urlPattern: id, direction: wsDirection, payloadShape: frameShape, timeoutMs }).strict(),
 ]);
-const step = z.object({ stepId: id, action, targetRole: role, targetName: text.optional(), inputValue: text.optional(), description: text.optional(), completionSignal: CompletionSignalSchema.optional() }).strict();
+const step = z.object({ stepId: id, action, targetRole: role, targetName: text.optional(), targetLabel: id.optional(), inputValue: text.optional(), description: text.optional(), completionSignal: CompletionSignalSchema.optional() }).strict();
 export const ScenarioDefinitionSchema = z.object({
   scenarioId: id, unitId: id, name: id, description: text, entryUrl: z.string().url(),
   preconditions: z.object({
     storageInitialState: z.object({ local: record.optional(), session: record.optional() }).strict().optional(),
-    mockInitialApiResponses: z.array(z.object({ urlPattern: id, method: id, statusCode: z.number().int().min(100).max(599), fixturePath: id }).strict()).optional(),
+    mockInitialApiResponses: z.array(z.object({ urlPattern: id, method: id, statusCode: z.number().int().min(100).max(599), fixturePath: id,
+      delayMs: z.number().int().min(0).max(10000).optional(),
+      sequence: z.array(z.object({ statusCode: z.number().int().min(100).max(599), fixturePath: id, delayMs: z.number().int().min(0).max(10000).optional() }).strict()).min(1).max(100).optional(),
+    }).strict()).optional(),
   }).strict(),
   steps: z.array(step).max(1000), completionSignal: CompletionSignalSchema.optional(),
+  captureStepCheckpoints: z.boolean().optional(),
   serviceWorkers: z.enum(['block', 'allow']).optional(),
   testDataProfile: z.enum(['standard', 'edge_case', 'error_flow']),
 }).strict().superRefine((value, ctx) => {

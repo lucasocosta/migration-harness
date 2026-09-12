@@ -12,7 +12,7 @@ export const MigrationDiagnosticSchema = z.object({
   code: z.enum(['MISSING_SCENARIO', 'MISSING_REQUIREMENT', 'MISSING_CHECK', 'STALE_EVIDENCE',
     'DUPLICATE_EVIDENCE', 'UNKNOWN_EVIDENCE', 'REFERENCE_UNVERIFIED', 'REFERENCE_MISMATCH', 'CONFIGURATION_MISMATCH',
     'LEGACY_DIVERGENCE', 'LEGACY_WARNING', 'LEGACY_LIMITED_EVIDENCE', 'EXECUTION_INCOMPLETE', 'MOCKED_COVERAGE', 'CRITICAL_CONTRACT_UNVERIFIED',
-    'BEHAVIOR_DIVERGENCE', 'STANDARD_WARNING', 'REQUIREMENT_VIOLATED', 'REQUIREMENT_NOT_EVALUABLE',
+    'BEHAVIOR_DIVERGENCE', 'STANDARD_WARNING', 'EXPECTED_DIFFERENCE', 'REQUIREMENT_VIOLATED', 'REQUIREMENT_NOT_EVALUABLE',
     'NATIVE_CHECK_FAILED', 'NATIVE_CHECK_INCONCLUSIVE', 'BASELINE_RESOLVED', 'SOURCE_UNSTABLE', 'OPERATION_FAILED', 'CRITICAL_CONTRACT_VIOLATED']),
   scenarioId: MigrationIdSchema.optional(), requirementId: MigrationIdSchema.optional(), checkId: MigrationIdSchema.optional(),
   side: z.enum(['source', 'target']).optional(), stepId: MigrationIdSchema.optional(),
@@ -26,7 +26,7 @@ const result = z.object({
 }).strict();
 // Disclosures may accompany a pass; anything else contradicts it.
 const consistentResult = (value: z.infer<typeof result>): boolean => value.status !== 'PASS'
-  || value.diagnostics.every(item => ['LEGACY_WARNING', 'MOCKED_COVERAGE', 'STANDARD_WARNING', 'BASELINE_RESOLVED'].includes(item.code));
+  || value.diagnostics.every(item => ['LEGACY_WARNING', 'MOCKED_COVERAGE', 'STANDARD_WARNING', 'BASELINE_RESOLVED', 'EXPECTED_DIFFERENCE'].includes(item.code));
 export const ScenarioVerificationSchema = result.extend({
   identity: VerificationIdentitySchema,
   scenarioId: MigrationIdSchema,
