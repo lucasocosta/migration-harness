@@ -1,4 +1,6 @@
 export * from './state-machine.js';
+export * from './platform-paths.js';
+export * from './process-tree.js';
 export * from './artifacts.js';
 export * from './sealing.js';
 export * from './repair-loop.js';

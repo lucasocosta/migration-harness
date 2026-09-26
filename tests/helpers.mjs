@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { approveContract, reviewContract } from '../packages/contract-review/dist/index.js';
+import './helpers/privacy.mjs';
 
 export function trace(method = 'PUT', payload = { email: 'person@example.test' }) {
   return { scenarioId: 'update-customer', runIndex: 1, startedAt: '2026-09-05T00:00:00.000Z', environment: { browser: 'chromium', viewport: { width: 1280, height: 720 }, locale: 'pt-BR' }, sanitization: { version: 'test', appliedAt: '2026-09-05T00:00:01.000Z', redactionsCount: 0 }, events: [

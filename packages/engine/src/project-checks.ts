@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
@@ -9,6 +8,8 @@ import {
   parseProjectCheckReport, type MigrationConfig, type NativeCheckResult, type ProjectCheckReport, type ProjectPreflight,
 } from '@migration-harness/core';
 import { collectMigrationReference } from './migration-reference.js';
+import { assertNotPrivateWorkspace, pathSegments, privateBaseDir, probePrivatePermissionMode } from './platform-paths.js';
+import { killTree, supportsTreeKill } from './process-tree.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
 const OUTPUT_LIMIT = 1_048_576;
@@ -17,15 +18,14 @@ type Command = MigrationConfig['source']['commands'][number];
 
 async function workspacePath(root: string): Promise<string> {
   const path = await realpath(resolve(root));
-  const privateBase = join(homedir(), '.local/state/migration-harness');
-  if (path.split('/').includes('.migration-private') || path === privateBase || path.startsWith(`${privateBase}/`)) throw new Error('Private workspace');
+  assertNotPrivateWorkspace(path, privateBaseDir());
   return path;
 }
 
 async function commandCwd(workspace: string, config: MigrationConfig, side: ProjectSide, command: Command): Promise<string> {
   let current = workspace;
   const path = `${config[side].root}${command.cwd === '.' ? '' : `/${command.cwd}`}`;
-  for (const segment of path.split('/')) {
+  for (const segment of pathSegments(path)) {
     current = join(current, segment);
     const stat = await lstat(current);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Command cwd must be a real project directory');
@@ -53,11 +53,17 @@ export async function preflightProjectChecks(input: { config: unknown; workspace
       await commandCwd(workspace, config, check.side, command).catch(() => findings.push({ code: 'CWD_UNAVAILABLE', checkId: check.id }));
     }
   }
-  // POSIX groups provide bounded cleanup of ordinary project-command descendants.
-  if (process.platform === 'win32') findings.push({ code: 'UNSUPPORTED_PLATFORM' });
+  // Process-tree cleanup is available on every supported platform (POSIX groups or taskkill /T).
+  if (!supportsTreeKill()) findings.push({ code: 'UNSUPPORTED_PLATFORM' });
+  const disclosures: NonNullable<ProjectPreflight['disclosures']> = [];
+  if (await probePrivatePermissionMode() !== 'STRICT') {
+    disclosures.push({ code: 'WEAK_PRIVATE_PERMISSIONS', detailCode: 'PRIVATE_STORE_DEGRADED' });
+    disclosures.push({ code: 'DEGRADED_ISOLATION', detailCode: 'PRIVATE_STORE_DEGRADED' });
+  }
   return ProjectPreflightSchema.parse({ kind: 'PROJECT_PREFLIGHT', version: '1', migrationId: config.migrationId,
     configurationHash: migrationConfigHash(config), workspaceHash: digest(workspace ?? resolve(input.workspaceRoot)),
-    status: findings.length ? 'INCONCLUSIVE' : 'PASS', ...(fingerprint ? { inputHash: fingerprint } : {}), findings });
+    status: findings.length ? 'INCONCLUSIVE' : 'PASS', ...(fingerprint ? { inputHash: fingerprint } : {}),
+    findings, ...(disclosures.length ? { disclosures } : {}) });
 }
 
 type Outcome = Pick<NativeCheckResult, 'status' | 'reason' | 'exitCode' | 'durationMs' | 'output'>;
@@ -102,7 +108,8 @@ async function execute(command: Command, cwd: string, timeoutMs: number, signal?
   const env: NodeJS.ProcessEnv = { CI: '1', NO_COLOR: '1' };
   for (const key of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP']) if (process.env[key] !== undefined) env[key] = process.env[key];
   return new Promise(resolveOutcome => {
-    const child = spawn(command.argv[0]!, command.argv.slice(1), { cwd, env, shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    // detached gives POSIX its own process group; on Windows it would open a new console and break pipes.
+    const child = spawn(command.argv[0]!, command.argv.slice(1), { cwd, env, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     const output = { omitted: true as const, stdoutBytes: 0, stderrBytes: 0 };
     let reason: Outcome['reason'] | undefined;
     let exitCode: number | null = null;
@@ -111,9 +118,8 @@ async function execute(command: Command, cwd: string, timeoutMs: number, signal?
     let closeResolve: () => void;
     const close = new Promise<void>(done => { closeResolve = done; });
     const killGroup = (signal: NodeJS.Signals): void => {
-      if (!child.pid) return;
-      try { process.kill(-child.pid, signal); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') reason = 'CLEANUP_FAILED'; }
+      try { killTree(child, signal); }
+      catch { reason = 'CLEANUP_FAILED'; }
     };
     const finish = async (): Promise<void> => {
       if (finishing) return;

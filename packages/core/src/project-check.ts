@@ -7,11 +7,17 @@ const issue = z.object({
     'INPUT_CHANGED', 'BASELINE_MISMATCH', 'ABORTED']),
   checkId: MigrationIdSchema.optional(),
 }).strict();
+/** Disclosure-class notices that may accompany PASS without forcing INCONCLUSIVE. */
+const disclosure = z.object({
+  code: z.enum(['WEAK_PRIVATE_PERMISSIONS', 'DEGRADED_ISOLATION']),
+  detailCode: z.string().regex(/^[A-Z][A-Z0-9_]*$/).max(160).optional(),
+}).strict();
 export const ProjectPreflightSchema = z.object({
   kind: z.literal('PROJECT_PREFLIGHT'), version: z.literal('1'), migrationId: MigrationIdSchema,
   configurationHash: Sha256Schema, workspaceHash: Sha256Schema,
   status: z.enum(['PASS', 'INCONCLUSIVE']), inputHash: Sha256Schema.optional(),
   findings: z.array(issue),
+  disclosures: z.array(disclosure).max(16).optional(),
 }).strict().refine(value => value.status === 'PASS'
   ? value.findings.length === 0 && value.inputHash !== undefined : value.findings.length > 0,
 'Preflight status contradicts findings');
@@ -48,6 +54,7 @@ export const ProjectCheckReportSchema = z.object({
   if (value.status === 'FAIL' && !required.some(item => item.status === 'FAIL')) invalid();
 });
 export type ProjectPreflight = z.infer<typeof ProjectPreflightSchema>;
+export type PreflightDisclosure = z.infer<typeof disclosure>;
 export type NativeCheckResult = z.infer<typeof NativeCheckResultSchema>;
 export type ProjectCheckReport = z.infer<typeof ProjectCheckReportSchema>;
 export const parseProjectCheckReport = (value: unknown): ProjectCheckReport => ProjectCheckReportSchema.parse(value);

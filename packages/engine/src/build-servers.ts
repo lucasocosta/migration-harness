@@ -5,7 +5,7 @@ import { extname, join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   canonical, parseMigrationConfig, parseProjectCheckReport, MigrationPathSchema, ServedBuildIdentitySchema,
-  type MigrationConfig, type ProjectCheckReport, type ServedBuildIdentity,
+  isWithin, pathSegments, type MigrationConfig, type ProjectCheckReport, type ServedBuildIdentity,
 } from '@migration-harness/core';
 import { preflightProjectChecks, runProjectChecks } from './project-checks.js';
 
@@ -34,7 +34,7 @@ async function buildDirectory(workspace: string, config: MigrationConfig, side: 
   const build = config[side].build;
   if (!build) throw new ProjectBuildError('SERVING_CONFIG_MISSING', side);
   let current = workspace;
-  for (const segment of `${config[side].root}/${build.outputDir}`.split('/')) {
+  for (const segment of pathSegments(`${config[side].root}/${build.outputDir}`)) {
     current = join(current, segment);
     const stat = await lstat(current).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return undefined;
@@ -43,7 +43,7 @@ async function buildDirectory(workspace: string, config: MigrationConfig, side: 
     if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) throw new ProjectBuildError('UNSAFE_BUILD_DIRECTORY', side);
   }
   // The full config schema protects declared code paths; this also protects fixture roots in either app.
-  const overlap = (path: string): boolean => path === current || path.startsWith(`${current}/`) || current.startsWith(`${path}/`);
+  const overlap = (path: string): boolean => path === current || isWithin(current, path) || isWithin(path, current);
   if (config.scenarios.some(item => overlap(resolve(workspace, item.fixtureRoot)))
     || config.criticalContract && overlap(resolve(workspace, config.criticalContract.path))) throw new ProjectBuildError('UNSAFE_BUILD_DIRECTORY', side);
   return current;

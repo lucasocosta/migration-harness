@@ -10,6 +10,7 @@ import { sanitizeTrace } from '../packages/trace-sanitizer/dist/index.js';
 import { EquivalenceValidator } from '../packages/equivalence-validator/dist/index.js';
 import { BoundedWorker, fileHash } from '../packages/llm-worker/dist/index.js';
 import { ArtifactStore, runRepairLoop } from '../packages/engine/dist/index.js';
+import { storeOptions, canCreateSymlink } from './helpers/privacy.mjs';
 import { InvariantMiner, synthesizeContract } from '../packages/contract-synthesizer/dist/index.js';
 import { classifyFailure } from '../packages/quality-gates/dist/index.js';
 import { resolveMockFixture } from '../packages/scenario-runner/dist/index.js';
@@ -71,25 +72,33 @@ test('mining rejects runIndex-only replays and includes observational state cand
   const invariants = draft.scenarios[0].invariants;
   assert.equal(invariants.navigation[0].enforcement, 'WARNING'); assert.equal(invariants.accessibilityAriaJson.enforcement, 'WARNING'); assert.equal(invariants.storageDeltas[0].enforcement, 'WARNING');
 });
-test('raw retention rejects symlinks and deterministic scenario failures do not claim nondeterminism', async () => {
+test('raw retention rejects symlinks and deterministic scenario failures do not claim nondeterminism', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'harness-review-'));
   try {
-    const store = new ArtifactStore(root, join(root, 'private'));
-    const path = await store.privatePath('raw/nested'); await symlink(tmpdir(), path);
-    await assert.rejects(store.purgeRaw(0), /Symlink/);
+    const store = new ArtifactStore(root, join(root, 'private'), await storeOptions());
+    if (await canCreateSymlink()) {
+      const path = await store.privatePath('raw/nested'); await symlink(tmpdir(), path);
+      await assert.rejects(store.purgeRaw(0), /Symlink/);
+    } else {
+      t.diagnostic('symlink unavailable; purgeRaw symlink refusal skipped');
+    }
   } finally { await rm(root, { recursive: true, force: true }); }
   assert.equal(classifyFailure({ divergences: [{ severity: 'BLOCKING', dimension: 'CONTRACT', code: 'SCENARIO_FAILED' }] }), 'UNKNOWN');
   const failed = await runRepairLoop({ source: trace(), contract: contract(), maxRepairAttempts: 2, captureTarget: async () => { throw new Error('Deterministic missing button'); }, repair: async () => { throw new Error('Should not repair'); } });
   assert.equal(failed.result.status, 'NOT_EQUIVALENT'); assert.equal(failed.attempts, 0); assert.equal(failed.disposition, 'UNKNOWN');
 });
-test('mock fixture resolution rejects paths inside the private artifact store', async () => {
+test('mock fixture resolution rejects paths inside the private artifact store', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'harness-fixture-'));
   try {
     await mkdir(join(root, '.migration-private')); await writeFile(join(root, '.migration-private', 'secret.json'), '{}');
     await writeFile(join(root, 'allowed.json'), '{}');
     await assert.rejects(resolveMockFixture(root, '.migration-private/secret.json'), /escapes the allowed fixture directory/);
-    await symlink(join(root, '.migration-private'), join(root, 'link'));
-    await assert.rejects(resolveMockFixture(root, 'link/secret.json'), /escapes the allowed fixture directory/);
+    if (await canCreateSymlink()) {
+      await symlink(join(root, '.migration-private'), join(root, 'link'));
+      await assert.rejects(resolveMockFixture(root, 'link/secret.json'), /escapes the allowed fixture directory/);
+    } else {
+      t.diagnostic('symlink unavailable; link escape case skipped');
+    }
     assert.equal(await resolveMockFixture(root, 'allowed.json'), await realpath(join(root, 'allowed.json')));
   } finally { await rm(root, { recursive: true, force: true }); }
 });

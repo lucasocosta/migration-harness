@@ -1,5 +1,5 @@
 import { readFile, readdir, realpath } from 'node:fs/promises';
-import { resolve, relative, dirname, extname } from 'node:path';
+import { resolve, relative, dirname, extname, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import ts from 'typescript';
 import { parseTemplate, BindingPipe } from '@angular/compiler';
@@ -362,7 +362,10 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   };
   return { unit: parseMigrationUnit(unit), endpoints: endpoints.filter(e => included.has(e.symbolId)), streams: streams.filter(e => included.has(e.symbolId)), templates, routes, injections: injections.filter(injection => included.has(injection.ownerId)) };
 }
-function inside(root: string, path: string): boolean { const rel = relative(root, path); return !rel.startsWith('..') && !rel.startsWith('/'); }
+function inside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel) && !rel.split(/[/\\]/).includes('..'));
+}
 async function walk(root: string): Promise<string[]> {
   const result: string[] = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {

@@ -14,8 +14,12 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,33 +30,52 @@ jobs:
           npm install --global pnpm@10.15.0
           pnpm install --frozen-lockfile
       - name: Check dependency advisories
+        if: runner.os == 'Linux'
         run: pnpm audit --audit-level=moderate
       - name: Check published documentation links
+        if: runner.os == 'Linux'
         run: pnpm check:docs
+      - name: Portability lint
+        run: pnpm check:portability
       - name: Build
         run: pnpm build
       - name: Install and preflight Chromium
+        shell: bash
         run: |
           pnpm exec playwright install --with-deps chromium
           node --input-type=module -e "import { chromium } from '@playwright/test'; const browser = await chromium.launch(); await browser.close();"
       - name: Unit and CLI tests
+        shell: bash
         run: node --test --test-concurrency=1 tests/*.test.mjs
       - name: Browser and executable example tests
         shell: bash
         run: |
           set -euo pipefail
+          # Capture TAP without aborting on test failures so the budget gate can read the summary.
+          set +e
           node --test --test-concurrency=1 tests/browser/*.test.mjs | tee "$RUNNER_TEMP/browser-tests.tap"
-          if grep -Eq '^# skipped [1-9][0-9]*' "$RUNNER_TEMP/browser-tests.tap"; then
-            echo 'Browser tests must execute without skips in CI.'
+          status=$?
+          set -e
+          if ! grep -Eq '^# pass [1-9]' "$RUNNER_TEMP/browser-tests.tap"; then
+            echo 'Browser suite produced no passing tests (Chromium/Playwright broken?).'
             exit 1
           fi
+          # Symlink-unavailable cases are diagnostics; a Chromium outage must not green with mass skips.
+          skipped=$(sed -n 's/^# skipped //p' "$RUNNER_TEMP/browser-tests.tap" | tail -1)
+          if [ "${skipped:-0}" -gt 2 ]; then
+            echo "Too many skipped browser tests ($skipped); platform support regressed."
+            exit 1
+          fi
+          exit "$status"
       - name: Smokes and restricted compatibility pilots
+        if: runner.os == 'Linux'
         run: |
           pnpm smoke
           pnpm smoke:v02
           node scripts/pilot.mjs
           node scripts/pilot-assistant.mjs
       - name: Verify checks preserved the checkout
+        if: runner.os == 'Linux'
         run: |
           git diff --exit-code
           test -z "$(git ls-files --others --exclude-standard)"

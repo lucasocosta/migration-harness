@@ -6,15 +6,16 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
-    "clean": "find packages -type d -name dist -prune -exec rm -rf {} +",
+    "clean": "node scripts/clean.mjs",
     "smoke": "node scripts/smoke.mjs",
     "smoke:v02": "node scripts/smoke-v02.mjs",
     "test": "pnpm build && node --test --test-concurrency=1 tests/*.test.mjs",
     "test:browser": "pnpm build && node --test --test-concurrency=1 tests/browser/*.test.mjs",
     "pilot": "pnpm build && node scripts/pilot.mjs",
     "pilot:assistant": "pnpm build && node scripts/pilot-assistant.mjs",
-    "e2e:fixture": "bash scripts/e2e-fixture.sh",
-    "check:docs": "node scripts/check-doc-links.mjs"
+    "e2e:fixture": "node scripts/e2e-fixture.mjs",
+    "check:docs": "node scripts/check-doc-links.mjs",
+    "check:portability": "node scripts/check-portability-lint.mjs"
   },
   "workspaces": [
     "packages/*"

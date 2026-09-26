@@ -1,10 +1,10 @@
 import { mkdir, open, readdir, lstat, realpath, rm, unlink, readFile } from 'node:fs/promises';
 import { resolve, relative, dirname, isAbsolute, join } from 'node:path';
-import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { canonical, parseRawTrace, parseSanitizedTrace, type RawObservedTrace, type SanitizedObservedTrace } from '@migration-harness/core';
 import { ArtifactAuthFailureError, inspectSeal, KeyRing, openSeal, replaceFileAtomically, seal, withFileLock } from './sealing.js';
+import { isWithin, privateBaseDir, ensurePrivateDir, openPrivateFile } from './platform-paths.js';
 
 export interface ArtifactBackupOptions {
   /** Separate archive root for expired raw files. Never inside the public artifact root, the raw root, or containing it. */
@@ -19,16 +19,27 @@ export interface ArtifactStoreOptions {
   /** Versioned data-key directory. Must be separate from the raw root; defaults to a `keys` sibling under the private root. */
   keysRoot?: string;
   backup?: ArtifactBackupOptions;
+  /**
+   * Allow private writes when the filesystem cannot enforce 0700/0600 (Windows).
+   * Strict remains the default. Degraded runs must carry WEAK_PRIVATE_PERMISSIONS.
+   */
+  allowInsecurePrivateStore?: boolean;
 }
 
 export class ArtifactStore {
   readonly privateRoot: string;
   readonly options: ArtifactStoreOptions & { backup?: ArtifactBackupOptions & { keepGenerations: number } };
   constructor(readonly root: string, privateRoot?: string, options: ArtifactStoreOptions = {}) {
-    this.privateRoot = resolve(privateRoot ?? join(homedir(), '.local/state/migration-harness', createHash('sha256').update(resolve(root)).digest('hex').slice(0, 24)));
+    this.privateRoot = resolve(privateRoot ?? join(privateBaseDir(), createHash('sha256').update(resolve(root)).digest('hex').slice(0, 24)));
     const { backup, ...rest } = options;
-    this.options = { ...rest, ...(backup ? { backup: { ...backup, keepGenerations: backup.keepGenerations ?? 5 } } : {}) };
-    const inside = (base: string, candidate: string): boolean => { const rel = relative(resolve(base), candidate); return !!rel && !rel.startsWith('..') && !isAbsolute(rel); };
+    const allowInsecure = rest.allowInsecurePrivateStore === true
+      || process.env.MIGRATION_HARNESS_ALLOW_INSECURE_PRIVATE_STORE === '1';
+    this.options = {
+      ...rest,
+      ...(allowInsecure ? { allowInsecurePrivateStore: true as const } : {}),
+      ...(backup ? { backup: { ...backup, keepGenerations: backup.keepGenerations ?? 5 } } : {}),
+    };
+    const inside = (base: string, candidate: string): boolean => isWithin(base, candidate);
     const rawRoot = join(this.privateRoot, 'raw');
     if (options.keysRoot) {
       const keys = resolve(options.keysRoot);
@@ -42,15 +53,20 @@ export class ArtifactStore {
     }
   }
   get keysRoot(): string { return resolve(this.options.keysRoot ?? join(this.privateRoot, 'keys')); }
-  private keyRing(): KeyRing { return new KeyRing(this.keysRoot); }
+  /** Privacy isolation mode for this store. Never silently ignored. */
+  get privacyMode(): 'STRICT' | 'DEGRADED_INSECURE' {
+    return this.options.allowInsecurePrivateStore ? 'DEGRADED_INSECURE' : 'STRICT';
+  }
+  private keyRing(): KeyRing { return new KeyRing(this.keysRoot, this.options.allowInsecurePrivateStore ? { allowDegraded: true } : {}); }
   async privatePath(path: string): Promise<string> {
-    await mkdir(this.privateRoot, { recursive: true, mode: 0o700 });
-    if ((await lstat(this.privateRoot)).mode & 0o077) throw new Error('Private artifact filesystem must enforce mode 0700.');
+    const degraded = this.options.allowInsecurePrivateStore === true;
+    await ensurePrivateDir(this.privateRoot, degraded ? { allowDegraded: true } : {});
     const target = await safeArtifactPath(this.privateRoot, path);
-    await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+    await ensurePrivateDir(dirname(target), degraded ? { allowDegraded: true } : {});
     let directory = dirname(target);
     while (directory !== dirname(this.privateRoot)) {
-      if ((await lstat(directory)).mode & 0o077) throw new Error('Private artifact directory is accessible to other users.');
+      const stat = await lstat(directory);
+      if ((stat.mode & 0o077) && !degraded) throw new Error('Private artifact directory is accessible to other users.');
       if (directory === this.privateRoot) break;
       directory = dirname(directory);
     }
@@ -80,15 +96,18 @@ export class ArtifactStore {
     const payload = `${JSON.stringify(value, null, 2)}\n`;
     const bytes = privateArtifact && this.options.encryptPrivate && relativePath.startsWith('raw/')
       ? seal(await this.keyRing().active(), Buffer.from(payload)) : payload;
-    const file = await open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, privateArtifact ? 0o600 : 0o644);
+    const opened = privateArtifact
+      ? await openPrivateFile(target, this.options.allowInsecurePrivateStore ? { allowDegraded: true } : {})
+      : { handle: await open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644), mode: 'STRICT' as const };
     try {
-      const resolved = await realpath(target), linked = await lstat(target), opened = await file.stat();
-      if (resolved !== target || linked.ino !== opened.ino || linked.dev !== opened.dev) throw new Error('Artifact path changed during creation.');
-      if (privateArtifact && (await file.stat()).mode & 0o077) throw new Error('Private artifact filesystem must enforce mode 0600.');
+      const file = opened.handle;
+      const resolved = await realpath(target), linked = await lstat(target), fileStat = await file.stat();
+      if (resolved !== target || linked.ino !== fileStat.ino || linked.dev !== fileStat.dev) throw new Error('Artifact path changed during creation.');
+      if (privateArtifact && opened.mode !== 'STRICT' && !this.options.allowInsecurePrivateStore) throw new Error('Private artifact filesystem must enforce mode 0600.');
       // Sealing covers the raw subtree of the private domain only when opted in; everything else keeps the
       // existing byte-exact plaintext behavior (keys never live under raw, so a seal can never key itself).
       await file.writeFile(bytes);
-    } finally { await file.close(); }
+    } finally { await opened.handle.close(); }
     return target;
   }
   /** Reads a private-domain file, transparently unsealing it. Legacy plaintext bytes come back unchanged. */
@@ -137,7 +156,8 @@ export class ArtifactStore {
       const bytes = await readFile(file.absolute);
       const sealed = inspectSeal(bytes);
       if (sealed && sealed.keyVersion === active.version) { skipped++; continue; }
-      await replaceFileAtomically(file.absolute, seal(active, await this.unsealBytes(bytes)), 0o600);
+      await replaceFileAtomically(file.absolute, seal(active, await this.unsealBytes(bytes)), 0o600,
+        this.options.allowInsecurePrivateStore ? { allowDegraded: true } : {});
       resealed++;
     }
     const prunedKeyVersions: number[] = [];
@@ -173,7 +193,8 @@ export class ArtifactStore {
             if (!archivedRel || archivedRel.startsWith('..') || isAbsolute(archivedRel)) throw new Error('Backup path escaped the generation root.');
             // Archived copies are resealed under the current active key when encryption is on; plaintext stays plaintext when off.
             const plaintext = await this.unsealBytes(await readFile(file));
-            await replaceFileAtomically(archived, this.options.encryptPrivate ? seal(await this.keyRing().active(), plaintext) : plaintext, 0o600);
+            await replaceFileAtomically(archived, this.options.encryptPrivate ? seal(await this.keyRing().active(), plaintext) : plaintext, 0o600,
+              this.options.allowInsecurePrivateStore ? { allowDegraded: true } : {});
           }
           await unlink(file);
           removed++;
@@ -197,7 +218,7 @@ export class ArtifactStore {
   private async backupRoot(): Promise<string> {
     const root = resolve(this.options.backup!.root);
     await mkdir(root, { recursive: true, mode: 0o700 });
-    if ((await lstat(root)).mode & 0o077) throw new Error('Backup artifact filesystem must enforce mode 0700.');
+    if ((await lstat(root)).mode & 0o077 && !this.options.allowInsecurePrivateStore) throw new Error('Backup artifact filesystem must enforce mode 0700.');
     if (await realpath(root) !== root) throw new Error('Backup root must not be a symlink.');
     return root;
   }
@@ -266,7 +287,7 @@ export async function anchorAudit(input: { entries: unknown; externalPath: strin
   const trail = AuditTrail.load(structuredClone(input.entries) as AuditEntry[]);
   const chainHeadHash = (input.entries as AuditEntry[]).at(-1)?.hash ?? '';
   const externalPath = resolve(input.externalPath);
-  if (externalPath.split(/[\\/]/).includes('.migration-private') || [join(homedir(), '.local/state/migration-harness'), ...input.privateRoots].some(base => { const root = resolve(base); return externalPath === root || (relative(root, externalPath) !== '' && !relative(root, externalPath).startsWith('..') && !isAbsolute(relative(root, externalPath))); })) throw new Error('Audit anchor target cannot live in the private artifact domain.');
+  if (externalPath.split(/[\\/]/).includes('.migration-private') || [privateBaseDir(), ...input.privateRoots].some(base => { const root = resolve(base); return externalPath === root || isWithin(root, externalPath); })) throw new Error('Audit anchor target cannot live in the private artifact domain.');
   for (let current = externalPath; ;) {
     const stat = await lstat(current).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });
     if (stat?.isSymbolicLink()) throw new Error('Audit anchor target cannot be a symlink.');

@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { chromium } from '@playwright/test';
 import { ArtifactStore } from '../../packages/engine/dist/artifacts.js';
+import '../helpers/privacy.mjs';
 import { prepareMigration } from '../../packages/engine/dist/migration-operations.js';
 import { startMigrationSession, verifyMigrationSession, inspectMigrationSession } from '../../packages/engine/dist/migration-session.js';
 import { buildWorkspace, write } from '../helpers/build-workspace.mjs';

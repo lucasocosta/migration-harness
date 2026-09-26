@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createServer } from 'node:http';
+import './privacy.mjs';
 
 export async function write(root, path, content) {
   await mkdir(dirname(join(root, path)), { recursive: true });

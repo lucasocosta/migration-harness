@@ -13,7 +13,8 @@ export const MigrationDiagnosticSchema = z.object({
     'DUPLICATE_EVIDENCE', 'UNKNOWN_EVIDENCE', 'REFERENCE_UNVERIFIED', 'REFERENCE_MISMATCH', 'CONFIGURATION_MISMATCH',
     'LEGACY_DIVERGENCE', 'LEGACY_WARNING', 'LEGACY_LIMITED_EVIDENCE', 'EXECUTION_INCOMPLETE', 'MOCKED_COVERAGE', 'CRITICAL_CONTRACT_UNVERIFIED',
     'BEHAVIOR_DIVERGENCE', 'STANDARD_WARNING', 'EXPECTED_DIFFERENCE', 'REQUIREMENT_VIOLATED', 'REQUIREMENT_NOT_EVALUABLE',
-    'NATIVE_CHECK_FAILED', 'NATIVE_CHECK_INCONCLUSIVE', 'BASELINE_RESOLVED', 'SOURCE_UNSTABLE', 'OPERATION_FAILED', 'CRITICAL_CONTRACT_VIOLATED']),
+    'NATIVE_CHECK_FAILED', 'NATIVE_CHECK_INCONCLUSIVE', 'BASELINE_RESOLVED', 'SOURCE_UNSTABLE', 'OPERATION_FAILED', 'CRITICAL_CONTRACT_VIOLATED',
+    'WEAK_PRIVATE_PERMISSIONS', 'DEGRADED_ISOLATION']),
   scenarioId: MigrationIdSchema.optional(), requirementId: MigrationIdSchema.optional(), checkId: MigrationIdSchema.optional(),
   side: z.enum(['source', 'target']).optional(), stepId: MigrationIdSchema.optional(),
   category: z.enum(['IMPLEMENTATION', 'OPERATIONAL', 'EVIDENCE', 'BASELINE']).optional(),
@@ -26,7 +27,8 @@ const result = z.object({
 }).strict();
 // Disclosures may accompany a pass; anything else contradicts it.
 const consistentResult = (value: z.infer<typeof result>): boolean => value.status !== 'PASS'
-  || value.diagnostics.every(item => ['LEGACY_WARNING', 'MOCKED_COVERAGE', 'STANDARD_WARNING', 'BASELINE_RESOLVED', 'EXPECTED_DIFFERENCE'].includes(item.code));
+  || value.diagnostics.every(item => ['LEGACY_WARNING', 'MOCKED_COVERAGE', 'STANDARD_WARNING', 'BASELINE_RESOLVED', 'EXPECTED_DIFFERENCE',
+    'WEAK_PRIVATE_PERMISSIONS', 'DEGRADED_ISOLATION'].includes(item.code));
 export const ScenarioVerificationSchema = result.extend({
   identity: VerificationIdentitySchema,
   scenarioId: MigrationIdSchema,
@@ -34,6 +36,12 @@ export const ScenarioVerificationSchema = result.extend({
 }).refine(consistentResult, 'PASS contradicts diagnostic evidence');
 export const ProjectCheckVerificationSchema = result.extend({ identity: VerificationIdentitySchema, checkId: MigrationIdSchema })
   .refine(consistentResult, 'PASS contradicts diagnostic evidence');
+/** Privacy isolation mode for private artifacts. DEGRADED_INSECURE never claims isolation guarantees. */
+export const PrivacyModeSchema = z.object({
+  mode: z.enum(['STRICT', 'DEGRADED_INSECURE']),
+  platform: z.string().min(1),
+  detailCode: z.string().regex(/^[A-Z][A-Z0-9_]*$/).max(160).optional(),
+}).strict();
 export const MigrationReportInputSchema = z.object({
   identity: VerificationIdentitySchema,
   evaluatedAt: z.string().datetime({ offset: true }),
@@ -45,6 +53,7 @@ export const MigrationReportInputSchema = z.object({
   checks: z.array(ProjectCheckVerificationSchema).max(10000),
   criticalContractStatus: VerificationStatusSchema.optional(),
   executionDiagnostics: z.array(MigrationDiagnosticSchema).max(10000).optional(),
+  privacy: PrivacyModeSchema.optional(),
 }).strict();
 export const MigrationReportSchema = z.object({
   kind: z.literal('MIGRATION_REPORT'), version: z.literal('1'),
@@ -64,8 +73,11 @@ export const MigrationReportSchema = z.object({
   scenarios: z.array(ScenarioVerificationSchema).max(10000),
   checks: z.array(ProjectCheckVerificationSchema).max(10000),
   criticalContractStatus: VerificationStatusSchema.optional(),
+  privacy: PrivacyModeSchema.optional(),
 }).strict().superRefine((value, ctx) => {
   const issue = (): void => ctx.addIssue({ code: 'custom', message: 'Report status contradicts required evidence' });
+  if (value.privacy?.mode === 'DEGRADED_INSECURE'
+    && !value.diagnostics.some(item => item.code === 'WEAK_PRIVATE_PERMISSIONS' || item.code === 'DEGRADED_ISOLATION')) issue();
   if ([...value.scenarios, ...value.checks].some(item => canonical(item.identity) !== canonical(value.identity))) issue();
   for (const coverage of Object.values(value.requiredCoverage)) if (coverage.received > coverage.expected) issue();
   if (value.status === 'FAIL' && ![value.preservation, value.requirements, value.projectChecks, value.criticalContractStatus].includes('FAIL')) issue();
@@ -85,4 +97,5 @@ export type MigrationDiagnostic = z.infer<typeof MigrationDiagnosticSchema>;
 export type ScenarioVerification = z.infer<typeof ScenarioVerificationSchema>;
 export type MigrationReportInput = z.infer<typeof MigrationReportInputSchema>;
 export type MigrationReport = z.infer<typeof MigrationReportSchema>;
+export type PrivacyMode = z.infer<typeof PrivacyModeSchema>;
 export const parseMigrationReport = (value: unknown): MigrationReport => MigrationReportSchema.parse(value);

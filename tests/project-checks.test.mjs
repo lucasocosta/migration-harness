@@ -128,12 +128,12 @@ test('owned descendants are cleaned after timeout and after successful parent ex
     const result = await run(root, { config: c }); assert.equal(result.status, hang ? 'INCONCLUSIVE' : 'PASS');
     const pid = Number(await readFile(join(root, 'target/child.pid'), 'utf8'));
     for (let i = 0; i < 20; i++) {
-      const state = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => '');
-      if (!state || state.split(' ')[2] === 'Z') break;
+      try { process.kill(pid, 0); } catch { break; }
       await delay(50);
     }
-    const state = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => '');
-    assert.ok(!state || state.split(' ')[2] === 'Z', 'owned child must no longer be executing');
+    let alive = true;
+    try { process.kill(pid, 0); } catch { alive = false; }
+    assert.ok(!alive, 'owned child must no longer be executing');
   }
 });
 

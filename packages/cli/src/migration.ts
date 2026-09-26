@@ -20,6 +20,7 @@ Coverage/binding reference updates keep this session: update-migration-session p
 Exit codes: 0 started/valid scope; 3 refused scope or exhausted budget; 1 invalid input/state.`;
   return `${command} --config <migration.json> --workspace-root <dir> --artifact-path <new-relative-dir>
   --allow-project-commands: run declared build/test/reset commands in an authorized local environment
+  --allow-insecure-private-store: permit DEGRADED privacy when the filesystem cannot enforce 0700/0600 (Windows); see docs/OS-PORTABILITY.md
 ${command === 'prepare-migration'
     ? '  --preflight-only: inspect inputs, output paths, ports and Chromium; no project commands\n  --previous <preparation.json> [--owner-decision <reference>]: explicit versioned reference update'
     : '  --preparation <preparation.json>: required baseline and fixed source reference; always recapture the complete suite'}
@@ -33,7 +34,7 @@ Executable example: examples/validation-first/README.md`;
 export async function migrationCommand(command: 'prepare-migration' | 'verify-migration' | 'start-migration-session' | 'migration-session-status' | 'update-migration-session', values: Record<string, unknown>): Promise<void> {
   const sessionCommand = command === 'start-migration-session' || command === 'migration-session-status';
   const updateCommand = command === 'update-migration-session';
-  const allowed = new Set(['config', 'workspace-root', 'artifact-path', 'allow-project-commands',
+  const allowed = new Set(['config', 'workspace-root', 'artifact-path', 'allow-project-commands', 'allow-insecure-private-store',
     ...(command === 'prepare-migration' ? ['preflight-only', 'previous', 'owner-decision'] : updateCommand ? ['owner-decision'] : ['preparation'])]);
   if (sessionCommand) { allowed.delete('artifact-path'); allowed.delete('allow-project-commands'); if (command === 'migration-session-status') allowed.delete('preparation'); }
   for (const key of Object.keys(values)) if (!allowed.has(key)) throw new Error('UNSUPPORTED_MIGRATION_OPTION');
@@ -44,12 +45,14 @@ export async function migrationCommand(command: 'prepare-migration' | 'verify-mi
   if (values['owner-decision'] && !values.previous && !updateCommand) throw new Error('OWNER_DECISION_REQUIRES_PREVIOUS');
   const workspaceRoot = resolve(required('workspace-root'));
   const artifactPath = typeof values['artifact-path'] === 'string' ? values['artifact-path'] : undefined;
-  const store = new ArtifactStore(resolve(workspaceRoot, artifactPath ?? 'artifacts'));
+  const store = new ArtifactStore(resolve(workspaceRoot, artifactPath ?? 'artifacts'), undefined,
+    values['allow-insecure-private-store'] ? { allowInsecurePrivateStore: true } : {});
   const config = parseMigrationConfig(await readPublicJson(required('config'), store));
   const controller = new AbortController(), abort = (): void => controller.abort();
   process.once('SIGINT', abort); process.once('SIGTERM', abort);
   try {
-    const common = { config, workspaceRoot, artifactPath, allowProjectCommands: values['allow-project-commands'] === true, signal: controller.signal };
+    const common = { config, workspaceRoot, artifactPath, allowProjectCommands: values['allow-project-commands'] === true, signal: controller.signal,
+      allowInsecurePrivateStore: values['allow-insecure-private-store'] === true };
     if (sessionCommand) {
       if (command === 'start-migration-session') {
         const result = await startMigrationSession({ config, workspaceRoot, preparation: await readPublicJson(required('preparation'), store, 32_000_000) });

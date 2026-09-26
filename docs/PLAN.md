@@ -253,8 +253,9 @@ executor, sem alterar a API nem desativar checks. O gate isolado restrito fica i
 
 Pendencias apos aquele incremento: servidores/healthcheck/portas, reset executado
 entre cenarios, identidade do build servido, suite source/target, checks no relatorio
-de migracao e diagnosticos operacionais mais localizados. Executor POSIX/Linux/WSL,
-sem sandbox; processos que escapam deliberadamente do grupo nao sao isolados.
+de migracao e diagnosticos operacionais mais localizados. Executor Linux/macOS/Windows
+(Windows: modo degradado de privacy com disclosure; ver OS-PORTABILITY.md),
+sem sandbox; processos que escapam deliberadamente da arvore nao sao isolados.
 Este comando nao captura estabilidade nem aprova referencia. Evidencia: VALIDATION.md.
 
 Verificacao deste incremento: build PASS, unit/CLI 143/143 serializado (11 testes

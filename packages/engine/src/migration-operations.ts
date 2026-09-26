@@ -2,7 +2,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, open, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import {
   canonical, MigrationPathSchema, migrationConfigHash, migrationReferenceHash, parseMigrationConfig,
   parseMigrationPreparation, parseSanitizedTrace, parseContract, SourceObservationsSchema,
@@ -17,23 +16,24 @@ import { captureProjectSuite, type CaptureSuiteResult, type SuiteCapture } from 
 import { collectMigrationReference, verifyMigrationReference } from './migration-reference.js';
 import { preflightProjectChecks } from './project-checks.js';
 import { preflightBuildServers, ProjectBuildError } from './build-servers.js';
+import { assertNotPrivateWorkspace, coversPosix, isWithin, privateBaseDir } from './platform-paths.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
 const unavailable = digest(null);
 const combine = (values: VerificationStatus[]): VerificationStatus => values.includes('INCONCLUSIVE') || !values.length
   ? 'INCONCLUSIVE' : values.includes('FAIL') ? 'FAIL' : 'PASS';
-interface OperationInput { config: unknown; workspaceRoot: string; artifactPath: string; allowProjectCommands?: boolean; signal?: AbortSignal }
+interface OperationInput { config: unknown; workspaceRoot: string; artifactPath: string; allowProjectCommands?: boolean; signal?: AbortSignal; allowInsecurePrivateStore?: boolean }
 
 async function reserve(input: OperationInput): Promise<{ config: MigrationConfig; workspace: string; store: ArtifactStore }> {
   const config = parseMigrationConfig(input.config), workspace = await realpath(resolve(input.workspaceRoot));
-  const privateRoot = join(homedir(), '.local/state/migration-harness');
-  if (workspace.split('/').includes('.migration-private') || workspace === privateRoot || workspace.startsWith(`${privateRoot}/`)) throw new Error('PRIVATE_WORKSPACE');
+  assertNotPrivateWorkspace(workspace, privateBaseDir());
   const path = MigrationPathSchema.parse(input.artifactPath), output = resolve(workspace, path);
-  const overlap = (other: string): boolean => other === output || other.startsWith(`${output}/`) || output.startsWith(`${other}/`);
+  const overlap = (other: string): boolean => other === output || isWithin(output, other) || isWithin(other, output);
   if ([config.source.root, config.target.root, ...config.scenarios.map(item => item.fixtureRoot),
     ...(config.criticalContract ? [config.criticalContract.path] : [])].some(item => overlap(resolve(workspace, item)))) throw new Error('UNSAFE_OPERATION_OUTPUT');
   await safeArtifactPath(workspace, path); await mkdir(dirname(output), { recursive: true }); await mkdir(output);
-  const store = new ArtifactStore(output);
+  const store = new ArtifactStore(output, undefined, input.allowInsecurePrivateStore || process.env.MIGRATION_HARNESS_ALLOW_INSECURE_PRIVATE_STORE === '1'
+    ? { allowInsecurePrivateStore: true } : {});
   await store.write('started.json', { kind: 'MIGRATION_OPERATION_STARTED', configurationHash: migrationConfigHash(config), completed: false });
   return { config, workspace, store };
 }
@@ -59,7 +59,8 @@ async function referenceKey(store: ArtifactStore, create?: string): Promise<stri
     : constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   try {
     const stat = await file.stat();
-    if (!stat.isFile() || stat.nlink !== 1 || stat.mode & 0o077 || stat.size > 128) throw new Error('PRIVATE_KEY_UNAVAILABLE');
+    const weakMode = Boolean(stat.mode & 0o077);
+    if (!stat.isFile() || stat.nlink !== 1 || (weakMode && !store.privacyMode.includes('DEGRADED')) || stat.size > 128) throw new Error('PRIVATE_KEY_UNAVAILABLE');
     if (create !== undefined) { await file.writeFile(create); return create; }
     const buffer = Buffer.alloc(129); const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
     const key = buffer.subarray(0, bytesRead).toString('utf8');
@@ -289,6 +290,7 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
     const report = buildMigrationReport(config, { identity, evaluatedAt: new Date().toISOString(), reference: finalReference,
       referenceVerified: finalReference.status === 'VERIFIED' && sourceObservations.status === 'STABLE' && buildMatches
         && sourceUnchanged && !suite?.failureCode && validPreparation && !!unchanged && !session.expired(), scenarios, checks, executionDiagnostics: diagnostics,
+      privacy: { mode: store.privacyMode, platform: process.platform },
       ...(config.criticalContract ? { criticalContractStatus: combine(criticalStates) } : {}) });
     if (suite?.checks) await store.write('native-checks.json', suite.checks);
     await store.write('reference-verification.json', finalReference);

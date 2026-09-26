@@ -3,7 +3,7 @@ import { mkdir, realpath } from 'node:fs/promises';
 import { dirname, relative, resolve } from 'node:path';
 import {
   canonical, MigrationIdSchema, MigrationPathSchema, migrationConfigHash, parseMigrationConfig, parseScenario,
-  resolveScenarioForSide, scenarioBindingProjection, type ProjectCheckReport, type SanitizedObservedTrace,
+  resolveScenarioForSide, scenarioBindingProjection, isWithin, type ProjectCheckReport, type SanitizedObservedTrace,
   type ServedBuildIdentity,
 } from '@migration-harness/core';
 import { sanitizeTrace } from '@migration-harness/trace-sanitizer';
@@ -50,7 +50,7 @@ export async function captureProjectSuite(input: {
   if ((await preflightProjectChecks(input)).status !== 'PASS') throw new Error('SUITE_PREFLIGHT_FAILED');
   const workspace = await realpath(resolve(input.workspaceRoot));
   const output = resolve(workspace, artifactPath);
-  const overlaps = (path: string): boolean => path === output || path.startsWith(`${output}/`) || output.startsWith(`${path}/`);
+  const overlaps = (path: string): boolean => path === output || isWithin(output, path) || isWithin(path, output);
   if ([config.source.root, config.target.root, ...config.scenarios.map(item => item.fixtureRoot),
     ...(config.criticalContract ? [config.criticalContract.path] : [])].some(path => overlaps(resolve(workspace, path)))) throw new Error('UNSAFE_SUITE_OUTPUT');
   await safeArtifactPath(workspace, artifactPath);
