@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { mkdir, open, realpath } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { MigrationPathSchema, parseMigrationConfig } from '@migration-harness/core';
 import { ArtifactStore, preflightProjectChecks, runProjectChecks, safeArtifactPath } from '@migration-harness/engine';
 import { publicPath, readPublicJson } from './assistant-files.js';
@@ -28,11 +28,13 @@ export async function projectChecksCommand(values: Record<string, unknown>): Pro
     const rel = relative(resolve(base), resolve(path));
     return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\'));
   };
-  // macOS `/var` -> `/private/var`: compare resolved real paths so containment is not string-prefix based.
+  // macOS `/var` -> `/private/var`: resolve real parent paths so containment is not string-prefix based.
+  // Output may not exist yet, so realpath the parent directory and reattach the leaf name.
   const containsReal = async (base: string, path: string): Promise<boolean> => {
     const b = await realpath(resolve(base)).catch(() => resolve(base));
-    const p = await realpath(resolve(path)).catch(() => resolve(path));
-    return contains(b, p);
+    const resolved = resolve(path);
+    const parent = await realpath(dirname(resolved)).catch(() => dirname(resolved));
+    return contains(b, join(parent, basename(resolved)));
   };
   const protectedRoots = [config.source.root, config.target.root, ...config.scenarios.map(item => item.fixtureRoot)];
   if (output === configPath || values.baseline && output === resolve(required('baseline'))

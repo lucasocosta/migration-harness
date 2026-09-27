@@ -348,9 +348,14 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   const components = symbols.filter(s => s.kind === 'component');
   if (!entrypoints && components.length !== 1) throw new Error('Multiple or missing components: select explicit entrypoints.');
   const entries = entrypoints ?? components.map(s => s.id);
-  const resolveEntry = (id: string) => symbols.find(s => s.id === id)
-    // Tolerate OS path-form differences in the file segment of `path#Name` entrypoint ids.
-    ?? symbols.find(s => s.id.endsWith(`#${id.split('#').at(-1)}`) && s.id.includes(id.split('#')[0]!.split(/[\\/]/).pop()!));
+  const resolveEntry = (id: string) => {
+    const name = id.split('#').at(-1) ?? id;
+    const fileHint = (id.split('#')[0] ?? '').split(/[\\/]/).pop() ?? '';
+    return symbols.find(s => s.id === id)
+      // Tolerate OS path-form differences in the file segment of `path#Name` entrypoint ids.
+      ?? symbols.find(s => s.name === name && s.filePath.split(/[\\/]/).pop() === fileHint)
+      ?? symbols.find(s => s.name === name);
+  };
   if (!entries.length || entries.some(id => !resolveEntry(id))) throw new Error('Select at least one resolved migration entrypoint.');
   const included = new Set(entries.map(id => resolveEntry(id)!.id));
   const entryIds = new Set(entries.map(id => resolveEntry(id)!.id));
