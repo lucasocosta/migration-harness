@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import {
   canonical, migrationConfigHash, migrationReferenceHash, parseMigrationConfig, parseMigrationPreparation, parseMigrationReport,
@@ -37,7 +37,7 @@ async function storeFor(input: Input) {
   return { config, workspace, path, store: new ArtifactStore(resolve(workspace, path)) };
 }
 async function readJson(store: ArtifactStore, path: string): Promise<unknown> {
-  if (await realpath(store.root) !== resolve(store.root)) throw new Error('SESSION_PATH_UNSAFE');
+  if ((await lstat(store.root)).isSymbolicLink()) throw new Error('SESSION_PATH_UNSAFE');
   const file = await open(await safeArtifactPath(store.root, path), constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = await file.stat();

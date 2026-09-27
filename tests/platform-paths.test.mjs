@@ -46,11 +46,12 @@ test('samePath compares resolved paths', () => {
   assert.equal(samePath('/tmp/a', '/tmp/b'), false);
 });
 
-test('privateBaseDir honors MIGRATION_HARNESS_STATE_DIR', () => {
+test('privateBaseDir honors MIGRATION_HARNESS_STATE_DIR', async () => {
+  const { resolve } = await import('node:path');
   const previous = process.env.MIGRATION_HARNESS_STATE_DIR;
   try {
     process.env.MIGRATION_HARNESS_STATE_DIR = '/custom/state';
-    assert.equal(privateBaseDir(), '/custom/state');
+    assert.equal(privateBaseDir(), resolve('/custom/state'));
     delete process.env.MIGRATION_HARNESS_STATE_DIR;
     assert.ok(privateBaseDir().includes(PRIVATE_STATE_FRAGMENT.split('/').pop()));
   } finally {

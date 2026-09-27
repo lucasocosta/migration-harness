@@ -219,7 +219,7 @@ export class ArtifactStore {
     const root = resolve(this.options.backup!.root);
     await mkdir(root, { recursive: true, mode: 0o700 });
     if ((await lstat(root)).mode & 0o077 && !this.options.allowInsecurePrivateStore) throw new Error('Backup artifact filesystem must enforce mode 0700.');
-    if (await realpath(root) !== root) throw new Error('Backup root must not be a symlink.');
+    if ((await lstat(root)).isSymbolicLink()) throw new Error('Backup root must not be a symlink.');
     return root;
   }
 }
@@ -235,7 +235,7 @@ export async function safeArtifactPath(root: string, path: string): Promise<stri
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('Artifact path escapes root.');
   let current = base;
   await mkdir(base, { recursive: true });
-  if (await realpath(base) !== base) throw new Error('Artifact root must not be a symlink.');
+  if ((await lstat(base)).isSymbolicLink()) throw new Error('Artifact root must not be a symlink.');
   for (const part of rel.split(/[\\/]/)) {
     current = join(current, part);
     const stat = await lstat(current).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });

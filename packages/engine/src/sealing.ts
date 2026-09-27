@@ -66,7 +66,7 @@ export class KeyRing {
   constructor(readonly keysRoot: string, readonly options: { allowDegraded?: boolean } = {}) {}
   private async ensureDirectory(): Promise<void> {
     await mkdir(this.keysRoot, { recursive: true, mode: 0o700 });
-    if (await realpath(this.keysRoot) !== resolve(this.keysRoot)) throw new Error('Key directory must not contain symlinks.');
+    if ((await lstat(this.keysRoot)).isSymbolicLink()) throw new Error('Key directory must not contain symlinks.');
     if ((await lstat(this.keysRoot)).mode & 0o077 && !this.options.allowDegraded) throw new Error('Key filesystem must enforce mode 0700.');
   }
   async versions(): Promise<number[]> {
@@ -143,7 +143,7 @@ export async function replaceFileAtomically(target: string, content: Buffer | st
   target = resolve(target);
   const directory = dirname(target);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  if (await realpath(directory) !== directory) throw new Error('Sealed artifact directory must not be a symlink.');
+  if ((await lstat(directory)).isSymbolicLink()) throw new Error('Sealed artifact directory must not be a symlink.');
   const previous = await lstat(target).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; return undefined; });
   if (previous && (!previous.isFile() || previous.nlink !== 1)) throw new Error('Sealed artifact target must be an unlinked regular file.');
   const temporary = join(directory, `.sealing-${randomBytes(8).toString('hex')}.tmp`);

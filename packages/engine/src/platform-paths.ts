@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, realpath, type FileHandle } from 'node:fs/promises';
+import { lstat, mkdir, open, type FileHandle } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   isWithin, pathSegments, privateBaseDir, samePath,
@@ -24,11 +24,19 @@ export interface PrivateDirResult {
  * Under `allowDegraded`, a filesystem that cannot enforce the mode is accepted
  * as DEGRADED instead of throwing; strict remains the default.
  */
+/**
+ * Refuse a path whose leaf is a symlink. Parents may be system aliases
+ * (macOS `/var` -> `/private/var`); comparing realpath to the literal path
+ * would false-fail there. The security intent is the owned entry itself.
+ */
+export async function assertNotSymlinkLeaf(path: string, message: string): Promise<void> {
+  const stat = await lstat(path);
+  if (stat.isSymbolicLink()) throw new Error(message);
+}
+
 export async function ensurePrivateDir(path: string, options: { allowDegraded?: boolean } = {}): Promise<PrivateDirResult> {
   await mkdir(path, { recursive: true, mode: 0o700 });
-  // Compare resolved forms so Windows `\\?\` / case differences do not look like symlinks.
-  const resolved = await realpath(path).catch(() => resolve(path));
-  if (!samePath(resolved, path)) throw new Error('Private directory must not contain symlinks.');
+  await assertNotSymlinkLeaf(path, 'Private directory must not contain symlinks.');
   const enforced = ((await lstat(path)).mode & 0o077) === 0;
   if (enforced) return { path, mode: 'STRICT' };
   if (options.allowDegraded) return { path, mode: 'DEGRADED' };
