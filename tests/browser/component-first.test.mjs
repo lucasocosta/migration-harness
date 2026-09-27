@@ -1,4 +1,5 @@
 import test from 'node:test';
+import '../helpers/privacy.mjs';
 import assert from 'node:assert/strict';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';

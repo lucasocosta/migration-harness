@@ -39,3 +39,18 @@ export function supportsTreeKill(): boolean {
 export function executionPlatform(): string {
   return process.platform;
 }
+
+/**
+ * Resolve a command argv[0] for spawn({ shell: false }).
+ * Windows package shims (`npm`, `pnpm`) are `.cmd` files and are not found as
+ * bare names; prefer the `.cmd` form when `where` locates it.
+ */
+export function resolveExecutable(name: string): string {
+  if (process.platform !== 'win32' || /[/\\]/.test(name) || /\.[a-z]{1,5}$/i.test(name)) return name;
+  try {
+    execFileSync('where', [`${name}.cmd`], { stdio: 'ignore', windowsHide: true });
+    return `${name}.cmd`;
+  } catch {
+    return name;
+  }
+}

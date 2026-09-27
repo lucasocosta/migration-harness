@@ -9,7 +9,7 @@ import {
 } from '@migration-harness/core';
 import { collectMigrationReference } from './migration-reference.js';
 import { assertNotPrivateWorkspace, pathSegments, privateBaseDir, probePrivatePermissionMode } from './platform-paths.js';
-import { killTree, supportsTreeKill } from './process-tree.js';
+import { killTree, resolveExecutable, supportsTreeKill } from './process-tree.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
 const OUTPUT_LIMIT = 1_048_576;
@@ -109,7 +109,7 @@ async function execute(command: Command, cwd: string, timeoutMs: number, signal?
   for (const key of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP']) if (process.env[key] !== undefined) env[key] = process.env[key];
   return new Promise(resolveOutcome => {
     // detached gives POSIX its own process group; on Windows it would open a new console and break pipes.
-    const child = spawn(command.argv[0]!, command.argv.slice(1), { cwd, env, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(resolveExecutable(command.argv[0]!), command.argv.slice(1), { cwd, env, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     const output = { omitted: true as const, stdoutBytes: 0, stderrBytes: 0 };
     let reason: Outcome['reason'] | undefined;
     let exitCode: number | null = null;
