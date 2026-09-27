@@ -9,6 +9,7 @@ import { storeOptions, canEnforcePosixModes, canCreateSymlink } from './helpers/
 
 const rawTrace = runIndex => { const t = trace(); delete t.sanitization; return { ...t, runIndex }; };
 const MAGIC = 'MHAES001';
+const keyRing = async path => new KeyRing(path, (await canEnforcePosixModes()) ? {} : { allowDegraded: true });
 const setup = async (options = {}) => {
   const root = await mkdtemp(join(tmpdir(), 'harness-lifecycle-'));
   const keysRoot = join(root, 'keys');
@@ -78,10 +79,10 @@ test('key rotation re-seals raw, retains keys and refuses unsafe automatic pruni
     await writeFile(retained, beforeRotation); await chmod(retained, 0o600);
     assert.ok((await store.readPrivate('raw/retained/update-customer/1.json')).toString().includes('update-customer'), 'v1 decrypts while the v1 key is retained');
     await assert.rejects(store.rotateRawKey(trail, 1), /Automatic key pruning is disabled/);
-    assert.deepEqual(await new KeyRing(keysRoot).versions(), [1, 2], 'refusal does not create or delete keys');
+    assert.deepEqual(await (await keyRing(keysRoot)).versions(), [1, 2], 'refusal does not create or delete keys');
     const second = await store.rotateRawKey(trail);
     assert.deepEqual(second.prunedKeyVersions, []);
-    assert.deepEqual(await new KeyRing(keysRoot).versions(), [1, 2, 3]);
+    assert.deepEqual(await (await keyRing(keysRoot)).versions(), [1, 2, 3]);
     assert.ok((await store.readPrivate('raw/unit/update-customer/1.json')).toString().includes('update-customer'), 'the rotated active domain still reads fine');
     // Fail-closed: a sealed-junk sweep target (versioned with the ACTIVE key, bad tag) aborts rotation before any audit entry is recorded.
     await writeFile(retained, Buffer.concat([Buffer.from(MAGIC, 'latin1'), (() => { const view = Buffer.alloc(4); view.writeUInt32BE(3); return view; })(), new Uint8Array(12), new Uint8Array(16), Buffer.from('junk')]));
@@ -107,7 +108,7 @@ test('rotation preserves archived copies and backup root cannot equal the public
     const archived = await readFile(join(backup, `gen-${clock}/raw/unit/update-customer/1.json`));
     await store.rotateRawKey(new AuditTrail());
     await assert.rejects(store.rotateRawKey(new AuditTrail(), 1), /pruning is disabled/);
-    const parts = inspectSeal(archived), key = await new KeyRing(store.keysRoot).at(parts.keyVersion);
+    const parts = inspectSeal(archived), key = await (await keyRing(store.keysRoot)).at(parts.keyVersion);
     assert.deepEqual(JSON.parse(openSeal(parts, key.version, key.bytes)), rawTrace(1));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -124,9 +125,9 @@ test('key reads reject permissive modes and aliases; truncated or damaged seals 
     }
     if (await canCreateSymlink()) {
       const linkedRoot = join(root, 'linked'); await symlink(keysRoot, linkedRoot);
-      await assert.rejects(new KeyRing(linkedRoot).at(1), /symlink/);
+      await assert.rejects(new KeyRing(linkedRoot).at(1), /symlink/); // leaf is a symlink; refused before mode checks
       await symlink(key, join(keysRoot, 'v2.hex'));
-      await assert.rejects(new KeyRing(keysRoot).at(2), ArtifactAuthFailureError);
+      await assert.rejects((await keyRing(keysRoot)).at(2), ArtifactAuthFailureError);
     }
     assert.throws(() => inspectSeal(Buffer.from('MHAES001truncated')), ArtifactAuthFailureError);
     bytes[0] ^= 1;
@@ -165,7 +166,7 @@ test('backup retention archives expired raw files by generation, honours the cap
     assert.equal(generations[0], `gen-${clock + 2}`); assert.equal(generations[1], `gen-${clock + 3}`);
     const archived = await readFile(join(backup, generations[1], 'raw', 'unit', 'update-customer', '3.json'));
     assert.equal(inspectSeal(archived).keyVersion, 1, 'archived copies are sealed under the active key');
-    assert.deepEqual(JSON.parse(openSeal(inspectSeal(archived), 1, (await new KeyRing(join(root, 'keys')).active()).bytes).toString()), rawTrace(3), 'backup files decrypt with the same keyring');
+    assert.deepEqual(JSON.parse(openSeal(inspectSeal(archived), 1, (await (await keyRing(join(root, 'keys'))).active()).bytes).toString()), rawTrace(3), 'backup files decrypt with the same keyring');
     if (await canEnforcePosixModes()) {
       assert.equal((await stat(join(backup, generations[1], 'raw', 'unit', 'update-customer', '3.json'))).mode & 0o777, 0o600);
       // Backup directory modes are enforced at use time.

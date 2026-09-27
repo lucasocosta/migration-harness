@@ -61,12 +61,15 @@ test('brief issues a hash-bound, projection-only artifact and refuses unsafe inp
     assert.ok(!brief.repair);
     assert.equal(brief.trace.kind, 'LLM_SAFE_TRACE');
     assert.deepEqual(brief.allowedFiles, [{ path: CANDIDATE, sha256: fileHash(INITIAL), exists: true }]);
-    assert.deepEqual(brief.contextFiles, [join(root, 'examples/fixture/customer-profile.ts')]);
+    assert.deepEqual(brief.contextFiles.map(p => p.replaceAll('\\', '/')), [join(root, 'examples/fixture/customer-profile.ts').replaceAll('\\', '/')]);
     assert.deepEqual(brief.allowedPackages, ['react']);
     assert.match(brief.submission.format.instructions, /AGENTS\.md/);
-    assert.ok(brief.submission.command.includes(`--brief ${join(root, 'brief.json')}`));
-    assert.ok(brief.submission.command.includes(`--candidate-root ${root}`));
-    assert.ok(brief.submission.command.includes('--input <submission.json>'));
+    const command = brief.submission.command.replaceAll('\\', '/');
+    const briefPath = join(root, 'brief.json').replaceAll('\\', '/');
+    const rootPosix = root.replaceAll('\\', '/');
+    assert.ok(command.includes(`--brief ${briefPath}`), `command must cite ${briefPath}: ${command}`);
+    assert.ok(command.includes(`--candidate-root ${rootPosix}`), `command must cite ${rootPosix}`);
+    assert.ok(command.includes('--input <submission.json>'));
     // A raw (un-sanitized) trace must never feed a brief.
     const raw = trace(); delete raw.sanitization;
     const rawPath = await save('raw-trace.json', raw);

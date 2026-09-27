@@ -57,12 +57,13 @@ async function main(): Promise<void> {
   const key = async (): Promise<string> => {
     if (flag('key-file')) return (await readFile(required('key-file'), 'utf8')).trim();
     const path = await store.privatePath('pseudonymization.key');
-    try { if ((await lstat(path)).mode & 0o077) throw new Error('Pseudonymization key must be private.'); return (await readFile(path, 'utf8')).trim(); }
+    const degraded = store.privacyMode === 'DEGRADED_INSECURE';
+    try { if ((await lstat(path)).mode & 0o077 && !degraded) throw new Error('Pseudonymization key must be private.'); return (await readFile(path, 'utf8')).trim(); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     const value = randomBytes(32).toString('hex');
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const handle = await open(path, 'wx', 0o600);
-    try { if ((await handle.stat()).mode & 0o077) throw new Error('Pseudonymization key filesystem must enforce mode 0600.'); await handle.writeFile(value); } finally { await handle.close(); }
+    try { if ((await handle.stat()).mode & 0o077 && !degraded) throw new Error('Pseudonymization key filesystem must enforce mode 0600.'); await handle.writeFile(value); } finally { await handle.close(); }
     return value;
   };
   switch (command) {

@@ -71,7 +71,7 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
       const decoratorNames = decorators.map(decorator => decoratorName(decorator, file));
       const declaredType = ts.isVariableDeclaration(node) ? node.type?.getText(file) ?? '' : '';
       const kind = /Guard$|CanActivateFn/.test(node.name.text + declaredType) ? 'guard' : /Resolver$|ResolveFn/.test(node.name.text + declaredType) ? 'resolver' : decoratorNames.includes('Component') ? 'component' : decoratorNames.includes('Injectable') ? 'service' : decoratorNames.includes('Directive') ? 'directive' : decoratorNames.includes('Pipe') ? 'pipe' : decoratorNames.includes('NgModule') ? 'module' : 'type_definition';
-      const relFile = relative(root, file.fileName).split('\\').join('/');
+      const relFile = relPosix(root, file.fileName);
       const symbol: SymbolRef = { id: `${relFile}#${node.name.text}`, name: node.name.text, kind, filePath: relFile, exported: Boolean(ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export), astHash: createHash('sha256').update(node.getText(file)).digest('hex') };
       symbols.push(symbol); declarations.set(node, symbol);
       if (ts.isClassDeclaration(node) && kind === 'component') {
@@ -230,7 +230,7 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
             scan(parsed.nodes);
             const formDirectives = FORM_DIRECTIVES.filter(directive => names.has(`[${directive}]`) || bindings.includes(directive));
             if (formDirectives.length) { const record = formsFor(symbol.id); for (const directive of formDirectives) record.templateDirectives.add(directive); if (formDirectives.includes('formArrayName')) record.hasFormArray = true; }
-            templates.push({ filePath: relative(root, templatePath).split('\\').join('/'), bindings, errors: parsed.errors?.map(error => error.toString()) ?? [] });
+            templates.push({ filePath: relPosix(root, templatePath), bindings, errors: parsed.errors?.map(error => error.toString()) ?? [] });
             rendered.push({ owner: symbol, names, pipes });
           }
         }
@@ -259,7 +259,7 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
       const module = ts.resolveModuleName(name, file.fileName, program.getCompilerOptions(), ts.sys).resolvedModule;
       if (module && inside(root, module.resolvedFileName)) continue;
       if (!name.startsWith('.')) external.add(name);
-      if (!module) unresolved.push({ name, requestedBy: relative(root, file.fileName).split('\\').join('/'), reason: 'Unresolved module import' });
+      if (!module) unresolved.push({ name, requestedBy: relPosix(root, file.fileName), reason: 'Unresolved module import' });
     }
     const visit = (node: ts.Node, owner?: SymbolRef): void => {
       owner = declarations.get(node) ?? owner;
@@ -366,6 +366,15 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
 function inside(root: string, path: string): boolean {
   const rel = relative(root, path);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel) && !rel.split(/[/\\]/).includes('..'));
+}
+/** Stable POSIX-relative id segment so entrypoint matching works with TS's forward-slash file names on Windows. */
+function relPosix(root: string, file: string): string {
+  const r = resolve(root).split('\\').join('/');
+  const f = resolve(file).split('\\').join('/');
+  const fold = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value);
+  if (fold(f) === fold(r)) return '';
+  if (fold(f).startsWith(fold(r) + '/')) return f.slice(r.length + 1);
+  return relative(root, file).split('\\').join('/');
 }
 async function walk(root: string): Promise<string[]> {
   const result: string[] = [];
