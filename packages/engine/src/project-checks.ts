@@ -109,7 +109,12 @@ async function execute(command: Command, cwd: string, timeoutMs: number, signal?
   for (const key of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP']) if (process.env[key] !== undefined) env[key] = process.env[key];
   return new Promise(resolveOutcome => {
     // detached gives POSIX its own process group; on Windows it would open a new console and break pipes.
-    const child = spawn(resolveExecutable(command.argv[0]!), command.argv.slice(1), { cwd, env, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    // Node 22+ refuses spawn() of .cmd shims without a shell, so route those through cmd.exe /c.
+    const exe = resolveExecutable(command.argv[0]!);
+    const viaCmd = process.platform === 'win32' && exe.toLowerCase().endsWith('.cmd');
+    const child = viaCmd
+      ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', exe, ...command.argv.slice(1)], { cwd, env, shell: false, detached: false, stdio: ['ignore', 'pipe', 'pipe'] })
+      : spawn(exe, command.argv.slice(1), { cwd, env, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     const output = { omitted: true as const, stdoutBytes: 0, stderrBytes: 0 };
     let reason: Outcome['reason'] | undefined;
     let exitCode: number | null = null;
