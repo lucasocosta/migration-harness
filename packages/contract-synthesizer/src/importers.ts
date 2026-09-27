@@ -64,7 +64,9 @@ export function importOpenApi(input: unknown, sourceReference: string, options: 
       if (file !== root && !file.startsWith(root + sep)) throw new Error('Mapped reference escapes its ref-map root.');
     } else if (remainder) throw new Error('Mapped file references cannot carry additional path segments.');
     // The input guards refuse the private artifact domain wherever it resolves, after containment.
-    const privateRoots = [resolvePath(privateBaseDir()), ...(options.privateRoots ?? []).map(root => resolvePath(root))];
+    const privateRoots = [privateBaseDir(), ...(options.privateRoots ?? [])].map(root => {
+      try { return realpathSync(resolvePath(root)); } catch { return resolvePath(root); }
+    });
     if (file.split(/[\\/]/).includes('.migration-private') || privateRoots.some(root => file === root || file.startsWith(root + sep))) throw new Error('Mapped references cannot resolve into a private root.');
     if (!file.endsWith('.json')) throw new Error('Mapped references must resolve to JSON documents.');
     const identity = `${file}\n${location}`;

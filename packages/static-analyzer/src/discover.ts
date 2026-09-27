@@ -348,12 +348,16 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   const components = symbols.filter(s => s.kind === 'component');
   if (!entrypoints && components.length !== 1) throw new Error('Multiple or missing components: select explicit entrypoints.');
   const entries = entrypoints ?? components.map(s => s.id);
-  if (!entries.length || entries.some(id => !symbols.some(s => s.id === id))) throw new Error('Select at least one resolved migration entrypoint.');
-  const included = new Set(entries);
+  const resolveEntry = (id: string) => symbols.find(s => s.id === id)
+    // Tolerate OS path-form differences in the file segment of `path#Name` entrypoint ids.
+    ?? symbols.find(s => s.id.endsWith(`#${id.split('#').at(-1)}`) && s.id.includes(id.split('#')[0]!.split(/[\\/]/).pop()!));
+  if (!entries.length || entries.some(id => !resolveEntry(id))) throw new Error('Select at least one resolved migration entrypoint.');
+  const included = new Set(entries.map(id => resolveEntry(id)!.id));
+  const entryIds = new Set(entries.map(id => resolveEntry(id)!.id));
   let changed = true;
   while (changed) { changed = false; for (const edge of edges) if (included.has(edge.fromSymbolId) && !included.has(edge.toSymbolId)) { included.add(edge.toSymbolId); changed = true; } }
   const internal = symbols.filter(s => included.has(s.id));
-  const unit: MigrationUnit = { id: internal.find(s => entries.includes(s.id))!.name, version: '1.0.0', runtimeRoutes: routes.filter(route => route.componentId && included.has(route.componentId)).map(route => route.path), symbols: internal, dependencyGraph: edges.filter(e => included.has(e.fromSymbolId) && included.has(e.toSymbolId)),
+  const unit: MigrationUnit = { id: internal.find(s => entryIds.has(s.id))!.name, version: '1.0.0', runtimeRoutes: routes.filter(route => route.componentId && included.has(route.componentId)).map(route => route.path), symbols: internal, dependencyGraph: edges.filter(e => included.has(e.fromSymbolId) && included.has(e.toSymbolId)),
     inputs: ioInputs.filter(input => included.has(input.symbolId)), outputs: ioOutputs.filter(output => included.has(output.symbolId)),
     reactiveForms: [...formsRecords].filter(([symbolId]) => included.has(symbolId)).map(([symbolId, record]) => ({ symbolId, formsSymbols: [...record.formsSymbols].sort(), templateDirectives: [...record.templateDirectives].sort(), controls: [...record.controls].sort(), validators: [...record.validators].sort(), hasAsyncValidators: record.hasAsyncValidators, hasFormArray: record.hasFormArray, hasDynamicControlCreation: record.hasDynamicControlCreation, subscriptions: record.subscriptions, builderInferred: record.builderGroups > 0 && record.builderGroupsNormalized, asyncValidatorEvidence: record.asyncValidatorEvidence })),
     providerScopes: [...providerScopes].filter(([symbolId]) => included.has(symbolId)).map(([symbolId, scope]) => ({ symbolId, providedIn: scope.providedIn, ...(scope.token ? { token: scope.token } : {}), componentProviders: scope.componentProviders })),

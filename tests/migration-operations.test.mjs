@@ -108,7 +108,7 @@ test('verifyMigration with an unreadable preparation evidence root stays inconcl
   assert.ok(report.diagnostics.some(item => item.code === 'STALE_EVIDENCE' && item.category === 'EVIDENCE'
     && item.detailCode === 'REFERENCE_EVIDENCE_UNAVAILABLE'));
   assert.ok(report.scenarios.length === 1 && report.scenarios.every(item => item.status === 'INCONCLUSIVE'));
-  assert.deepEqual(JSON.parse(await readFile(join(value.root, output, 'migration-report.json'), 'utf8')), report);
+  assert.deepEqual(JSON.parse(await readFile(join(value.root, output, 'migration-report.json'), 'utf8')), JSON.parse(JSON.stringify(report)));
   const summary = summarizeMigration(report);
   assert.match(summary, /^Migration served-builds: INCONCLUSIVE$/m);
   assert.ok(summary.split('\n').includes('Scenario boot: INCONCLUSIVE'));

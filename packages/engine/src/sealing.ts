@@ -110,9 +110,11 @@ export class KeyRing {
   async at(version: number): Promise<DataKey> {
     if (!Number.isSafeInteger(version) || version < 1 || version > 0xffffffff) throw new ArtifactAuthFailureError('Invalid key version.');
     await this.ensureDirectory();
+    const path = join(this.keysRoot, `v${version}.hex`);
     let raw: string;
     try {
-      const handle = await open(join(this.keysRoot, `v${version}.hex`), constants.O_RDONLY | constants.O_NOFOLLOW);
+      if ((await lstat(path)).isSymbolicLink()) throw new ArtifactAuthFailureError('Key must be a private unlinked regular file (0600).');
+      const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         const stat = await handle.stat();
         if (!stat.isFile() || stat.nlink !== 1 || ((stat.mode & 0o077) && !this.options.allowDegraded) || stat.size > 66) throw new ArtifactAuthFailureError('Key must be a private unlinked regular file (0600).');

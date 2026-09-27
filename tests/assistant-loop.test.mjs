@@ -67,8 +67,9 @@ test('brief issues a hash-bound, projection-only artifact and refuses unsafe inp
     const command = brief.submission.command.replaceAll('\\', '/');
     const briefPath = join(root, 'brief.json').replaceAll('\\', '/');
     const rootPosix = root.replaceAll('\\', '/');
-    assert.ok(command.includes(`--brief ${briefPath}`), `command must cite ${briefPath}: ${command}`);
-    assert.ok(command.includes(`--candidate-root ${rootPosix}`), `command must cite ${rootPosix}`);
+    const unquoted = command.replace(/'/g, '');
+    assert.ok(unquoted.includes(`--brief ${briefPath}`), `command must cite ${briefPath}: ${command}`);
+    assert.ok(unquoted.includes(`--candidate-root ${rootPosix}`), `command must cite ${rootPosix}`);
     assert.ok(command.includes('--input <submission.json>'));
     // A raw (un-sanitized) trace must never feed a brief.
     const raw = trace(); delete raw.sanitization;

@@ -25,13 +25,19 @@ export async function projectChecksCommand(values: Record<string, unknown>): Pro
   const baseline = values.baseline === undefined ? undefined : await readPublicJson(required('baseline'), store);
   const output = await publicPath(resolve(store.root, MigrationPathSchema.parse(required('out'))), store);
   const contains = (base: string, path: string): boolean => {
-    const rel = relative(resolve(base), path);
-    return rel === '' || !isAbsolute(rel) && rel !== '..' && !rel.startsWith('../');
+    const rel = relative(resolve(base), resolve(path));
+    return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\'));
   };
+  // macOS `/var` -> `/private/var`: compare resolved real paths so containment is not string-prefix based.
+  const containsReal = async (base: string, path: string): Promise<boolean> => {
+    const b = await realpath(resolve(base)).catch(() => resolve(base));
+    const p = await realpath(resolve(path)).catch(() => resolve(path));
+    return contains(b, p);
+  };
+  const protectedRoots = [config.source.root, config.target.root, ...config.scenarios.map(item => item.fixtureRoot)];
   if (output === configPath || values.baseline && output === resolve(required('baseline'))
-    || [config.source.root, config.target.root, ...config.scenarios.map(item => item.fixtureRoot)]
-      .some(path => contains(resolve(workspaceRoot, path), output))
-    || config.criticalContract && output === resolve(workspaceRoot, config.criticalContract.path)) {
+    || (await Promise.all(protectedRoots.map(path => containsReal(resolve(workspaceRoot, path), output)))).some(Boolean)
+    || (config.criticalContract && await containsReal(resolve(workspaceRoot, config.criticalContract.path), output))) {
     throw new Error('Check output overlaps protected project inputs.');
   }
   // Reserve an exclusive output before starting commands, so persistence errors do not surprise after execution.
