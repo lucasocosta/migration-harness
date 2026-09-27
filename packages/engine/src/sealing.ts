@@ -162,7 +162,7 @@ export async function replaceFileAtomically(target: string, content: Buffer | st
 export async function withFileLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
   path = resolve(path);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  if (await realpath(dirname(path)) !== dirname(path)) throw new Error('Lock directory cannot contain symlinks.');
+  if ((await lstat(dirname(path))).isSymbolicLink()) throw new Error('Lock directory cannot contain symlinks.');
   const handle = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
   try { return await operation(); }
   finally { await handle.close(); await unlink(path); }

@@ -1,5 +1,5 @@
 import { mkdir, open, readdir, lstat, realpath, rm, unlink, readFile } from 'node:fs/promises';
-import { resolve, relative, dirname, isAbsolute, join } from 'node:path';
+import { resolve, relative, dirname, isAbsolute, join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { canonical, parseRawTrace, parseSanitizedTrace, type RawObservedTrace, type SanitizedObservedTrace } from '@migration-harness/core';
@@ -101,8 +101,11 @@ export class ArtifactStore {
       : { handle: await open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644), mode: 'STRICT' as const };
     try {
       const file = opened.handle;
-      const resolved = await realpath(target), linked = await lstat(target), fileStat = await file.stat();
-      if (resolved !== target || linked.ino !== fileStat.ino || linked.dev !== fileStat.dev) throw new Error('Artifact path changed during creation.');
+      const linked = await lstat(target), fileStat = await file.stat();
+      // Compare the resolved parent + name so macOS /var -> /private/var does not false-fail.
+      const expected = join(await realpath(dirname(target)), basename(target));
+      const resolved = await realpath(target);
+      if (resolved !== expected || linked.ino !== fileStat.ino || linked.dev !== fileStat.dev) throw new Error('Artifact path changed during creation.');
       if (privateArtifact && opened.mode !== 'STRICT' && !this.options.allowInsecurePrivateStore) throw new Error('Private artifact filesystem must enforce mode 0600.');
       // Sealing covers the raw subtree of the private domain only when opted in; everything else keeps the
       // existing byte-exact plaintext behavior (keys never live under raw, so a seal can never key itself).
@@ -279,7 +282,8 @@ export interface AuditAnchor { previousAnchorHash?: string; chainHeadHash: strin
  * later reader notice that the chain was rewritten or truncated, but it is NOT a trusted timestamping
  * service — an attacker who controls both files can forge a consistent pair. The target is refused inside
  * the private/raw domain (literal .migration-private segments and every configured private root) and when
- * the target or any existing ancestor segment is a symlink; the append itself uses O_NOFOLLOW.
+ * the target itself is a symlink; the append uses O_NOFOLLOW. Ancestors may be system aliases
+ * (macOS `/var` -> `/private/var`) and are not treated as refusals.
  */
 export async function anchorAudit(input: { entries: unknown; externalPath: string; privateRoots: string[]; timestamp?: string }): Promise<{ anchor: AuditAnchor; entries: AuditEntry[] }> {
   if (!Array.isArray(input.entries)) throw new Error('Audit chain must be an array of hash-chained entries.');
@@ -288,12 +292,9 @@ export async function anchorAudit(input: { entries: unknown; externalPath: strin
   const chainHeadHash = (input.entries as AuditEntry[]).at(-1)?.hash ?? '';
   const externalPath = resolve(input.externalPath);
   if (externalPath.split(/[\\/]/).includes('.migration-private') || [privateBaseDir(), ...input.privateRoots].some(base => { const root = resolve(base); return externalPath === root || isWithin(root, externalPath); })) throw new Error('Audit anchor target cannot live in the private artifact domain.');
-  for (let current = externalPath; ;) {
-    const stat = await lstat(current).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });
+  {
+    const stat = await lstat(externalPath).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });
     if (stat?.isSymbolicLink()) throw new Error('Audit anchor target cannot be a symlink.');
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
   }
   await mkdir(dirname(externalPath), { recursive: true });
   return withFileLock(`${externalPath}.lock`, async () => {
