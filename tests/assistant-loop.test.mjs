@@ -181,7 +181,7 @@ test('apply-patch PASS writes exactly the submitted files plus public artifacts 
     assert.equal(applied.status, 'PASS');
     assert.deepEqual(applied.appliedFiles, [CANDIDATE]);
     assert.equal(applied.briefId, brief.briefId);
-    assert.match(applied.next.command, /^run --scenario .* --contract .* --source-url http:\/\/source\.test --target-url http:\/\/target\.test --manifest .*assistant\/manifests\/.* --max-repairs 0 --out verify\.json$/);
+    assert.match(applied.next.command.replaceAll('\\', '/'), /^run --scenario .* --contract .* --source-url http:\/\/source\.test --target-url http:\/\/target\.test --manifest .*assistant\/manifests\/.* --max-repairs 0 --out verify\.json$/);
     const manifestFiles = await readdir(join(root, 'assistant/manifests'));
     assert.deepEqual(JSON.parse(await readFile(join(root, 'assistant/manifests', manifestFiles[0]), 'utf8')), manifest());
     assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), after);

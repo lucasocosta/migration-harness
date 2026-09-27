@@ -31,6 +31,8 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
     options = { ...options, ...ts.parseJsonConfigFileContent(config.config, ts.sys, dirname(configPath)).options };
   }
   const program = ts.createProgram(paths.filter(path => /\.[cm]?tsx?$/.test(path)), { ...options, experimentalDecorators: true });
+  // TypeScript reports file names with forward slashes; walk() uses OS separators.
+  const pathSet = new Set(paths.map(p => resolve(p).split('\\').join('/').toLowerCase()));
   const checker = program.getTypeChecker();
   const symbols: SymbolRef[] = [];
   const edges: DependencyEdge[] = [];
@@ -60,7 +62,7 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   };
   const statementTextOf = (node: ts.Node): string => { let current: ts.Node = node; while (current.parent && !ts.isStatement(current)) current = current.parent; return current.getText(); };
   let loc = 0, branches = 0;
-  for (const file of program.getSourceFiles().filter(file => paths.includes(file.fileName))) {
+  for (const file of program.getSourceFiles().filter(file => pathSet.has(resolve(file.fileName).split('\\').join('/').toLowerCase()))) {
     loc += file.text.split('\n').length;
     const importBindings = new Set<string>();
     for (const statement of file.statements) if (ts.isImportDeclaration(statement) && statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings)) for (const element of statement.importClause.namedBindings.elements) importBindings.add(element.name.text);
@@ -253,7 +255,7 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
       else unresolved.push({ name, requestedBy: template.owner.id, reason: 'Template pipe is external or unresolved' });
     }
   }
-  for (const file of program.getSourceFiles().filter(file => paths.includes(file.fileName))) {
+  for (const file of program.getSourceFiles().filter(file => pathSet.has(resolve(file.fileName).split('\\').join('/').toLowerCase()))) {
     for (const statement of file.statements) if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
       const name = statement.moduleSpecifier.text;
       const module = ts.resolveModuleName(name, file.fileName, program.getCompilerOptions(), ts.sys).resolvedModule;
