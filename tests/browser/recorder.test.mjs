@@ -8,6 +8,7 @@ import { chromium } from '@playwright/test';
 import { captureScenario, ScenarioRunner } from '../../packages/scenario-runner/dist/index.js';
 import { TemporalTraceRecorder } from '../../packages/trace-recorder/dist/index.js';
 import { checkAccessibility } from '../../packages/quality-gates/dist/index.js';
+import { canCreateSymlink } from '../helpers/privacy.mjs';
 
 async function server() {
   const instance = createServer((req, res) => {
@@ -61,22 +62,25 @@ test('global response observers precede actions; storage initialization survives
   } finally { await browser.close(); await fixture.close(); }
 });
 
-test('mock fixtures cannot escape their root or bypass the network origin boundary', { timeout: 30000 }, async () => {
+test('mock fixtures cannot escape their root or bypass the network origin boundary', { timeout: 30000 }, async (t) => {
   const fixture = await server(), browser = await chromium.launch(), root = await mkdtemp(join(tmpdir(), 'harness-mocks-'));
   const scenario = { scenarioId: 'mocks', unitId: 'test', name: 'Mocks', description: '', entryUrl: `${fixture.url}/probe`, preconditions: {}, testDataProfile: 'standard', steps: [], completionSignal: { type: 'STORAGE_KEY_SET', storageType: 'localStorage', storageKey: 'result', timeoutMs: 1000 } };
   await writeFile(join(root, 'allowed.json'), '{}');
-  const outside = join(tmpdir(), `outside-${Date.now()}.json`); await writeFile(outside, 'private'); await symlink(outside, join(root, 'link.json'));
+  const canLink = await canCreateSymlink();
+  const outside = join(tmpdir(), `outside-${Date.now()}.json`); await writeFile(outside, 'private');
+  if (canLink) await symlink(outside, join(root, 'link.json'));
   try {
-    for (const fixturePath of [outside, 'link.json']) {
+    for (const fixturePath of [outside, ...(canLink ? ['link.json'] : [])]) {
       const input = { ...scenario, preconditions: { mockInitialApiResponses: [{ urlPattern: '**/api/fast', method: 'GET', statusCode: 200, fixturePath }] } };
       await assert.rejects(captureScenario(input, 1, { browser, fixtureBaseDir: root }), /escapes/);
     }
+    if (!canLink) t.diagnostic('symlink unavailable; link.json escape case skipped');
     const context = await browser.newContext(), page = await context.newPage();
     await page.route(scenario.entryUrl, route => route.fulfill({ contentType: 'text/html', body: '<html><body><button>Go</button><script>fetch("https://blocked.test/api").then(()=>localStorage.setItem("result","leaked")).catch(()=>localStorage.setItem("result","blocked"))</script></body></html>' }));
     const input = { ...scenario, preconditions: { mockInitialApiResponses: [{ urlPattern: 'https://blocked.test/api', method: 'GET', statusCode: 200, fixturePath: 'allowed.json' }] } };
     await new ScenarioRunner(page, { fixtureBaseDir: root, allowedOrigins: [fixture.url] }).run(input, 1);
     assert.equal(await page.evaluate(() => localStorage.getItem('result')), 'blocked'); await context.close();
-  } finally { await browser.close(); await fixture.close(); await rm(root, { recursive: true, force: true }); await rm(outside); }
+  } finally { await browser.close(); await fixture.close(); await rm(root, { recursive: true, force: true }); await rm(outside, { force: true }); }
 });
 
 test('axe accessibility adapter reports violations without claiming complete conformance', { timeout: 30000 }, async () => {

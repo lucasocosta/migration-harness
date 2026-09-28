@@ -26,7 +26,7 @@ def trace_variant(filename, run_index=1):
         events.append(event)
     html = (WEB / filename).read_text()
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, executable_path='/usr/bin/chromium', args=['--no-sandbox'])
+        browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
         context = browser.new_context(viewport={'width': 1280, 'height': 720}, locale='pt-BR')
         page = context.new_page()
         def router(route):

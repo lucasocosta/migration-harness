@@ -1,17 +1,16 @@
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { ArtifactStore, safeArtifactPath } from '@migration-harness/engine';
+import { ArtifactStore, safeArtifactPath, privateBaseDir, pathSegments, isWithin } from '@migration-harness/engine';
 import { assertCandidatePath, fileHash, type CandidatePatch } from '@migration-harness/llm-worker';
 
-const inside = (root: string, path: string): boolean => { const rel = relative(root, path); return rel === '' || !isAbsolute(rel) && rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\'); };
+const inside = (root: string, path: string): boolean => isWithin(root, path) || resolve(root) === resolve(path);
 
 /** Check both lexical and resolved paths before reading any assistant-facing input. */
 export async function publicPath(path: string, store: ArtifactStore): Promise<string> {
   const check = (value: string): void => {
-    if (value.split(/[\\/]/).includes('.migration-private') || [store.privateRoot, store.keysRoot, ...(store.options.backup ? [resolve(store.options.backup.root)] : []), join(homedir(), '.local/state/migration-harness')].some(root => inside(root, value))) throw new Error('Assistant-facing paths cannot resolve inside the private artifact domain.');
+    if (pathSegments(value).includes('.migration-private') || [store.privateRoot, store.keysRoot, ...(store.options.backup ? [resolve(store.options.backup.root)] : []), privateBaseDir()].some(root => inside(root, value))) throw new Error('Assistant-facing paths cannot resolve inside the private artifact domain.');
   };
   const target = resolve(path);
   check(target);

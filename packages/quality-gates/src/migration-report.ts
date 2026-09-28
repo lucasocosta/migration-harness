@@ -72,6 +72,16 @@ export function buildMigrationReport(configuration: unknown, evidence: unknown):
   const projectChecks = combined(checkStates);
   const status = invalid ? 'INCONCLUSIVE' : combined([preservation, projectChecks, ...(requirements === 'NOT_APPLICABLE' ? [] : [requirements]),
     ...(input.criticalContractStatus ? [input.criticalContractStatus] : [])]);
+  // Never claim STRICT isolation when the process opted into insecure storage.
+  const degradedEnv = process.env.MIGRATION_HARNESS_ALLOW_INSECURE_PRIVATE_STORE === '1';
+  let privacy = input.privacy ?? { mode: (degradedEnv ? 'DEGRADED_INSECURE' : 'STRICT') as 'STRICT' | 'DEGRADED_INSECURE', platform: process.platform };
+  if (degradedEnv && privacy.mode === 'STRICT') {
+    privacy = { mode: 'DEGRADED_INSECURE', platform: privacy.platform, detailCode: 'ENV_ALLOW_INSECURE_PRIVATE_STORE' };
+  }
+  if (privacy.mode === 'DEGRADED_INSECURE') {
+    if (!diagnostics.some(item => item.code === 'WEAK_PRIVATE_PERMISSIONS')) diagnostics.push({ code: 'WEAK_PRIVATE_PERMISSIONS', detailCode: privacy.detailCode });
+    if (!diagnostics.some(item => item.code === 'DEGRADED_ISOLATION')) diagnostics.push({ code: 'DEGRADED_ISOLATION', detailCode: privacy.detailCode });
+  }
   return MigrationReportSchema.parse({
     kind: 'MIGRATION_REPORT', version: '1', identity: input.identity, evaluatedAt: input.evaluatedAt,
     status, preservation, requirements, projectChecks, referenceStatus: reference?.status ?? 'DECLARED',
@@ -80,7 +90,7 @@ export function buildMigrationReport(configuration: unknown, evidence: unknown):
       requirements: { expected: requiredRequirements.length, received: requiredRequirements.filter(item => scenarios.some(result => result.scenarioId === item.scenarioId && result.requirements.some(result => result.requirementId === item.id))).length },
       checks: { expected: requiredChecks.length, received: requiredChecks.filter(item => checks.some(result => result.checkId === item.id)).length },
     },
-    diagnostics, scenarios, checks, ...(input.criticalContractStatus ? { criticalContractStatus: input.criticalContractStatus } : {}),
+    diagnostics, scenarios, checks, privacy, ...(input.criticalContractStatus ? { criticalContractStatus: input.criticalContractStatus } : {}),
   });
 }
 

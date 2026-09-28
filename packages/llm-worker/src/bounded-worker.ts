@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import ts from 'typescript';
 import { z } from 'zod';
-import { parseManifest, parsePlan, type TransformationPlan, type TransformationManifest, type SanitizedObservedTrace } from '@migration-harness/core';
+import { parseManifest, parsePlan, PRIVATE_STATE_FRAGMENT, type TransformationPlan, type TransformationManifest, type SanitizedObservedTrace } from '@migration-harness/core';
 import { projectTraceForLlm } from '@migration-harness/trace-sanitizer';
 
 export interface CandidatePatch { path: string; beforeHash: string; content: string; }
@@ -87,7 +87,7 @@ export function screenPatchContent(patches: CandidatePatch[], privatePathFragmen
   for (const patch of patches) {
     const pseudonym = patch.content.match(PSEUDONYM_TOKEN);
     if (pseudonym) refusals.push({ code: 'PSEUDONYM_IN_PATCH', path: patch.path, message: 'Patch content embeds a pseudonymized trace token.' });
-    for (const fragment of ['.migration-private', '.local/state/migration-harness', ...privatePathFragments]) {
+    for (const fragment of ['.migration-private', PRIVATE_STATE_FRAGMENT, ...privatePathFragments]) {
       if (fragment && patch.content.replace(/\\+/g, '/').includes(fragment.replace(/\\+/g, '/'))) { refusals.push({ code: 'RAW_PATH_REFERENCE', path: patch.path, message: 'Patch content references the raw artifact domain.' }); break; }
     }
   }

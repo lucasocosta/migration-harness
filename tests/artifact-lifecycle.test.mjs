@@ -5,13 +5,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ArtifactStore, AuditTrail, KeyRing, verifyAudit, anchorAudit, inspectSeal, openSeal, ArtifactAuthFailureError } from '../packages/engine/dist/index.js';
 import { trace } from './helpers.mjs';
+import { storeOptions, canEnforcePosixModes, canCreateSymlink } from './helpers/privacy.mjs';
 
 const rawTrace = runIndex => { const t = trace(); delete t.sanitization; return { ...t, runIndex }; };
 const MAGIC = 'MHAES001';
+const keyRing = async path => new KeyRing(path, (await canEnforcePosixModes()) ? {} : { allowDegraded: true });
 const setup = async (options = {}) => {
   const root = await mkdtemp(join(tmpdir(), 'harness-lifecycle-'));
   const keysRoot = join(root, 'keys');
-  const store = new ArtifactStore(root, join(root, 'private'), { encryptPrivate: true, keysRoot, ...options });
+  const store = new ArtifactStore(root, join(root, 'private'), { encryptPrivate: true, keysRoot, ...(await storeOptions(options)) });
   return { root, keysRoot, store };
 };
 
@@ -24,9 +26,11 @@ test('encryption at rest seals raw writes, survives tampering as a typed error a
     assert.equal(bytes.subarray(0, MAGIC.length).toString('latin1'), MAGIC, 'sealed files carry the magic header');
     assert.equal(bytes.readUInt32BE(8), 1, 'first use generates key version 1');
     assert.throws(() => JSON.parse(bytes.toString()), 'ciphertext is never parseable JSON');
-    assert.equal((await stat(path)).mode & 0o777, 0o600, 'private-root 0600 discipline applies unchanged to encrypted files');
-    assert.equal((await stat(join(keysRoot, 'v1.hex'))).mode & 0o777, 0o600);
-    assert.equal((await stat(keysRoot)).mode & 0o777, 0o700);
+    if (await canEnforcePosixModes()) {
+      assert.equal((await stat(path)).mode & 0o777, 0o600, 'private-root 0600 discipline applies unchanged to encrypted files');
+      assert.equal((await stat(join(keysRoot, 'v1.hex'))).mode & 0o777, 0o600);
+      assert.equal((await stat(keysRoot)).mode & 0o777, 0o700);
+    }
     assert.deepEqual(JSON.parse((await store.readPrivate('raw/unit/update-customer/1.json')).toString()), raw, 'roundtrip');
     // Tampered ciphertext and tampered auth tag both surface as the typed auth failure.
     for (const flip of [bytes.length - 1, MAGIC.length + 4 + 12]) {
@@ -42,10 +46,12 @@ test('encryption at rest seals raw writes, survives tampering as a typed error a
     // Wrong key-directory modes refuse to proceed.
     const badKeys = join(root, 'bad-keys');
     await mkdir(badKeys, { mode: 0o777 }); await chmod(badKeys, 0o755);
-    const guarded = new ArtifactStore(root, join(root, 'private'), { encryptPrivate: true, keysRoot: badKeys });
-    await assert.rejects(guarded.writeRaw('unit', rawTrace(2)), /mode 0700/);
+    if (await canEnforcePosixModes()) {
+      const guarded = new ArtifactStore(root, join(root, 'private'), { encryptPrivate: true, keysRoot: badKeys });
+      await assert.rejects(guarded.writeRaw('unit', rawTrace(2)), /mode 0700/);
+    }
     // Encryption off keeps behavior byte-identical to the legacy plaintext store: plain JSON, no sealing.
-    const plain = new ArtifactStore(root, join(root, 'private-plain'));
+    const plain = new ArtifactStore(root, join(root, 'private-plain'), await storeOptions());
     const plainPath = await plain.writeRaw('unit', raw);
     const plainBytes = await readFile(plainPath);
     assert.notEqual(plainBytes.subarray(0, MAGIC.length).toString('latin1'), MAGIC);
@@ -73,10 +79,10 @@ test('key rotation re-seals raw, retains keys and refuses unsafe automatic pruni
     await writeFile(retained, beforeRotation); await chmod(retained, 0o600);
     assert.ok((await store.readPrivate('raw/retained/update-customer/1.json')).toString().includes('update-customer'), 'v1 decrypts while the v1 key is retained');
     await assert.rejects(store.rotateRawKey(trail, 1), /Automatic key pruning is disabled/);
-    assert.deepEqual(await new KeyRing(keysRoot).versions(), [1, 2], 'refusal does not create or delete keys');
+    assert.deepEqual(await (await keyRing(keysRoot)).versions(), [1, 2], 'refusal does not create or delete keys');
     const second = await store.rotateRawKey(trail);
     assert.deepEqual(second.prunedKeyVersions, []);
-    assert.deepEqual(await new KeyRing(keysRoot).versions(), [1, 2, 3]);
+    assert.deepEqual(await (await keyRing(keysRoot)).versions(), [1, 2, 3]);
     assert.ok((await store.readPrivate('raw/unit/update-customer/1.json')).toString().includes('update-customer'), 'the rotated active domain still reads fine');
     // Fail-closed: a sealed-junk sweep target (versioned with the ACTIVE key, bad tag) aborts rotation before any audit entry is recorded.
     await writeFile(retained, Buffer.concat([Buffer.from(MAGIC, 'latin1'), (() => { const view = Buffer.alloc(4); view.writeUInt32BE(3); return view; })(), new Uint8Array(12), new Uint8Array(16), Buffer.from('junk')]));
@@ -95,14 +101,14 @@ test('rotation preserves archived copies and backup root cannot equal the public
   try {
     const publicRoot = join(root, 'public'), privateRoot = join(root, 'private'), backup = join(root, 'backup');
     assert.throws(() => new ArtifactStore(publicRoot, privateRoot, { backup: { root: publicRoot } }), /public artifact root/);
-    const store = new ArtifactStore(publicRoot, privateRoot, { encryptPrivate: true, backup: { root: backup } });
+    const store = new ArtifactStore(publicRoot, privateRoot, await storeOptions({ encryptPrivate: true, backup: { root: backup } }));
     await store.writeRaw('unit', rawTrace(1));
     const clock = Date.now() + 1000;
     await store.purgeRaw(0, clock);
     const archived = await readFile(join(backup, `gen-${clock}/raw/unit/update-customer/1.json`));
     await store.rotateRawKey(new AuditTrail());
     await assert.rejects(store.rotateRawKey(new AuditTrail(), 1), /pruning is disabled/);
-    const parts = inspectSeal(archived), key = await new KeyRing(store.keysRoot).at(parts.keyVersion);
+    const parts = inspectSeal(archived), key = await (await keyRing(store.keysRoot)).at(parts.keyVersion);
     assert.deepEqual(JSON.parse(openSeal(parts, key.version, key.bytes)), rawTrace(1));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -112,13 +118,17 @@ test('key reads reject permissive modes and aliases; truncated or damaged seals 
   try {
     const file = await store.writeRaw('unit', rawTrace(1));
     const bytes = await readFile(file), key = join(keysRoot, 'v1.hex');
-    await chmod(key, 0o644);
-    await assert.rejects(store.readPrivate('raw/unit/update-customer/1.json'), ArtifactAuthFailureError);
-    await chmod(key, 0o600);
-    const linkedRoot = join(root, 'linked'); await symlink(keysRoot, linkedRoot);
-    await assert.rejects(new KeyRing(linkedRoot).at(1), /symlink/);
-    await symlink(key, join(keysRoot, 'v2.hex'));
-    await assert.rejects(new KeyRing(keysRoot).at(2), ArtifactAuthFailureError);
+    if (await canEnforcePosixModes()) {
+      await chmod(key, 0o644);
+      await assert.rejects(store.readPrivate('raw/unit/update-customer/1.json'), ArtifactAuthFailureError);
+      await chmod(key, 0o600);
+    }
+    if (await canCreateSymlink()) {
+      const linkedRoot = join(root, 'linked'); await symlink(keysRoot, linkedRoot);
+      await assert.rejects(new KeyRing(linkedRoot).at(1), /symlink/); // leaf is a symlink; refused before mode checks
+      await symlink(key, join(keysRoot, 'v2.hex'));
+      await assert.rejects((await keyRing(keysRoot)).at(2), ArtifactAuthFailureError);
+    }
     assert.throws(() => inspectSeal(Buffer.from('MHAES001truncated')), ArtifactAuthFailureError);
     bytes[0] ^= 1;
     await writeFile(file, bytes);
@@ -145,7 +155,7 @@ test('backup retention archives expired raw files by generation, honours the cap
   const root = await mkdtemp(join(tmpdir(), 'harness-backup-'));
   const backup = await mkdtemp(join(tmpdir(), 'harness-backup-to-'));
   try {
-    const store = new ArtifactStore(root, join(root, 'private'), { encryptPrivate: true, keysRoot: join(root, 'keys'), backup: { root: backup, keepGenerations: 2 } });
+    const store = new ArtifactStore(root, join(root, 'private'), await storeOptions({ encryptPrivate: true, keysRoot: join(root, 'keys'), backup: { root: backup, keepGenerations: 2 } }));
     const clock = Date.now() + 10_000;
     for (const [offset, runIndex] of [[1, 1], [2, 2], [3, 3]].map(([o, r]) => [o, r])) {
       await store.writeRaw('unit', rawTrace(runIndex));
@@ -156,12 +166,14 @@ test('backup retention archives expired raw files by generation, honours the cap
     assert.equal(generations[0], `gen-${clock + 2}`); assert.equal(generations[1], `gen-${clock + 3}`);
     const archived = await readFile(join(backup, generations[1], 'raw', 'unit', 'update-customer', '3.json'));
     assert.equal(inspectSeal(archived).keyVersion, 1, 'archived copies are sealed under the active key');
-    assert.deepEqual(JSON.parse(openSeal(inspectSeal(archived), 1, (await new KeyRing(join(root, 'keys')).active()).bytes).toString()), rawTrace(3), 'backup files decrypt with the same keyring');
-    assert.equal((await stat(join(backup, generations[1], 'raw', 'unit', 'update-customer', '3.json'))).mode & 0o777, 0o600);
-    // Backup directory modes are enforced at use time.
-    await chmod(backup, 0o755);
-    await store.writeRaw('unit', rawTrace(4));
-    await assert.rejects(store.purgeRaw(0, clock + 5), /mode 0700/);
+    assert.deepEqual(JSON.parse(openSeal(inspectSeal(archived), 1, (await (await keyRing(join(root, 'keys'))).active()).bytes).toString()), rawTrace(3), 'backup files decrypt with the same keyring');
+    if (await canEnforcePosixModes()) {
+      assert.equal((await stat(join(backup, generations[1], 'raw', 'unit', 'update-customer', '3.json'))).mode & 0o777, 0o600);
+      // Backup directory modes are enforced at use time.
+      await chmod(backup, 0o755);
+      await store.writeRaw('unit', rawTrace(4));
+      await assert.rejects(store.purgeRaw(0, clock + 5), /mode 0700/);
+    }
     await chmod(backup, 0o700);
     // Config refusals: never inside the public artifact root, never the raw root or nested with it.
     assert.throws(() => new ArtifactStore(root, join(root, 'private'), { backup: { root: join(root, 'inside') } }), /public artifact root/);
@@ -173,14 +185,14 @@ test('backup retention archives expired raw files by generation, honours the cap
       assert.throws(() => new ArtifactStore(root, join(root, 'private'), { keysRoot: join(root, 'private', 'raw', 'keys') }), /inside the raw root/);
     } finally { await rm(outside, { recursive: true, force: true }); }
     // Without backup configuration the plaintext unlink behavior is unchanged.
-    const plain = new ArtifactStore(root, join(root, 'private-none'));
+    const plain = new ArtifactStore(root, join(root, 'private-none'), await storeOptions());
     await plain.writeRaw('unit', rawTrace(5));
     assert.equal(await plain.purgeRaw(0, Date.now() + 1000), 1);
     await assert.rejects(plain.readPrivate('raw/unit/update-customer/5.json'), error => error.code === 'ENOENT');
   } finally { await rm(root, { recursive: true, force: true }); await rm(backup, { recursive: true, force: true }); }
 });
 
-test('external audit anchoring appends, chains and refuses private-domain or symlinked targets', async () => {
+test('external audit anchoring appends, chains and refuses private-domain or symlinked targets', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'harness-anchor-'));
   try {
     const store = new ArtifactStore(root, join(root, 'private'));
@@ -206,9 +218,13 @@ test('external audit anchoring appends, chains and refuses private-domain or sym
     await assert.rejects(anchorAudit({ entries: persisted, externalPath: join(store.privateRoot, 'x.log'), privateRoots: [store.privateRoot] }), /private artifact domain/);
     await mkdir(join(root, 'rawlike', '.migration-private'), { recursive: true });
     await assert.rejects(anchorAudit({ entries: persisted, externalPath: join(root, 'rawlike', '.migration-private', 'x.log'), privateRoots: [] }), /private artifact domain/);
-    const linked = join(root, 'symlinked.log');
-    await symlink(external, linked);
-    await assert.rejects(anchorAudit({ entries: persisted, externalPath: linked, privateRoots: [store.privateRoot] }), /symlink/);
+    if (await canCreateSymlink()) {
+      const linked = join(root, 'symlinked.log');
+      await symlink(external, linked);
+      await assert.rejects(anchorAudit({ entries: persisted, externalPath: linked, privateRoots: [store.privateRoot] }), /symlink/);
+    } else {
+      t.diagnostic('symlink unavailable; symlinked target refusal skipped');
+    }
     await assert.rejects(anchorAudit({ entries: { not: 'an array' }, externalPath: external, privateRoots: [] }), /must be an array/);
     const corrupt = structuredClone(persisted); corrupt[0].data.ok = false;
     await assert.rejects(anchorAudit({ entries: corrupt, externalPath: external, privateRoots: [] }), /corrupt/);

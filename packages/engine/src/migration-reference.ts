@@ -27,7 +27,7 @@ export class ReferenceWeakeningError extends Error {
 
 async function resolveRoot(workspaceRoot: string, root?: string): Promise<string> {
   const base = resolve(workspaceRoot, root ?? '.');
-  if (await realpath(base) !== base) throw new Error(`Reference root must not be a symlink: ${root ?? '.'}`);
+  if ((await lstat(base)).isSymbolicLink()) throw new Error(`Reference root must not be a symlink: ${root ?? '.'}`);
   if (!(await lstat(base)).isDirectory()) throw new Error(`Reference root must be a directory: ${root ?? '.'}`);
   return base;
 }

@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { chromium } from '@playwright/test';
 import { ArtifactStore } from '../../packages/engine/dist/artifacts.js';
 import { listen, close } from '../helpers/build-workspace.mjs';
+import '../helpers/privacy.mjs';
 
 const exec = promisify(execFile), root = resolve('.');
 const cli = 'packages/cli/dist/index.js';

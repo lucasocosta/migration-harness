@@ -2,24 +2,24 @@ import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, readdir, readlink, realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import {
   canonical, parseMigrationConfig, MigrationPathSchema, MigrationScopeSnapshotSchema,
   type MigrationConfig, type MigrationScopeSnapshot, type ScopeEntry, type ScopeFinding,
 } from '@migration-harness/core';
+import { assertNotPrivateWorkspace, coversPosix, isWithinPosix, pathSegments, privateBaseDir } from './platform-paths.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
-const inside = (path: string, root: string): boolean => path === root || path.startsWith(`${root}/`);
+const inside = (path: string, root: string): boolean => isWithinPosix(root, path);
 const opaque = (path: string): boolean => !MigrationPathSchema.safeParse(path).success
   || /(?:^|\/)(?:\.npmrc|\.pypirc|[^/]*\.(?:pem|key))$/i.test(path);
 
 export function validateStandardScope(config: MigrationConfig): void {
   if (config.profile !== 'standard') throw new Error('STANDARD_PROFILE_REQUIRED');
   for (const path of config.target.writePaths) {
-    if (opaque(path) || path.split('/').includes('node_modules')) throw new Error('UNSAFE_WRITE_SCOPE');
+    if (opaque(path) || pathSegments(path).includes('node_modules')) throw new Error('UNSAFE_WRITE_SCOPE');
     const full = `${config.target.root}/${path}`;
     if ([...config.scenarios.map(item => item.fixtureRoot), ...(config.criticalContract ? [config.criticalContract.path] : [])]
-      .some(item => inside(full, item) || inside(item, full))) throw new Error('EVALUATION_INPUT_IN_WRITE_SCOPE');
+      .some(item => inside(full, item) || coversPosix(full, item))) throw new Error('EVALUATION_INPUT_IN_WRITE_SCOPE');
   }
 }
 
@@ -27,8 +27,7 @@ export function validateStandardScope(config: MigrationConfig): void {
 export async function snapshotMigrationScope(input: { config: unknown; workspaceRoot: string }): Promise<MigrationScopeSnapshot> {
   const config = parseMigrationConfig(input.config); validateStandardScope(config);
   const workspace = await realpath(resolve(input.workspaceRoot));
-  const privateRoot = join(homedir(), '.local/state/migration-harness');
-  if (workspace.split('/').includes('.migration-private') || inside(workspace, privateRoot)) throw new Error('PRIVATE_WORKSPACE');
+  assertNotPrivateWorkspace(workspace, privateBaseDir());
   const result = {} as MigrationScopeSnapshot;
   for (const side of ['source', 'target'] as const) {
     const root = join(workspace, config[side].root);

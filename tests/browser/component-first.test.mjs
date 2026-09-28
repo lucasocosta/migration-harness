@@ -1,4 +1,5 @@
 import test from 'node:test';
+import '../helpers/privacy.mjs';
 import assert from 'node:assert/strict';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -22,7 +23,7 @@ test('published component-first example verifies both dependent units in one sta
   const root = await mkdtemp(resolve('artifacts/component-first-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await cp('examples/component-first', join(root, 'examples/component-first'), {
-    recursive: true, filter: path => !path.split('/').includes('dist'),
+    recursive: true, filter: path => !path.split(/[/\\]/).includes('dist'),
   });
   const config = parseMigrationConfig(JSON.parse(await readFile(join(root, 'examples/component-first/migration.json'), 'utf8')));
   const input = { config, workspaceRoot: root, allowProjectCommands: true };

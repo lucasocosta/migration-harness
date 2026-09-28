@@ -182,9 +182,10 @@ PATH/HOME/locale/temp variables, with CI=1 and NO_COLOR=1; no arbitrary credenti
 or NODE_OPTIONS. Configurable public env is not yet supported.
 
 Per-command timeouts and maxDurationMs apply. Output over 1 MiB stops the command.
-Ordinary children in its owned POSIX group are terminated after exit/timeout/abort.
-Linux/WSL is supported; native Windows is not. Deliberately escaped processes and
-hostile same-user mutation are not sandboxed.
+Ordinary children in its owned process tree are terminated after exit/timeout/abort
+(POSIX process groups; `taskkill /T` on Windows). Linux, macOS and native Windows are
+supported; see docs/OS-PORTABILITY.md for the privacy matrix. Deliberately escaped
+processes and hostile same-user mutation are not sandboxed.
 
 PROJECT_CHECK_REPORT records native exit codes, safe reasons, byte counts (not raw
 stdout/stderr), declared input hashes and baseline comparisons. BASELINE_CHECK_FAILED
@@ -380,7 +381,7 @@ The public artifact root contains sanitized evidence. Private artifacts use a se
 <artifact-root>/artifacts/units/<unit>/<scenario>/source/<run>.sanitized.json
 ```
 
-Raw directories require mode 0700 and raw files 0600; the store verifies permissions before writing data. The library accepts an explicit private root on a filesystem that enforces these permissions. In WSL, keep it on the native Linux filesystem; `/mnt/c` without POSIX metadata is rejected for private artifacts. Sanitized artifacts are local validation evidence, not prompts: only `projectTraceForLlm` output may cross the worker boundary. That projection excludes all runtime free text, URLs, headers, keys and values.
+Raw directories require mode 0700 and raw files 0600; the store verifies permissions before writing data. The library accepts an explicit private root on a filesystem that enforces these permissions. Filesystems without enforceable POSIX modes (Windows NTFS, WSL `/mnt/c`) require explicit `--allow-insecure-private-store` (or `privacy.allowInsecurePrivateStore`); that DEGRADED mode is stamped as `WEAK_PRIVATE_PERMISSIONS` / `DEGRADED_ISOLATION` in reports and never claims isolation guarantees. See docs/OS-PORTABILITY.md. Sanitized artifacts are local validation evidence, not prompts: only `projectTraceForLlm` output may cross the worker boundary. That projection excludes all runtime free text, URLs, headers, keys and values.
 
 Reuse the same artifact root/key for source and target pseudonyms. `--key-file` permits a separately managed shared key. Losing or changing the key makes pseudonym comparisons invalid. `--policy` explicitly selects observable storage and payload fields; both field sets default to deny. Sensitive keys remain denied even if allowlisted. Regex PII scrubbing is not a universal personal-data detector; field allowlists must be reviewed for the application. ARIA YAML is regenerated from sanitized JSON, avoiding a second raw URL/text channel.
 

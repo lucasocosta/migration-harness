@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { build } from 'esbuild';
 import { transformAngularComponent } from '../../packages/codemods/dist/index.js';
+import '../helpers/privacy.mjs';
 
 export async function frameworkFixture() {
   const root = resolve('examples/angular-react-pilot');

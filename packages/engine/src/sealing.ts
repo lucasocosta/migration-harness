@@ -63,11 +63,11 @@ export function openSeal(sealed: SealedParts, keyVersion: number, key: Buffer): 
  * 0600 hex key files `v<N>.hex`, refusal to proceed on wrong modes, mirroring the private-root discipline.
  */
 export class KeyRing {
-  constructor(readonly keysRoot: string) {}
+  constructor(readonly keysRoot: string, readonly options: { allowDegraded?: boolean } = {}) {}
   private async ensureDirectory(): Promise<void> {
     await mkdir(this.keysRoot, { recursive: true, mode: 0o700 });
-    if (await realpath(this.keysRoot) !== resolve(this.keysRoot)) throw new Error('Key directory must not contain symlinks.');
-    if ((await lstat(this.keysRoot)).mode & 0o077) throw new Error('Key filesystem must enforce mode 0700.');
+    if ((await lstat(this.keysRoot)).isSymbolicLink()) throw new Error('Key directory must not contain symlinks.');
+    if ((await lstat(this.keysRoot)).mode & 0o077 && !this.options.allowDegraded) throw new Error('Key filesystem must enforce mode 0700.');
   }
   async versions(): Promise<number[]> {
     await this.ensureDirectory();
@@ -99,7 +99,7 @@ export class KeyRing {
     const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     let complete = false;
     try {
-      if ((await handle.stat()).mode & 0o077) throw new Error('Key file filesystem must enforce mode 0600.');
+      if ((await handle.stat()).mode & 0o077 && !this.options.allowDegraded) throw new Error('Key file filesystem must enforce mode 0600.');
       await handle.writeFile(`${bytes.toString('hex')}\n`);
       await handle.sync();
       complete = true;
@@ -110,12 +110,14 @@ export class KeyRing {
   async at(version: number): Promise<DataKey> {
     if (!Number.isSafeInteger(version) || version < 1 || version > 0xffffffff) throw new ArtifactAuthFailureError('Invalid key version.');
     await this.ensureDirectory();
+    const path = join(this.keysRoot, `v${version}.hex`);
     let raw: string;
     try {
-      const handle = await open(join(this.keysRoot, `v${version}.hex`), constants.O_RDONLY | constants.O_NOFOLLOW);
+      if ((await lstat(path)).isSymbolicLink()) throw new ArtifactAuthFailureError('Key must be a private unlinked regular file (0600).');
+      const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         const stat = await handle.stat();
-        if (!stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o077) || stat.size > 66) throw new ArtifactAuthFailureError('Key must be a private unlinked regular file (0600).');
+        if (!stat.isFile() || stat.nlink !== 1 || ((stat.mode & 0o077) && !this.options.allowDegraded) || stat.size > 66) throw new ArtifactAuthFailureError('Key must be a private unlinked regular file (0600).');
         raw = await handle.readFile('utf8');
       } finally { await handle.close(); }
     }
@@ -139,18 +141,18 @@ export class KeyRing {
 }
 
 /** Exclusive temp write (0600, O_NOFOLLOW, symlinked directory refused) followed by an atomic rename over the target. */
-export async function replaceFileAtomically(target: string, content: Buffer | string, mode: number): Promise<void> {
+export async function replaceFileAtomically(target: string, content: Buffer | string, mode: number, options: { allowDegraded?: boolean } = {}): Promise<void> {
   target = resolve(target);
   const directory = dirname(target);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  if (await realpath(directory) !== directory) throw new Error('Sealed artifact directory must not be a symlink.');
+  if ((await lstat(directory)).isSymbolicLink()) throw new Error('Sealed artifact directory must not be a symlink.');
   const previous = await lstat(target).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; return undefined; });
   if (previous && (!previous.isFile() || previous.nlink !== 1)) throw new Error('Sealed artifact target must be an unlinked regular file.');
   const temporary = join(directory, `.sealing-${randomBytes(8).toString('hex')}.tmp`);
   const handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode);
   try {
     try {
-      if ((await handle.stat()).mode & 0o077) throw new Error('Sealed artifact files must enforce mode 0600.');
+      if ((await handle.stat()).mode & 0o077 && !options.allowDegraded) throw new Error('Sealed artifact files must enforce mode 0600.');
       await handle.writeFile(content);
       await handle.sync();
     } finally { await handle.close(); }
@@ -162,7 +164,7 @@ export async function replaceFileAtomically(target: string, content: Buffer | st
 export async function withFileLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
   path = resolve(path);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  if (await realpath(dirname(path)) !== dirname(path)) throw new Error('Lock directory cannot contain symlinks.');
+  if ((await lstat(dirname(path))).isSymbolicLink()) throw new Error('Lock directory cannot contain symlinks.');
   const handle = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
   try { return await operation(); }
   finally { await handle.close(); await unlink(path); }

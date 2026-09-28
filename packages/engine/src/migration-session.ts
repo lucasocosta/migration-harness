@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import {
   canonical, migrationConfigHash, migrationReferenceHash, parseMigrationConfig, parseMigrationPreparation, parseMigrationReport,
   parseSessionGenerations, MigrationSessionSchema, SessionAttemptStartSchema, SessionAttemptFinishSchema,
@@ -14,6 +13,7 @@ import { withFileLock } from './sealing.js';
 import { verifyMigrationReference } from './migration-reference.js';
 import { prepareMigration, verifyMigration } from './migration-operations.js';
 import { snapshotMigrationScope, compareMigrationScope, validateStandardScope } from './migration-scope.js';
+import { assertNotPrivateWorkspace, coversPosix, privateBaseDir } from './platform-paths.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
 type Input = { config: unknown; workspaceRoot: string };
@@ -27,18 +27,17 @@ export function migrationSessionPath(config: MigrationConfig): string {
 async function storeFor(input: Input) {
   const config = parseMigrationConfig(input.config); validateStandardScope(config);
   const workspace = await realpath(resolve(input.workspaceRoot));
-  const privateRoot = resolve(homedir(), '.local/state/migration-harness');
-  if (workspace.split('/').includes('.migration-private') || workspace === privateRoot || workspace.startsWith(`${privateRoot}/`)) throw new Error('PRIVATE_WORKSPACE');
+  assertNotPrivateWorkspace(workspace, privateBaseDir());
   const path = migrationSessionPath(config);
   if ([config.source.root, config.target.root, ...config.scenarios.map(item => item.fixtureRoot),
-    ...(config.criticalContract ? [config.criticalContract.path] : [])].some(root => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`))) {
+    ...(config.criticalContract ? [config.criticalContract.path] : [])].some(root => coversPosix(root, path) || coversPosix(path, root))) {
     throw new Error('SESSION_OVERLAPS_PROJECT_INPUTS');
   }
   await safeArtifactPath(workspace, path);
   return { config, workspace, path, store: new ArtifactStore(resolve(workspace, path)) };
 }
 async function readJson(store: ArtifactStore, path: string): Promise<unknown> {
-  if (await realpath(store.root) !== resolve(store.root)) throw new Error('SESSION_PATH_UNSAFE');
+  if ((await lstat(store.root)).isSymbolicLink()) throw new Error('SESSION_PATH_UNSAFE');
   const file = await open(await safeArtifactPath(store.root, path), constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = await file.stat();

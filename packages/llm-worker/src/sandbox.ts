@@ -20,12 +20,12 @@ export class DockerSandbox {
     const name = `harness-${randomUUID()}`;
     const args = ['run', '--rm', '--pull=never', '--name', name, '--network=none', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--pids-limit=64', `--memory=${this.policy.memoryMb}m`, '--cpus=1', '--user=65534:65534', '--tmpfs=/tmp:rw,noexec,nosuid,size=64m', '--mount', `type=bind,src=${root},dst=/candidate,readonly`, '--workdir=/candidate', this.policy.image, ...command];
     return new Promise((resolveResult, reject) => {
-      const child = spawn('docker', args, { env: { PATH: process.env.PATH ?? '/usr/bin:/bin' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn('docker', args, { env: { PATH: process.env.PATH ?? '' }, stdio: ['ignore', 'pipe', 'pipe'] });
       let stdout = '', stderr = '', bytes = 0, failure: Error | undefined;
       const stop = (reason: string): void => {
         if (failure) return;
         failure = new Error(reason);
-        const cleanup = spawn('docker', ['rm', '-f', name], { env: { PATH: process.env.PATH ?? '/usr/bin:/bin' }, stdio: 'ignore' });
+        const cleanup = spawn('docker', ['rm', '-f', name], { env: { PATH: process.env.PATH ?? '' }, stdio: 'ignore' });
         cleanup.on('error', () => undefined);
         child.kill('SIGKILL');
       };

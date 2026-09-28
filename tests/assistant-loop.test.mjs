@@ -61,12 +61,16 @@ test('brief issues a hash-bound, projection-only artifact and refuses unsafe inp
     assert.ok(!brief.repair);
     assert.equal(brief.trace.kind, 'LLM_SAFE_TRACE');
     assert.deepEqual(brief.allowedFiles, [{ path: CANDIDATE, sha256: fileHash(INITIAL), exists: true }]);
-    assert.deepEqual(brief.contextFiles, [join(root, 'examples/fixture/customer-profile.ts')]);
+    assert.deepEqual(brief.contextFiles.map(p => p.replaceAll('\\', '/')), [join(root, 'examples/fixture/customer-profile.ts').replaceAll('\\', '/')]);
     assert.deepEqual(brief.allowedPackages, ['react']);
     assert.match(brief.submission.format.instructions, /AGENTS\.md/);
-    assert.ok(brief.submission.command.includes(`--brief ${join(root, 'brief.json')}`));
-    assert.ok(brief.submission.command.includes(`--candidate-root ${root}`));
-    assert.ok(brief.submission.command.includes('--input <submission.json>'));
+    const command = brief.submission.command.replaceAll('\\', '/');
+    const briefPath = join(root, 'brief.json').replaceAll('\\', '/');
+    const rootPosix = root.replaceAll('\\', '/');
+    const unquoted = command.replace(/'/g, '');
+    assert.ok(unquoted.includes(`--brief ${briefPath}`), `command must cite ${briefPath}: ${command}`);
+    assert.ok(unquoted.includes(`--candidate-root ${rootPosix}`), `command must cite ${rootPosix}`);
+    assert.ok(command.includes('--input <submission.json>'));
     // A raw (un-sanitized) trace must never feed a brief.
     const raw = trace(); delete raw.sanitization;
     const rawPath = await save('raw-trace.json', raw);
@@ -177,7 +181,7 @@ test('apply-patch PASS writes exactly the submitted files plus public artifacts 
     assert.equal(applied.status, 'PASS');
     assert.deepEqual(applied.appliedFiles, [CANDIDATE]);
     assert.equal(applied.briefId, brief.briefId);
-    assert.match(applied.next.command, /^run --scenario .* --contract .* --source-url http:\/\/source\.test --target-url http:\/\/target\.test --manifest .*assistant\/manifests\/.* --max-repairs 0 --out verify\.json$/);
+    assert.match(applied.next.command.replaceAll('\\', '/'), /^run --scenario .* --contract .* --source-url http:\/\/source\.test --target-url http:\/\/target\.test --manifest .*assistant\/manifests\/.* --max-repairs 0 --out verify\.json$/);
     const manifestFiles = await readdir(join(root, 'assistant/manifests'));
     assert.deepEqual(JSON.parse(await readFile(join(root, 'assistant/manifests', manifestFiles[0]), 'utf8')), manifest());
     assert.equal(await readFile(join(root, CANDIDATE), 'utf8'), after);

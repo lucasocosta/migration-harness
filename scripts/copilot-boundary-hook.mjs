@@ -28,7 +28,9 @@ const repoRoot = resolve(process.env.HARNESS_REPO_ROOT ?? process.cwd());
 const phase = process.env.HARNESS_PHASE ?? '';
 const logPath = resolve(repoRoot, process.env.HARNESS_HOOK_LOG ?? 'artifacts/copilot-boundary.log');
 
-const privateStateRoot = resolve(homedir(), '.local/state/migration-harness');
+const privateStateRoot = process.env.MIGRATION_HARNESS_STATE_DIR
+  ? resolve(process.env.MIGRATION_HARNESS_STATE_DIR)
+  : resolve(homedir(), '.local', 'state', 'migration-harness');
 const SECRET = /(?:^|[/\\])(?:\.env(?:\.[\w-]+)?|\.npmrc|\.netrc|id_rsa|id_ed25519|credentials(?:\.json)?)$|\.(?:pem|key|p12|pfx)$/i;
 // Actual CLI subcommand names; oracle and raw-domain acts belong to the harness operator.
 const ORACLE_COMMANDS = /(?:^|[\s;|&])(?:synthesize|review-contract|approve-contract|trace|import-openapi|import-test-evidence|sanitize-trace|purge-raw|rotate-raw-key|anchor-audit)(?:$|[\s;|&])/;

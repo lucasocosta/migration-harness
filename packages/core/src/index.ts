@@ -17,3 +17,4 @@ export * from './project-check.js';
 export * from './served-build.js';
 export * from './migration-preparation.js';
 export * from './migration-session.js';
+export * from './platform-paths.js';

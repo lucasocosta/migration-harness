@@ -1,5 +1,5 @@
 import { readFile, readdir, realpath } from 'node:fs/promises';
-import { resolve, relative, dirname, extname } from 'node:path';
+import { resolve, relative, dirname, extname, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import ts from 'typescript';
 import { parseTemplate, BindingPipe } from '@angular/compiler';
@@ -31,6 +31,8 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
     options = { ...options, ...ts.parseJsonConfigFileContent(config.config, ts.sys, dirname(configPath)).options };
   }
   const program = ts.createProgram(paths.filter(path => /\.[cm]?tsx?$/.test(path)), { ...options, experimentalDecorators: true });
+  // TypeScript reports file names with forward slashes; walk() uses OS separators.
+  const pathSet = new Set(paths.map(p => resolve(p).split('\\').join('/').toLowerCase()));
   const checker = program.getTypeChecker();
   const symbols: SymbolRef[] = [];
   const edges: DependencyEdge[] = [];
@@ -60,7 +62,7 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   };
   const statementTextOf = (node: ts.Node): string => { let current: ts.Node = node; while (current.parent && !ts.isStatement(current)) current = current.parent; return current.getText(); };
   let loc = 0, branches = 0;
-  for (const file of program.getSourceFiles().filter(file => paths.includes(file.fileName))) {
+  for (const file of program.getSourceFiles().filter(file => pathSet.has(resolve(file.fileName).split('\\').join('/').toLowerCase()))) {
     loc += file.text.split('\n').length;
     const importBindings = new Set<string>();
     for (const statement of file.statements) if (ts.isImportDeclaration(statement) && statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings)) for (const element of statement.importClause.namedBindings.elements) importBindings.add(element.name.text);
@@ -71,7 +73,8 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
       const decoratorNames = decorators.map(decorator => decoratorName(decorator, file));
       const declaredType = ts.isVariableDeclaration(node) ? node.type?.getText(file) ?? '' : '';
       const kind = /Guard$|CanActivateFn/.test(node.name.text + declaredType) ? 'guard' : /Resolver$|ResolveFn/.test(node.name.text + declaredType) ? 'resolver' : decoratorNames.includes('Component') ? 'component' : decoratorNames.includes('Injectable') ? 'service' : decoratorNames.includes('Directive') ? 'directive' : decoratorNames.includes('Pipe') ? 'pipe' : decoratorNames.includes('NgModule') ? 'module' : 'type_definition';
-      const symbol: SymbolRef = { id: `${relative(root, file.fileName)}#${node.name.text}`, name: node.name.text, kind, filePath: relative(root, file.fileName), exported: Boolean(ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export), astHash: createHash('sha256').update(node.getText(file)).digest('hex') };
+      const relFile = relPosix(root, file.fileName);
+      const symbol: SymbolRef = { id: `${relFile}#${node.name.text}`, name: node.name.text, kind, filePath: relFile, exported: Boolean(ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export), astHash: createHash('sha256').update(node.getText(file)).digest('hex') };
       symbols.push(symbol); declarations.set(node, symbol);
       if (ts.isClassDeclaration(node) && kind === 'component') {
         for (const member of node.members) {
@@ -229,7 +232,7 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
             scan(parsed.nodes);
             const formDirectives = FORM_DIRECTIVES.filter(directive => names.has(`[${directive}]`) || bindings.includes(directive));
             if (formDirectives.length) { const record = formsFor(symbol.id); for (const directive of formDirectives) record.templateDirectives.add(directive); if (formDirectives.includes('formArrayName')) record.hasFormArray = true; }
-            templates.push({ filePath: relative(root, templatePath), bindings, errors: parsed.errors?.map(error => error.toString()) ?? [] });
+            templates.push({ filePath: relPosix(root, templatePath), bindings, errors: parsed.errors?.map(error => error.toString()) ?? [] });
             rendered.push({ owner: symbol, names, pipes });
           }
         }
@@ -252,13 +255,13 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
       else unresolved.push({ name, requestedBy: template.owner.id, reason: 'Template pipe is external or unresolved' });
     }
   }
-  for (const file of program.getSourceFiles().filter(file => paths.includes(file.fileName))) {
+  for (const file of program.getSourceFiles().filter(file => pathSet.has(resolve(file.fileName).split('\\').join('/').toLowerCase()))) {
     for (const statement of file.statements) if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
       const name = statement.moduleSpecifier.text;
       const module = ts.resolveModuleName(name, file.fileName, program.getCompilerOptions(), ts.sys).resolvedModule;
       if (module && inside(root, module.resolvedFileName)) continue;
       if (!name.startsWith('.')) external.add(name);
-      if (!module) unresolved.push({ name, requestedBy: relative(root, file.fileName), reason: 'Unresolved module import' });
+      if (!module) unresolved.push({ name, requestedBy: relPosix(root, file.fileName), reason: 'Unresolved module import' });
     }
     const visit = (node: ts.Node, owner?: SymbolRef): void => {
       owner = declarations.get(node) ?? owner;
@@ -347,12 +350,21 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   const components = symbols.filter(s => s.kind === 'component');
   if (!entrypoints && components.length !== 1) throw new Error('Multiple or missing components: select explicit entrypoints.');
   const entries = entrypoints ?? components.map(s => s.id);
-  if (!entries.length || entries.some(id => !symbols.some(s => s.id === id))) throw new Error('Select at least one resolved migration entrypoint.');
-  const included = new Set(entries);
+  const resolveEntry = (id: string) => {
+    const name = id.split('#').at(-1) ?? id;
+    const fileHint = (id.split('#')[0] ?? '').split(/[\\/]/).pop() ?? '';
+    return symbols.find(s => s.id === id)
+      // Tolerate OS path-form differences in the file segment of `path#Name` entrypoint ids.
+      ?? symbols.find(s => s.name === name && s.filePath.split(/[\\/]/).pop() === fileHint)
+      ?? symbols.find(s => s.name === name);
+  };
+  if (!entries.length || entries.some(id => !resolveEntry(id))) throw new Error('Select at least one resolved migration entrypoint.');
+  const included = new Set(entries.map(id => resolveEntry(id)!.id));
+  const entryIds = new Set(entries.map(id => resolveEntry(id)!.id));
   let changed = true;
   while (changed) { changed = false; for (const edge of edges) if (included.has(edge.fromSymbolId) && !included.has(edge.toSymbolId)) { included.add(edge.toSymbolId); changed = true; } }
   const internal = symbols.filter(s => included.has(s.id));
-  const unit: MigrationUnit = { id: internal.find(s => entries.includes(s.id))!.name, version: '1.0.0', runtimeRoutes: routes.filter(route => route.componentId && included.has(route.componentId)).map(route => route.path), symbols: internal, dependencyGraph: edges.filter(e => included.has(e.fromSymbolId) && included.has(e.toSymbolId)),
+  const unit: MigrationUnit = { id: internal.find(s => entryIds.has(s.id))!.name, version: '1.0.0', runtimeRoutes: routes.filter(route => route.componentId && included.has(route.componentId)).map(route => route.path), symbols: internal, dependencyGraph: edges.filter(e => included.has(e.fromSymbolId) && included.has(e.toSymbolId)),
     inputs: ioInputs.filter(input => included.has(input.symbolId)), outputs: ioOutputs.filter(output => included.has(output.symbolId)),
     reactiveForms: [...formsRecords].filter(([symbolId]) => included.has(symbolId)).map(([symbolId, record]) => ({ symbolId, formsSymbols: [...record.formsSymbols].sort(), templateDirectives: [...record.templateDirectives].sort(), controls: [...record.controls].sort(), validators: [...record.validators].sort(), hasAsyncValidators: record.hasAsyncValidators, hasFormArray: record.hasFormArray, hasDynamicControlCreation: record.hasDynamicControlCreation, subscriptions: record.subscriptions, builderInferred: record.builderGroups > 0 && record.builderGroupsNormalized, asyncValidatorEvidence: record.asyncValidatorEvidence })),
     providerScopes: [...providerScopes].filter(([symbolId]) => included.has(symbolId)).map(([symbolId, scope]) => ({ symbolId, providedIn: scope.providedIn, ...(scope.token ? { token: scope.token } : {}), componentProviders: scope.componentProviders })),
@@ -362,7 +374,19 @@ export async function discover(sourceRoot: string, entrypoints?: string[]): Prom
   };
   return { unit: parseMigrationUnit(unit), endpoints: endpoints.filter(e => included.has(e.symbolId)), streams: streams.filter(e => included.has(e.symbolId)), templates, routes, injections: injections.filter(injection => included.has(injection.ownerId)) };
 }
-function inside(root: string, path: string): boolean { const rel = relative(root, path); return !rel.startsWith('..') && !rel.startsWith('/'); }
+function inside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel) && !rel.split(/[/\\]/).includes('..'));
+}
+/** Stable POSIX-relative id segment so entrypoint matching works with TS's forward-slash file names on Windows. */
+function relPosix(root: string, file: string): string {
+  const r = resolve(root).split('\\').join('/');
+  const f = resolve(file).split('\\').join('/');
+  const fold = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value);
+  if (fold(f) === fold(r)) return '';
+  if (fold(f).startsWith(fold(r) + '/')) return f.slice(r.length + 1);
+  return relative(root, file).split('\\').join('/');
+}
 async function walk(root: string): Promise<string[]> {
   const result: string[] = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {

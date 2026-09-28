@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   }
   const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'context-files', 'attempt', 'next-out', 'ref-map', 'keys-root', 'backup-root', 'backup-generations', 'store-root', 'audit', 'path', 'prune-key-versions'];
   stringOptions.push('config', 'workspace-root', 'phase', 'baseline', 'artifact-path', 'preparation', 'previous', 'owner-decision');
-  const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const }, encrypt: { type: 'boolean' as const }, 'allow-project-commands': { type: 'boolean' as const }, 'preflight-only': { type: 'boolean' as const } }, strict: true, allowPositionals: false });
+  const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const }, encrypt: { type: 'boolean' as const }, 'allow-project-commands': { type: 'boolean' as const }, 'preflight-only': { type: 'boolean' as const }, 'allow-insecure-private-store': { type: 'boolean' as const } }, strict: true, allowPositionals: false });
   if (command === 'check-projects') { await projectChecksCommand(values); return; }
   if (command === 'prepare-migration' || command === 'verify-migration' || command === 'start-migration-session' || command === 'migration-session-status' || command === 'update-migration-session') { await migrationCommand(command, values); return; }
   const flag = (name: string): string | undefined => (values as Record<string, unknown>)[name] as string | undefined;
@@ -36,8 +36,10 @@ async function main(): Promise<void> {
   // Operational storage options; all default OFF/unset so existing behavior stays byte-identical:
   // --encrypt seals private raw-domain writes (AES-256-GCM, versioned keyring in --keys-root),
   // --backup-root archives expired raw files during purge-raw outside the public artifact root.
+  // --allow-insecure-private-store permits DEGRADED privacy when the FS cannot enforce 0700/0600 (Windows).
   const storeOptions: ArtifactStoreOptions = {
     ...(values.encrypt ? { encryptPrivate: true } : {}),
+    ...(values['allow-insecure-private-store'] ? { allowInsecurePrivateStore: true } : {}),
     ...(flag('keys-root') ? { keysRoot: required('keys-root') } : {}),
     ...(flag('backup-root') ? { backup: { root: required('backup-root'), ...(flag('backup-generations') ? { keepGenerations: number('backup-generations', 5, 1, 100) } : {}) } } : {}),
   };
@@ -55,12 +57,13 @@ async function main(): Promise<void> {
   const key = async (): Promise<string> => {
     if (flag('key-file')) return (await readFile(required('key-file'), 'utf8')).trim();
     const path = await store.privatePath('pseudonymization.key');
-    try { if ((await lstat(path)).mode & 0o077) throw new Error('Pseudonymization key must be private.'); return (await readFile(path, 'utf8')).trim(); }
+    const degraded = store.privacyMode === 'DEGRADED_INSECURE';
+    try { if ((await lstat(path)).mode & 0o077 && !degraded) throw new Error('Pseudonymization key must be private.'); return (await readFile(path, 'utf8')).trim(); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     const value = randomBytes(32).toString('hex');
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const handle = await open(path, 'wx', 0o600);
-    try { if ((await handle.stat()).mode & 0o077) throw new Error('Pseudonymization key filesystem must enforce mode 0600.'); await handle.writeFile(value); } finally { await handle.close(); }
+    try { if ((await handle.stat()).mode & 0o077 && !degraded) throw new Error('Pseudonymization key filesystem must enforce mode 0600.'); await handle.writeFile(value); } finally { await handle.close(); }
     return value;
   };
   switch (command) {

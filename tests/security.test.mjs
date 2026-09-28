@@ -10,6 +10,7 @@ import { approveContract, reviewContract, verifyContractIntegrity } from '../pac
 import { InvariantMiner, EvidenceFusionEngine } from '../packages/contract-synthesizer/dist/index.js';
 import { evaluateGates, measureCoverage } from '../packages/quality-gates/dist/index.js';
 import { trace, event, contract, endpoint } from './helpers.mjs';
+import { storeOptions, canEnforcePosixModes, canCreateSymlink } from './helpers/privacy.mjs';
 
 test('denylist, pseudonyms, schema boundary and injection-free LLM projection', () => {
   const raw = trace(); delete raw.sanitization;
@@ -27,18 +28,26 @@ test('denylist, pseudonyms, schema boundary and injection-free LLM projection', 
   assert.throws(() => projectTraceForLlm(raw));
   assert.throws(() => sanitizeTrace({ ...raw, cookie: 'hidden' }, policy));
 });
-test('raw artifact permissions, symlink rejection and retention', async () => {
+test('raw artifact permissions, symlink rejection and retention', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'harness-security-'));
+  const strict = await canEnforcePosixModes();
   try {
-    const store = new ArtifactStore(root, join(root, 'private')); const raw = trace(); delete raw.sanitization;
-    const path = await store.writeRaw('unit', raw); assert.equal((await stat(path)).mode & 0o777, 0o600);
+    const store = new ArtifactStore(root, join(root, 'private'), await storeOptions()); const raw = trace(); delete raw.sanitization;
+    const path = await store.writeRaw('unit', raw);
+    if (strict) assert.equal((await stat(path)).mode & 0o777, 0o600);
     await assert.rejects(store.writeRaw('../escape', raw));
     await assert.rejects(store.writeRaw('unit', raw), /EEXIST/);
-    await symlink(tmpdir(), join(root, 'escape')); await assert.rejects(store.write('escape/raw.json', {}), /symlink/);
+    if (await canCreateSymlink()) {
+      await symlink(tmpdir(), join(root, 'escape')); await assert.rejects(store.write('escape/raw.json', {}), /symlink/);
+    } else {
+      t.diagnostic('symlink unavailable; escape check skipped');
+    }
     await assert.rejects(store.write('public.json', { nested: raw }), /Raw traces/);
     assert.equal(await store.purgeRaw(0, Date.now() + 1000), 1);
-    await mkdir(join(root, 'insecure'), { mode: 0o755 });
-    await assert.rejects(new ArtifactStore(root, join(root, 'insecure')).writeRaw('unit', raw), /0700/);
+    if (strict) {
+      await mkdir(join(root, 'insecure'), { mode: 0o755 });
+      await assert.rejects(new ArtifactStore(root, join(root, 'insecure')).writeRaw('unit', raw), /0700/);
+    }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 test('approval is an explicit transition and does not share mutable nested objects', () => {

@@ -10,6 +10,7 @@ import { runProjectChecks } from '../../packages/engine/dist/project-checks.js';
 import { prepareMigration } from '../../packages/engine/dist/migration-operations.js';
 import { startMigrationSession, verifyMigrationSession, inspectMigrationSession, updateMigrationSessionReference, migrationSessionPath } from '../../packages/engine/dist/migration-session.js';
 import { ArtifactStore } from '../../packages/engine/dist/artifacts.js';
+import '../helpers/privacy.mjs';
 import { buildWorkspace, write } from '../helpers/build-workspace.mjs';
 
 const digest = value => createHash('sha256').update(canonical(value)).digest('hex');

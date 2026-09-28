@@ -68,9 +68,12 @@ The original [audit](AUDIT-2026-09-12.md) is historical and is not silently rewr
 - Tests import `dist/`; build first. Use Node `^20.19.0`, `^22.12.0` or `>=24.0.0`,
   pnpm 10.15.0, Playwright 1.63.0 and Chromium. CI uses Node 22. If the pnpm shim
   is unavailable, use `corepack pnpm` or `npx --yes pnpm@10.15.0`.
-- Private storage needs native Linux 0700/0600 modes. The historical WSL browser
-  close stall was avoided with an isolated TMPDIR under `/dev/shm`; that is an
-  environment workaround, not relaxed validation or a guaranteed filesystem repair.
+- Private storage prefers enforced 0700/0600 modes (Linux/macOS). On Windows or
+  filesystems without POSIX metadata, `--allow-insecure-private-store` enables an
+  explicitly disclosed DEGRADED privacy mode (`WEAK_PRIVATE_PERMISSIONS`); it never
+  claims isolation guarantees. See docs/OS-PORTABILITY.md. The historical WSL
+  browser close stall was avoided with an isolated TMPDIR under `/dev/shm`; that is
+  an environment workaround, not relaxed validation.
 - Standard budgets count cumulative verification time, excluding preparation,
   editing and idle time. Restricted repair counters are caller-supplied.
 - Missing source-stability evidence remains UNVERIFIABLE. Missing Git metadata
