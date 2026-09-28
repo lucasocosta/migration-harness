@@ -96,6 +96,7 @@ test('HAR import refuses private-root paths in provenance and entry URLs', async
     assert.equal(result.unresolved.length, 2);
     assert.ok(result.unresolved.every(item => /private root/.test(item.reason)), result.unresolved.map(item => item.reason).join('; '));
     assert.doesNotMatch(JSON.stringify(result), /stolen/);
+    await writeFile(join(root, 'capture.har'), '{}');
     assert.throws(() => importHar(har([]), join(root, 'capture.har'), { privateRoots: [root] }), /private root/);
     assert.throws(() => importHar(har([]), 'exports/.migration-private/capture.har'), /private root/);
   } finally { await rm(root, { recursive: true, force: true }); }

@@ -1,5 +1,5 @@
 import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve as resolvePath, sep, posix } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve as resolvePath, sep, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonical, parseOpenApiRefMap, privateBaseDir, HttpEndpointInvariantSchema, type HttpEndpointInvariant, type Invariant } from '@migration-harness/core';
 
@@ -302,33 +302,39 @@ export function importHar(input: unknown, sourceReference: string, options: HarI
       if (typeof text === 'string' && Buffer.byteLength(text, 'utf8') > 4_194_304) throw new Error('HAR input exceeds the size budget.');
     }
   }
-  const privateRoots = [privateBaseDir(), ...(options.privateRoots ?? [])].map(root => {
-    try { return realpathSync(resolvePath(root)); } catch { return resolvePath(root); }
+  const privateRoots = [privateBaseDir(), ...(options.privateRoots ?? [])].flatMap(root => {
+    const resolved = resolvePath(root);
+    try { return [resolved, realpathSync(resolved)]; } catch { return [resolved]; }
   });
-  /** Compare every filesystem spelling of a path (absolute, resolved, realpath) against private roots. */
-  const isPrivatePath = (candidate: string): boolean => {
-    const spellings = new Set<string>([candidate]);
-    try { spellings.add(resolvePath(candidate)); } catch { /* keep */ }
-    try { spellings.add(realpathSync(resolvePath(candidate))); } catch { /* keep */ }
-    for (const spelling of spellings) {
-      if (spelling.split(/[\\/]/).includes('.migration-private')) return true;
-      if (privateRoots.some(root => spelling === root || spelling.startsWith(root + sep))) return true;
+  /** Filesystem spellings of a path, including realpath of the parent when the leaf does not exist yet. */
+  const pathSpellings = (candidate: string): string[] => {
+    const out = new Set<string>([candidate]);
+    const resolved = resolvePath(candidate);
+    out.add(resolved);
+    try { out.add(realpathSync(resolved)); } catch {
+      try { out.add(join(realpathSync(dirname(resolved)), basename(resolved))); } catch { /* keep */ }
     }
-    return false;
+    return [...out];
   };
+  const isPrivatePath = (candidate: string): boolean => pathSpellings(candidate).some(spelling =>
+    spelling.split(/[\\/]/).includes('.migration-private')
+    || privateRoots.some(root => spelling === root || spelling.startsWith(root + sep)));
   // Refusals cover the private artifact domain wherever a capture mentions it: provenance strings,
   // file: URLs and URL paths carrying a .migration-private segment. HTTP(S) URLs are never fetched.
   const isPrivateRef = (value: string): boolean => {
     const normalized = value.replace(/\\/g, '/');
     if (normalized.split('/').includes('.migration-private')) return true;
+    if (/^file:/i.test(value)) {
+      try { return isPrivatePath(fileURLToPath(value)); }
+      catch { return isPrivatePath(value.replace(/^file:\/\//i, '')); }
+    }
+    // Drive-letter and plain filesystem paths (including Windows `C:/...`) are not http(s) URLs.
+    if (/^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\') || value.startsWith('/')) return isPrivatePath(value);
     try {
       const url = new URL(value);
-      if (url.protocol !== 'file:') return false;
-      // fileURLToPath handles Windows drive letters and encoded segments more reliably than pathname alone.
-      const pathname = fileURLToPath(url);
-      return isPrivatePath(pathname);
+      return url.protocol === 'file:' ? isPrivatePath(fileURLToPath(url)) : false;
     } catch {
-      return isPrivatePath(value.replace(/^file:\/\//i, ''));
+      return isPrivatePath(value);
     }
   };
   if (isPrivateRef(sourceReference)) throw new Error('Evidence provenance cannot reference a private root.');
