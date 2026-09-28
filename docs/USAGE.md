@@ -67,6 +67,24 @@ Evidence outputs are created exclusively. Standalone P3 verification takes a new
 path; standard sessions choose their own outputs. Restricted assistant commands may
 replace their current `--out` brief/apply result; archived records remain exclusive.
 
+`--json` on standard prepare/verify/session commands prints the full engine result
+object (agent-friendly). Text summaries remain the default. Exit codes are unchanged.
+An optional MCP stdio transport (`packages/mcp-server`, `harness-mcp`) wraps the same
+engine tools for external coding agents. It is transport only: the harness remains the
+sole issuer of PASS/FAIL/INCONCLUSIVE, tool results never carry raw traces or private
+paths, and no tool auto-applies suggestions.
+
+Noise/binding/scenario **suggestions** (HINT_ONLY) may appear as `STANDARD_WARNING`
+diagnostics with `detailCode` `NOISE_PROPOSAL`, `BINDING_ADAPTATION_PROPOSAL` or
+`SCENARIO_INVENTORY_PROPOSAL`, plus sidecar detail under comparison evidence. They
+never auto-edit policy or config; the owner declares volatility, bindings or scenarios
+and versions the reference (RFC §7).
+
+Optional visual checkpoints (`policy.visual.enabled`) capture PNG screenshots whose
+bytes stay in private storage. The sanitized trace carries only `imageSha256` and
+dimensions. Comparison is hash+size in v1 (pixel-diff reserved in the policy shape)
+and emits `VISUAL_MISMATCH` as WARNING unless `policy.visual.severity` is `BLOCKING`.
+
 ## Standard assistant session
 
 Use `.github/agents/migracao-padrao.agent.md`, an authorized SPEC and a config with
@@ -433,7 +451,16 @@ node packages/cli/dist/index.js import-openapi --input openapi.json --out artifa
 node packages/cli/dist/index.js import-openapi --input openapi.json --ref-map artifacts/ref-map.json \
   --out artifacts/openapi-evidence.json
 node packages/cli/dist/index.js import-test-evidence --input test-report.json --out artifacts/test-evidence.json
+node packages/cli/dist/index.js import-har --input capture.har --source-reference "devtools export" \
+  --out artifacts/har-evidence.json
 ```
+
+`import-har` treats a HAR 1.2 capture as observational HTTP evidence (source `HAR`).
+Budgets: max 10000 entries; string inputs are size-capped at 4 MiB; individual JSON
+body texts are size-capped. Cookies and Authorization headers are never promoted to
+invariants (they become review findings). Only JSON bodies contribute structural field
+names; observed values never enter the evidence. Private-root paths in provenance or
+entry URLs are refused. Nothing is fetched.
 
 The OpenAPI adapter supports a bounded JSON object-schema subset of versions 3.0/3.1 and local references. It extracts top-level required/optional fields from nested `allOf` object compositions, including local references. Required fields are combined conjunctively; common response obligations are still intersected across statuses. This follows [JSON Schema's allOf semantics](https://json-schema.org/understanding-json-schema/reference/combining), not object-oriented inheritance or a complete JSON Schema validator.
 

@@ -103,6 +103,40 @@ A recorded clean-context session is an optional restricted-profile demonstration
 not a gate for the standard product. The deterministic protocol pilot is not that
 session and must never be relabeled as one.
 
+## MCP transport (optional, agent-facing)
+
+`packages/mcp-server` (`harness-mcp`) wraps the same engine tools as a stdio MCP
+server: `prepare_migration`, `verify_migration`, `start_migration_session`,
+`inspect_migration_session`, `update_migration_session`, `verify_migration_session`.
+It is **transport only** — the harness remains the sole issuer of
+PASS/FAIL/INCONCLUSIVE. Hygiene refuses pseudonyms (`p_`+24 hex) and private-root
+paths in tool args/results. No tool auto-applies suggestions, bindings or policy.
+
+Register with GitHub Copilot CLI (example):
+
+```bash
+copilot mcp add harness-mcp -- node $PWD/packages/mcp-server/dist/server.js
+# workspace alternative: .mcp.json (see repository root)
+```
+
+Recorded spike (2026-09-27, GitHub Copilot CLI 1.0.83, model `gpt-5.4`):
+
+- `tools/list` returned all six engine tools through Copilot.
+- `inspect_migration_session` on a synthetic standard config reached the engine and
+  returned `ENOENT ... artifacts/sessions/<pair>` — correct: inspect never creates a
+  session (`start-migration-session` does).
+- Environment note: if `COPILOT_PROVIDER_BASE_URL` is set to an unreachable BYOK
+  endpoint, unset it (and `COPILOT_PROVIDER_TYPE`) to use GitHub Copilot auth, or
+  point BYOK at a live provider and pass an explicit `--model`.
+
+A recorded standard-session loop through Copilot + MCP is summarized in
+[MCP-COPILOT-EVIDENCE.md](MCP-COPILOT-EVIDENCE.md): `gpt-6-luna` drove
+`prepare_migration` → `start_migration_session` → `verify_migration_session` on an
+isolated component-first copy to `COMPLETE`/`PASS` (5/5 scenarios). A prior
+`gpt-5.4` continuation returned `REVIEW_REFERENCE`/`INCONCLUSIVE` when source
+build identity drifted despite green scenarios — the agent cannot manufacture a
+completion.
+
 ## Data and execution safety
 
 No raw traces, credentials or private paths enter assistant context. Prefer safe

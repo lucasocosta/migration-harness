@@ -70,6 +70,9 @@ export function sanitizeTrace(input: RawObservedTrace, policy: SanitizationPolic
         if (isSensitive(event.key) || !(policy.allowedStorageKeys ?? []).includes(event.key)) { count++; return []; }
         return [{ ...event, previousValue: event.previousValue === null ? null : scrubText(event.previousValue), newValue: event.newValue === null ? null : scrubText(event.newValue) }];
       case 'WEBSOCKET_FRAME': return [{ ...event, url: url(event.url), payload: scrub(event.payload) }];
+      case 'VISUAL_CHECKPOINT':
+        // Structural only: image bytes never enter the trace (hash + dimensions).
+        return [{ ...event, triggerEventId: event.triggerEventId, imageSha256: event.imageSha256, width: event.width, height: event.height }];
     }
   });
   const retained = new Set(events.map(event => event.eventId));

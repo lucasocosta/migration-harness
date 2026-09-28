@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "harness-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["packages/mcp-server/dist/server.js"],
+      "tools": ["*"]
+    }
+  }
+}

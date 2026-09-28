@@ -4,7 +4,7 @@ import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/p
 import { dirname, resolve } from 'node:path';
 import {
   canonical, migrationConfigHash, migrationReferenceHash, parseMigrationConfig, parseMigrationPreparation, parseMigrationReport,
-  parseSessionGenerations, MigrationSessionSchema, SessionAttemptStartSchema, SessionAttemptFinishSchema,
+  parseSessionGenerations, MigrationSessionSchema, SessionAttemptStartSchema, SessionAttemptFinishSchema, isSuggestionOnlyDiagnostic,
   type MigrationConfig, type MigrationPreparation, type MigrationScopeSnapshot, type MigrationSession, type SessionAttemptStart,
   type SessionAttemptFinish, type SessionGeneration, type MigrationReport,
 } from '@migration-harness/core';
@@ -142,15 +142,19 @@ async function load(input: Input, options: { allowConfigDrift?: boolean } = {}) 
   return { ...context, session, generations, current, entries: await history(context.store, session, generations) };
 }
 
-function disposition(report: MigrationReport): SessionDecision {
+export function disposition(report: MigrationReport): SessionDecision {
   if (report.status === 'PASS') return 'COMPLETE';
-  if (report.referenceStatus !== 'VERIFIED' || report.diagnostics.some(item => ['REFERENCE_MISMATCH', 'CONFIGURATION_MISMATCH'].includes(item.code)
+  // Suggestion/advisory diagnostics are non-authoritative and must never force FIX_ENVIRONMENT.
+  const actionable = report.diagnostics.filter(item => !isSuggestionOnlyDiagnostic(item));
+  if (report.referenceStatus !== 'VERIFIED' || actionable.some(item => ['REFERENCE_MISMATCH', 'CONFIGURATION_MISMATCH'].includes(item.code)
     || ['REFERENCE_EVIDENCE_UNAVAILABLE', 'SOURCE_REFERENCE_CHANGED', 'SOURCE_UNSTABLE', 'BASELINE_MISMATCH'].includes(item.detailCode ?? ''))) return 'REVIEW_REFERENCE';
-  if (report.status === 'FAIL' || report.diagnostics.some(item => item.side === 'target'
+  if (report.status === 'FAIL' || actionable.some(item => item.side === 'target'
     && (item.detailCode === 'STEP_FAILED' || item.code === 'NATIVE_CHECK_FAILED'))) return 'REPAIR_IMPLEMENTATION';
   // Missing source observations/builds can be a consequence of execution failure, not reference drift.
-  if (report.diagnostics.some(item => item.code === 'OPERATION_FAILED')) return 'FIX_ENVIRONMENT';
-  if (report.diagnostics.some(item => ['STALE_EVIDENCE', 'REFERENCE_UNVERIFIED'].includes(item.code))) return 'REVIEW_REFERENCE';
+  if (actionable.some(item => item.code === 'OPERATION_FAILED')) return 'FIX_ENVIRONMENT';
+  if (actionable.some(item => ['STALE_EVIDENCE', 'REFERENCE_UNVERIFIED'].includes(item.code))) return 'REVIEW_REFERENCE';
+  // Only suggestion-level noise left and no FAIL evidence: the owner reviews what to declare next.
+  if (!actionable.length && report.diagnostics.length) return 'REVIEW_REFERENCE';
   return 'FIX_ENVIRONMENT';
 }
 function allowance(session: MigrationSession, entries: HistoryItem[]) {

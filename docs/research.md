@@ -5,6 +5,7 @@ Este arquivo preserva a pesquisa util, nao um roteiro de implementacao.
 Foram removidos estados do scaffold, listas antigas de proximas tarefas, FSM e
 protocolos duplicados da v0.2. O historico anterior permanece no Git.
 Plano vigente: [PLAN.md](PLAN.md); capacidades reais: [STATUS.md](STATUS.md).
+Paisagem competitiva e padroes emprestaveis: [COMPETITIVE.md](COMPETITIVE.md).
 
 ## 1. Modelo mental mantido
 

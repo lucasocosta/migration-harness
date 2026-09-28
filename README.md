@@ -56,6 +56,8 @@ A pilot passing does not certify a user migration. See the
 - [Architecture](docs/ARCHITECTURE.md), [assistant integration](docs/ASSISTANT-INTEGRATION.md)
   and [agent protocol](AGENTS.md).
 - [Research](docs/research.md): retained foundations and limits.
+- [Competitive research](docs/COMPETITIVE.md): landscape, borrowable patterns and fit analysis.
+- [MCP + Copilot evidence](docs/MCP-COPILOT-EVIDENCE.md): agent-outside spike over the standard session tools.
 - [Validation](docs/VALIDATION.md) and [review decisions](docs/REVIEWS.md): historical evidence.
 
 ## Development

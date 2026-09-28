@@ -210,6 +210,11 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
     const sourceObservations = observations(config, suite);
     if (sourceObservations.status !== 'STABLE') diagnostics.push({ code: 'SOURCE_UNSTABLE', category: 'EVIDENCE',
       detailCode: sourceObservations.status === 'UNSTABLE' ? 'SOURCE_UNSTABLE' : 'SOURCE_OBSERVATIONS_MISSING' });
+    // Noise proposals are advisory only (HINT_ONLY); never auto-apply to policy (RFC §7).
+    for (const item of suite?.stability ?? []) {
+      if (item.result.suggestions?.suggestions.length) diagnostics.push({ code: 'STANDARD_WARNING', category: 'EVIDENCE',
+        scenarioId: item.scenarioId, detailCode: 'NOISE_PROPOSAL' });
+    }
     const buildMatches = suite?.builds?.source.buildHash === preparation.sourceBuild?.buildHash && !!suite?.builds;
     if (!buildMatches) diagnostics.push({ code: 'STALE_EVIDENCE', category: 'EVIDENCE', detailCode: 'SOURCE_BUILD_MISMATCH' });
     const identity: VerificationIdentity = { migrationId: config.migrationId, configurationHash: migrationConfigHash(config),

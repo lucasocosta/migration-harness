@@ -18,6 +18,12 @@ export interface ScenarioRunnerOptions {
   viewport?: { width: number; height: number };
   /** Optional WebSocket frame sink attached while a run is recording; populated by the capture route for opted-in scenarios. */
   webSocketSink?: WebSocketFrameSink;
+  /**
+   * Opt-in visual checkpoints alongside ARIA (policy.visual.enabled). Screenshot bytes may be
+   * retained only through `retainScreenshot`; the sanitized trace keeps hash + dimensions.
+   */
+  visualCapture?: boolean;
+  retainScreenshot?: (bytes: Buffer) => Promise<void>;
 }
 
 export interface WebSocketFrameSink {
@@ -66,6 +72,11 @@ export class ScenarioRunner {
       }
       let beforeStorage = await recorder.captureStorage();
       await recorder.captureAria('initial_mount');
+      const captureVisual = async (triggerEventId: string): Promise<void> => {
+        if (this.options.visualCapture !== true) return;
+        await recorder.captureVisual(triggerEventId, this.options.retainScreenshot ? { retainBytes: this.options.retainScreenshot } : {});
+      };
+      await captureVisual('initial_mount');
 
       for (const step of scenario.steps) {
         stage = 'STEP_FAILED'; activeStep = step.stepId;
@@ -73,6 +84,7 @@ export class ScenarioRunner {
         const afterStep = await recorder.captureStorage();
         recorder.recordStorageDeltas(beforeStorage, afterStep);
         beforeStorage = afterStep;
+        if (scenario.captureStepCheckpoints === true) await captureVisual(step.stepId);
       }
       stage = 'COMPLETION_FAILED'; activeStep = undefined;
       if (responseCompletion) await responseCompletion;
@@ -81,6 +93,7 @@ export class ScenarioRunner {
       const afterStorage = await recorder.captureStorage();
       recorder.recordStorageDeltas(beforeStorage, afterStorage);
       await recorder.captureAria('scenario_completed');
+      await captureVisual('scenario_completed');
       return { ...await recorder.finish(scenario.scenarioId, runIndex), completion: { status: 'COMPLETED', completedStepIds: scenario.steps.map(step => step.stepId) } };
     } catch (error) {
       await recorder.abort();

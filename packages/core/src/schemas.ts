@@ -66,6 +66,8 @@ export const TraceEventSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('ARIA_STATE_CHANGE'), triggerEventId: id, rawYamlTree: text, jsonTree: object }).strict(),
   z.object({ ...base, type: z.literal('STORAGE_DELTA'), storageType, mutationType, key: text, previousValue: text.nullable(), newValue: text.nullable() }).strict(),
   z.object({ ...base, type: z.literal('WEBSOCKET_FRAME'), url: z.string().url(), direction: wsDirection, payload: json }).strict(),
+  // Structural screenshot metadata only; PNG bytes never enter a trace (private store via a capture sink).
+  z.object({ ...base, type: z.literal('VISUAL_CHECKPOINT'), triggerEventId: id, imageSha256: z.string().regex(/^[a-f0-9]{64}$/), width: z.number().int().positive(), height: z.number().int().positive() }).strict(),
 ]);
 const trace = z.object({ scenarioId: id, runId: id.optional(), runIndex: z.number().int().nonnegative(), startedAt: time, events: z.array(TraceEventSchema).max(100000),
   environment: z.object({ browser: id, viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).strict(), locale: id }).strict(),
@@ -94,7 +96,7 @@ function validateTrace(value: z.infer<typeof trace>, ctx: z.RefinementCtx): void
 }
 export const RawObservedTraceSchema = trace.superRefine(validateTrace);
 export const SanitizedObservedTraceSchema = trace.extend({ sanitization: z.object({ version: id, appliedAt: time, redactionsCount: z.number().int().nonnegative() }).strict() }).strict().superRefine(validateTrace);
-const evidence = z.object({ source: z.enum(['RUNTIME_OBSERVATION', 'STATIC_ANALYSIS', 'OPENAPI', 'EXISTING_TESTS', 'HUMAN_SPECIFICATION']), evidenceConfidenceHeuristic: z.number().min(0).max(1), runsObservedCount: z.number().int().nonnegative().optional(), totalRunsEvaluated: z.number().int().positive().optional(), sourceReference: id.optional() }).strict();
+const evidence = z.object({ source: z.enum(['RUNTIME_OBSERVATION', 'STATIC_ANALYSIS', 'OPENAPI', 'EXISTING_TESTS', 'HUMAN_SPECIFICATION', 'HAR']), evidenceConfidenceHeuristic: z.number().min(0).max(1), runsObservedCount: z.number().int().nonnegative().optional(), totalRunsEvaluated: z.number().int().positive().optional(), sourceReference: id.optional() }).strict();
 const invariant = <T extends z.ZodTypeAny>(value: T) => z.object({ id, value, evidenceTrail: z.array(evidence).min(1), enforcement: severity }).strict();
 export const HttpEndpointInvariantSchema = z.object({ pathTemplate: id, pathParams: z.record(z.object({ type: z.enum(['string', 'number', 'uuid']), pattern: text.optional() }).strict()),
   queryParams: z.object({ required: strings, optional: strings, ignored: strings }).strict(), method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
@@ -117,7 +119,7 @@ export const TransformationManifestSchema = z.object({ unitId: id, generatedAt: 
   mappings: z.array(z.object({ mappingId: id, source: id, target: id, preserves: z.array(z.enum(['HTTP_METHOD', 'HTTP_PATH', 'HTTP_PAYLOAD', 'HTTP_STATUS', 'VALIDATION', 'SUCCESS_BEHAVIOR', 'ERROR_BEHAVIOR', 'NAVIGATION', 'STORAGE', 'ARIA_SEMANTICS'])), rationale: text.optional() }).strict()),
 }).strict();
 export const TransformationPlanSchema = z.object({ unitId: id, createdAt: time, items: z.array(z.object({ sourceSymbol: id, targetConcept: id, transformationClass: z.enum(['STRUCTURE_PRESERVING', 'STRUCTURE_CHANGING', 'BEHAVIORAL_REIMPLEMENTATION']), mechanism: z.enum(['CODEMOD', 'LLM', 'MANUAL']), rationale: id }).strict()) }).strict();
-const dimension = z.enum(['NETWORK', 'NAVIGATION', 'STATE', 'ARIA', 'CONTRACT', 'SECURITY']);
+const dimension = z.enum(['NETWORK', 'NAVIGATION', 'STATE', 'ARIA', 'CONTRACT', 'SECURITY', 'VISUAL']);
 export const EquivalenceResultSchema = z.object({ scenarioId: id, status: z.enum(['EQUIVALENT', 'NOT_EQUIVALENT']), evaluatedAt: time,
   divergences: z.array(z.object({ divergenceId: id, scenarioId: id, dimension, code: id, severity, message: text, source: json.optional(), target: json.optional(), relatedMappingId: id.optional() }).strict()),
   evidence: z.object({ sourceEventCount: z.number().int().nonnegative(), targetEventCount: z.number().int().nonnegative(), evaluatedDimensions: z.array(dimension), transformationManifestUsedAsHint: z.boolean() }).strict(),
@@ -177,6 +179,14 @@ export const HarnessPolicySchema = z.object({
   network: z.object({ volatileQueryParams: strings.optional(), volatilePayloadFields: strings.optional(), volatileResponseFields: strings.optional(), volatilePathParams: z.record(strings).optional(), pathTemplates: strings.optional(), comparePayloadShape: z.boolean().optional(), compareStatusCode: z.boolean().optional(), compareResponseShape: z.boolean().optional(), comparePayloadValues: z.boolean().optional(), compareResponseValues: z.boolean().optional(), requiredValueFields: z.array(z.object({ method: id.optional(), path: id.optional(), field: z.string().regex(/^(payload|response)(\.[^.\s]+)*$/).max(512) }).strict()).max(1000).optional() }).strict().optional(),
   observables: z.object({ volatileQueryParams: strings.optional(), ignoredStorageKeys: strings.optional(), volatileStorageValues: z.array(z.object({ storageType, key: id }).strict()).optional(), ariaSeverity: severity.optional(), navigationAliases: record.optional() }).strict().optional(),
   websockets: z.object({ volatileWebSocketFields: strings.optional() }).strict().optional(),
+  /**
+   * Optional screenshot comparison (F4). Opt-in via `enabled`; comparison and capture are skipped
+   * entirely when absent or disabled. Severity defaults to WARNING (PASS-compatible); BLOCKING is an
+   * explicit owner choice. `pixelThreshold`/`masks` version the policy shape for a future pixel-diff
+   * upgrade; the v1 comparator is sha256 + size only.
+   */
+  visual: z.object({ enabled: z.boolean(), severity: z.enum(['WARNING', 'BLOCKING']).optional(),
+    pixelThreshold: z.number().min(0).max(1).optional(), masks: z.array(id).max(100).optional() }).strict().optional(),
   sanitization: z.object({ allowedPayloadKeys: strings.optional(), allowedStorageKeys: strings.optional(), sensitiveKeys: strings.optional() }).strict().optional(),
   assistant: z.object({ allowedPackages: strings, targetConventions: z.record(z.string().max(4096)).optional(), maxBriefBytes: z.number().int().positive().max(4_000_000).optional(), maxSubmissionBytes: z.number().int().positive().max(10_000_000).optional(), typecheck: z.boolean().optional(), lint: z.boolean().optional() }).strict().optional(),
   allowedOrigins: z.array(z.string().url()).optional(),

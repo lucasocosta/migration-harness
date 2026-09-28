@@ -275,6 +275,160 @@ export function importExistingTestEvidence(input: unknown, sourceReference: stri
   }
   return result;
 }
+
+export interface HarImportOptions {
+  /** Private roots the evidence must never reference. Always combined with the private state base dir, matching the OpenAPI importer. */
+  privateRoots?: string[];
+}
+
+/**
+ * Imports a bounded HAR 1.2 capture as observational HTTP evidence. Nothing is ever fetched.
+ * Cookies and Authorization/cookie headers are never read into invariants (their presence is a
+ * review finding). Only JSON request/response bodies contribute shape, and only as structural
+ * field names — observed values never enter the evidence.
+ */
+export function importHar(input: unknown, sourceReference: string, options: HarImportOptions = {}): ImportedHttpEvidence {
+  if (!sourceReference.trim()) throw new Error('Evidence requires source provenance.');
+  // String captures are size-capped before parse; object inputs use entry-count and per-body budgets
+  // so a 10000-entry capture is limited by count, while a single oversized body is still refused.
+  if (typeof input === 'string' && Buffer.byteLength(input, 'utf8') > 4_194_304) throw new Error('HAR input exceeds the size budget.');
+  const document = object(typeof input === 'string' ? JSON.parse(input) : input);
+  const entries = array(object(document.log).entries);
+  if (entries.length > 10000) throw new Error('HAR entries exceed the budget.');
+  for (const item of entries) {
+    for (const part of [object(item).request, object(item).response]) {
+      const text = object(object(part).content ?? object(part).postData ?? {}).text;
+      if (typeof text === 'string' && Buffer.byteLength(text, 'utf8') > 4_194_304) throw new Error('HAR input exceeds the size budget.');
+    }
+  }
+  const privateRoots = [privateBaseDir(), ...(options.privateRoots ?? [])].map(root => {
+    try { return realpathSync(resolvePath(root)); } catch { return resolvePath(root); }
+  });
+  const isPrivatePath = (candidate: string): boolean =>
+    candidate.split(/[\\/]/).includes('.migration-private') ||
+    privateRoots.some(root => candidate === root || candidate.startsWith(root + sep));
+  // Refusals cover the private artifact domain wherever a capture mentions it: provenance strings,
+  // file: URLs and URL paths carrying a .migration-private segment. HTTP(S) URLs are never fetched.
+  const isPrivateRef = (value: string): boolean => {
+    const normalized = value.replace(/\\/g, '/');
+    if (normalized.split('/').includes('.migration-private')) return true;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'file:') return false;
+      const pathname = decodeURIComponent(url.pathname);
+      return isPrivatePath(pathname) || isPrivatePath(resolvePath(pathname));
+    } catch {
+      return isPrivatePath(value) || isPrivatePath(resolvePath(value));
+    }
+  };
+  if (isPrivateRef(sourceReference)) throw new Error('Evidence provenance cannot reference a private root.');
+  const result: ImportedHttpEvidence = { invariants: [], unresolved: [] };
+  const sensitiveHeader = /^(?:authorization|cookie|set-cookie)$/i;
+  const hasSensitiveMaterial = (request: Record<string, unknown>, response: Record<string, unknown> | undefined): boolean => {
+    for (const cookies of [request.cookies, response?.cookies]) if (Array.isArray(cookies) && cookies.length > 0) return true;
+    for (const headers of [request.headers, response?.headers]) {
+      if (!Array.isArray(headers)) continue;
+      for (const item of headers) {
+        const header = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : undefined;
+        if (header && typeof header.name === 'string' && sensitiveHeader.test(header.name)) return true;
+      }
+    }
+    return false;
+  };
+  type JsonShape = { fields?: string[]; invalid?: boolean };
+  const jsonShape = (value: unknown): JsonShape => {
+    const body = object(value);
+    if (typeof body.mimeType !== 'string' || !/json/i.test(body.mimeType) || typeof body.text !== 'string' || !body.text.trim()) return {};
+    let parsed: unknown;
+    try { parsed = JSON.parse(body.text); } catch { return { invalid: true }; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return { fields: Object.keys(parsed).sort() };
+  };
+  type EntryObservation = { index: number; method: HttpEndpointInvariant['method']; pathname: string; queryNames: string[]; status?: number; requestFields?: string[]; responseFields?: string[] };
+  const observations: EntryObservation[] = [];
+  for (const [index, value] of entries.entries()) {
+    const reference = `${sourceReference}#log.entries[${index}]`;
+    try {
+      const entry = object(value);
+      const request = object(entry.request);
+      if (typeof request.method !== 'string' || !['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method.toUpperCase())) throw new Error('Unsupported HTTP method requires review.');
+      const method = request.method.toUpperCase() as HttpEndpointInvariant['method'];
+      if (typeof request.url !== 'string' || !request.url.trim()) throw new Error('HAR request requires a URL.');
+      if (isPrivateRef(request.url)) throw new Error('HAR entry references a private root.');
+      let parsedUrl: URL;
+      try { parsedUrl = new URL(request.url); } catch { throw new Error('HAR request URL is not parseable.'); }
+      const response = entry.response === undefined ? undefined : object(entry.response);
+      if (hasSensitiveMaterial(request, response)) result.unresolved.push({ reference, reason: 'Cookies and Authorization headers require a security-aware adapter.' });
+      const requestShape = request.postData === undefined ? {} : jsonShape(request.postData);
+      const responseShape = response?.content === undefined ? {} : jsonShape(response.content);
+      if (requestShape.invalid || responseShape.invalid) result.unresolved.push({ reference, reason: 'JSON body does not parse; request/response shape requires review.' });
+      const queryNames = Array.isArray(request.queryString)
+        ? request.queryString.map(item => {
+            const param = object(item);
+            if (typeof param.name !== 'string') throw new Error('Invalid query string entry.');
+            return param.name;
+          })
+        : [...parsedUrl.searchParams.keys()];
+      let status: number | undefined;
+      if (response !== undefined) {
+        if (typeof response.status !== 'number' || !Number.isInteger(response.status) || response.status < 100 || response.status > 599) throw new Error('HAR response status is invalid.');
+        status = response.status;
+      }
+      observations.push({
+        index, method, pathname: parsedUrl.pathname, queryNames: [...new Set(queryNames)].sort(),
+        ...(status === undefined ? {} : { status }),
+        ...(requestShape.fields ? { requestFields: requestShape.fields } : {}),
+        ...(responseShape.fields ? { responseFields: responseShape.fields } : {}),
+      });
+    } catch (error) { result.unresolved.push({ reference, reason: errorMessage(error) }); }
+  }
+  const order: string[] = [];
+  const groups = new Map<string, EntryObservation[]>();
+  for (const observation of observations) {
+    const key = `${observation.method}:${observation.pathname}`;
+    const group = groups.get(key);
+    if (group) group.push(observation);
+    else { groups.set(key, [observation]); order.push(key); }
+  }
+  for (const key of order) {
+    const group = groups.get(key)!;
+    const first = group[0]!;
+    const requestPresence = new Map<string, number>(), responsePresence = new Map<string, number>(), queryPresence = new Map<string, number>();
+    const statuses = new Set<number>();
+    for (const observation of group) {
+      if (observation.status !== undefined) statuses.add(observation.status);
+      for (const field of observation.requestFields ?? []) requestPresence.set(field, (requestPresence.get(field) ?? 0) + 1);
+      for (const field of observation.responseFields ?? []) responsePresence.set(field, (responsePresence.get(field) ?? 0) + 1);
+      for (const name of observation.queryNames) queryPresence.set(name, (queryPresence.get(name) ?? 0) + 1);
+    }
+    const always = (presence: Map<string, number>): string[] => [...presence].filter(([, count]) => count === group.length).map(([name]) => name).sort();
+    const sometimes = (presence: Map<string, number>): string[] => [...presence].filter(([, count]) => count < group.length).map(([name]) => name).sort();
+    // Observational placement: presence goes to the observed* sets and query names stay optional.
+    // requiredFields is never claimed from traffic, matching the runtime miner.
+    const value = HttpEndpointInvariantSchema.parse({
+      pathTemplate: first.pathname,
+      pathParams: {},
+      method: first.method,
+      queryParams: { required: [], optional: [...queryPresence.keys()].sort(), ignored: [] },
+      payloadRequirements: {
+        observedAlwaysFields: always(requestPresence),
+        observedSometimesFields: sometimes(requestPresence),
+        requiredFields: [],
+        optionalFields: [],
+        ignoredVolatileFields: [],
+      },
+      responseExpectations: { allowedStatusCodes: [...statuses].sort((a, b) => a - b), bodyShapeRequiredKeys: always(responsePresence) },
+      causalDependencies: { afterOperationIds: [] },
+    }) as HttpEndpointInvariant;
+    result.invariants.push({
+      id: `har-${first.method.toLowerCase()}-${result.invariants.length}`,
+      value,
+      enforcement: 'WARNING',
+      evidenceTrail: [{ source: 'HAR', evidenceConfidenceHeuristic: 1, sourceReference: `${sourceReference}#log.entries[${first.index}]` }],
+    });
+  }
+  return result;
+}
 function object(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected object.'); return value as Record<string, unknown>; }
 function array(value: unknown): unknown[] { if (!Array.isArray(value)) throw new Error('Expected array.'); return value; }
 function stringArray(value: unknown): string[] { const items = array(value); if (items.some(item => typeof item !== 'string')) throw new Error('Expected string array.'); return items as string[]; }

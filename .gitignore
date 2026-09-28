@@ -17,3 +17,5 @@ artifacts/*
 # Local assistant settings and indexes are not project distribution inputs.
 /.codex/
 /.serena/
+# Estado derivado da wiki: reconstrutível a partir das páginas, nunca versionado.
+.llmwiki/

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { stringify } from 'yaml';
 import type { Page, Request } from '@playwright/test';
 import type {
@@ -9,6 +9,7 @@ import type {
   TraceEnvironment,
   TraceEvent,
   UserInteractionEvent,
+  VisualCheckpointEvent,
   WebSocketFrameDirection,
 } from '@migration-harness/core';
 import { canonical, matchesDeclaredShape, urlPatternMatches, valueShape } from '@migration-harness/core';
@@ -176,6 +177,31 @@ export class TemporalTraceRecorder {
       triggerEventId,
       rawYamlTree,
       jsonTree: Array.isArray(jsonTree) ? { children: jsonTree } : jsonTree as Record<string, unknown>,
+    });
+  }
+
+  /**
+   * Optional visual checkpoint (policy.visual.enabled). Image bytes are hashed here and
+   * discarded from the trace; private storage is the only place screenshots may be kept
+   * by callers that opt into writing them. The event carries structure only.
+   */
+  async captureVisual(triggerEventId: string, options: { retainBytes?: (bytes: Buffer) => Promise<void> } = {}): Promise<VisualCheckpointEvent> {
+    const bytes = await this.page.screenshot({ type: 'png', animations: 'disabled' });
+    const buffer = Buffer.from(bytes);
+    if (options.retainBytes) await options.retainBytes(buffer);
+    const sequenceIndex = this.nextSeq();
+    // Probe dimensions from the PNG IHDR without retaining pixels in the event.
+    const width = buffer.length > 20 ? buffer.readUInt32BE(16) : 0;
+    const height = buffer.length > 20 ? buffer.readUInt32BE(20) : 0;
+    return this.pushEvent({
+      type: 'VISUAL_CHECKPOINT',
+      eventId: `evt_${sequenceIndex}`,
+      timestampMs: Date.now(),
+      sequenceIndex,
+      triggerEventId,
+      imageSha256: createHash('sha256').update(buffer).digest('hex'),
+      width,
+      height,
     });
   }
 
