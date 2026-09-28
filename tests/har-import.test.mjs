@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { importHar } from '../packages/contract-synthesizer/dist/index.js';
@@ -85,7 +86,7 @@ test('HAR import refuses private-root paths in provenance and entry URLs', async
   const root = await mkdtemp(join(tmpdir(), 'harness-har-private-'));
   try {
     const capture = har([
-      entry({ method: 'GET', url: `file://${join(root, 'raw.json')}`, content: jsonBody({ stolen: true }) }),
+      entry({ method: 'GET', url: pathToFileURL(join(root, 'raw.json')).href, content: jsonBody({ stolen: true }) }),
       entry({ method: 'GET', url: 'https://app.test/.migration-private/secret', content: jsonBody({ stolen: true }) }),
       entry({ method: 'GET', url: 'https://app.test/api/customers', content: jsonBody({ ok: true }) }),
     ]);

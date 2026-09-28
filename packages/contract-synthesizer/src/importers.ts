@@ -1,5 +1,6 @@
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve as resolvePath, sep, posix } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { canonical, parseOpenApiRefMap, privateBaseDir, HttpEndpointInvariantSchema, type HttpEndpointInvariant, type Invariant } from '@migration-harness/core';
 
 export interface ImportedHttpEvidence {
@@ -304,9 +305,17 @@ export function importHar(input: unknown, sourceReference: string, options: HarI
   const privateRoots = [privateBaseDir(), ...(options.privateRoots ?? [])].map(root => {
     try { return realpathSync(resolvePath(root)); } catch { return resolvePath(root); }
   });
-  const isPrivatePath = (candidate: string): boolean =>
-    candidate.split(/[\\/]/).includes('.migration-private') ||
-    privateRoots.some(root => candidate === root || candidate.startsWith(root + sep));
+  /** Compare every filesystem spelling of a path (absolute, resolved, realpath) against private roots. */
+  const isPrivatePath = (candidate: string): boolean => {
+    const spellings = new Set<string>([candidate]);
+    try { spellings.add(resolvePath(candidate)); } catch { /* keep */ }
+    try { spellings.add(realpathSync(resolvePath(candidate))); } catch { /* keep */ }
+    for (const spelling of spellings) {
+      if (spelling.split(/[\\/]/).includes('.migration-private')) return true;
+      if (privateRoots.some(root => spelling === root || spelling.startsWith(root + sep))) return true;
+    }
+    return false;
+  };
   // Refusals cover the private artifact domain wherever a capture mentions it: provenance strings,
   // file: URLs and URL paths carrying a .migration-private segment. HTTP(S) URLs are never fetched.
   const isPrivateRef = (value: string): boolean => {
@@ -315,10 +324,11 @@ export function importHar(input: unknown, sourceReference: string, options: HarI
     try {
       const url = new URL(value);
       if (url.protocol !== 'file:') return false;
-      const pathname = decodeURIComponent(url.pathname);
-      return isPrivatePath(pathname) || isPrivatePath(resolvePath(pathname));
+      // fileURLToPath handles Windows drive letters and encoded segments more reliably than pathname alone.
+      const pathname = fileURLToPath(url);
+      return isPrivatePath(pathname);
     } catch {
-      return isPrivatePath(value) || isPrivatePath(resolvePath(value));
+      return isPrivatePath(value.replace(/^file:\/\//i, ''));
     }
   };
   if (isPrivateRef(sourceReference)) throw new Error('Evidence provenance cannot reference a private root.');
