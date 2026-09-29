@@ -164,6 +164,17 @@ exigido e invariantes — nunca texto de query ou sequencia de operacoes.
   evidencia ausente nunca e COMPLETE; regressoes controladas (persistencia,
   rollback, efeito secundario) detectadas. Divergencia de estado intencional va
   em `acceptedDifferences` com predicados e decisao do dono.
+- Registro (2026-09-29): persistencia cross-engine implementada e validada —
+  fonte PHP+SQLite (PDO, tabelas relacionais) e alvo Java+H2 (documento JSON),
+  escrita atomica cliente+auditoria, injecao de falha declarada (header e campo)
+  com rollback completo, `reset: COMMANDS` com baseline sentinela identico,
+  probes canonicos byte-identicos entre as engines (incluindo valores exoticos)
+  e testes nativos com ciclo proprio (49 checks PHP, 30 Java + 5 guardas de
+  escaper). Ciclo completo pelo harness: `COMPLETE`/`PASS` 6/6 cenarios · 14/14
+  requisitos · 5/5 checks; regressao controlada (incremento de auditoria
+  quebrado) detectada por stateClaim e check nativo. Normalizacao-on-write:
+  nao aplicavel (o exemplo ecoa o e-mail sem transformacao); cascade e escrita
+  assincrona: nao aplicavel (sem relacoes nem filas) — documentado.
 
 ### P7.8 Banco Tier 2 — state capture com sondas declaradas (L)
 
@@ -215,6 +226,29 @@ proibido); exit 0 = execucao bem-sucedida, nao evidencia completa.
   brutos, credenciais e pseudonimos nunca chegam a saidas do assistente;
   (9) diferencas semanticas explicitas funcionam; ignores amplos e aceitacao de
   evidencia incompleta sao recusados.
+- Registro (2026-09-29): state capture entregue — sondas `kind:"probe"` por lado
+  (argv proprio, nunca shell), sanitizacao por allowlist antes da persistencia,
+  HMAC keyed type-tagged para `KEYED_EQUALITY` (literais declarados decididos
+  dentro de processamento protegido), envelope `STATE_SNAPSHOT` identitario,
+  settle `PROBE_BARRIER` por marcador de conclusao declarado, pinning em
+  `sourceEvidence[].state` com re-checagem stale no verify, estado no
+  executionHash de estabilidade, claims `STATE_FIELD` (EQUALS/ABSENT/KEYED_EQUAL)
+  e preservacao diferencial independente com gate de `acceptedDifferences`.
+  Criterios: (1) fixture cross-engine SQL relacional -> documento JSON verde;
+  (2) regressao oculta detectada (nome persistido sem claim ->
+  `BEHAVIOR_DIVERGENCE (STATE_DIVERGENCE)` na preservacao; auditoria e rollback
+  pelos claims e testes nativos); (3) igualmente-errado reprova o requisito;
+  (4) evidencia ausente/incompleta/stale/unsettled/omitida => INCONCLUSIVE;
+  (5) barreiras por marcador declarado, nunca polling do resultado esperado;
+  (6) estado participa de estabilidade, referencia e identidade de run/build/
+  reset; (7) mudancas de probe/projecao/claims alteram os digests de referencia;
+  (8) valores brutos nunca saem do processamento protegido (HMAC + caminhos
+  estruturais); (9) diferencas semanticas exigem predicado na fonte + claims
+  satisfeitas + decisao do dono, e evidencia incompleta nunca e resolvivel.
+  Limites conhecidos: EQUALS sobre `KEYED_EQUALITY` exige a chave protegida
+  (sem chave, NOT_EVALUABLE); campos STRUCTURAL nao decidem literais; path de
+  claim com curinga e AMBIGUOUS; aplicabilidade por lado (`appliesTo`) e
+  refinamento futuro — hoje ambos os lados devem satisfazer.
 
 ## Nao-objetivos do primeiro ciclo
 

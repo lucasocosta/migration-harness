@@ -730,6 +730,32 @@ against the process cwd while `--artifact-path` is workspace-relative (CLI
 asymmetry found by the suite); database behavior is scoped (P7.7/P7.8) but this
 example has no persistence side effects by design.
 
+## P7 — database state verification (2026-09-29)
+
+Cross-engine persistence (source PHP + SQLite relational tables, target Java +
+H2 JSON documents — deliberately different physical schemas) completed the
+standard cycle on the api-first pair: `prepare` pins source `STATE_SNAPSHOT`
+identities, `verify` reached `COMPLETE`/`PASS` with 6/6 scenarios, 14/14
+requirements (9 `stateClaim`) and 5/5 checks. Controlled regressions: a broken
+audit increment was detected by both the `save-persists` state claim
+(`STATE_FIELD_DIFFERS`) and the native persistence check; a hidden stored-value
+mutation (persisted name, no dedicated state claim) failed preservation through
+the differential state comparison (`BEHAVIOR_DIVERGENCE (STATE_DIVERGENCE)`)
+while requirements stayed green — acceptance of a declared `STATE_DIVERGENCE`
+requires a satisfied source predicate, satisfied required claims and an owner
+decision reference, and never covers missing or incomplete evidence. Probe
+failures, unsettled barriers and privacy-omitted fields stay INCONCLUSIVE.
+Evaluation is covered by `tests/state-claims.test.mjs` (predicate matrix,
+equally-wrong, keyed collections, acceptance gate, no-value-leaks) and capture
+by `tests/state-capture.test.mjs` (persistence, sanitization/HMAC, fail-closed
+probe failures, settle barriers, source stability, reference digests and
+prepared-state re-checks); the persisted pair itself runs in
+`tests/api-first-persistence.test.mjs`. Known limits: EQUALS on KEYED_EQUALITY
+fields is decided under the protected key only (without it NOT_EVALUABLE),
+STRUCTURAL fields cannot decide literals, wildcard claim paths are ambiguous,
+and per-requirement side applicability (`appliesTo`) is a future refinement —
+today both sides must satisfy.
+
 ## Environment facts that affect interpretation
 
 - Private raw artifacts live under `~/.local/state/migration-harness/<hash>/raw`,

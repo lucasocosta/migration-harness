@@ -588,8 +588,22 @@ primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
   regressao em `tests/prepare-retry.test.mjs`; toolchains PHP/JDK/Maven na
   matriz CI, verde nos 3 SOes no run 36582270212 (apos corrigir o gitignore que
   engolia o projeto Java `target/`).
-- [ ] P7.7 Banco Tier 1 — cobertura obrigatoria de estado (ver PLAN-PHP-JAVA).
-- [ ] P7.8 Banco Tier 2 — state capture com sondas declaradas (ver PLAN-PHP-JAVA).
+- [x] P7.7 Banco Tier 1 — cobertura obrigatoria de estado: persistencia real
+  cross-engine no api-first (SQLite relacional -> H2 documento JSON), resets
+  `COMMANDS` com baseline sentinela, cenarios read-after-write / invalido-sem-
+  efeito / falha-injetada com rollback atomico, testes nativos com ciclo proprio
+  reset->acao->assercao, stores sinteticos reais. Regressao controlada de
+  persistencia detectada em duas camadas (stateClaim `STATE_FIELD_DIFFERS` +
+  `NATIVE_CHECK_FAILED`). Evidencia em VALIDATION.md.
+- [x] P7.8 Banco Tier 2 — state capture com sondas declaradas: `kind:"probe"`,
+  `stateProjections`/`stateCaptures`/`stateClaim` + acceptedDifferences
+  `STATE_DIVERGENCE`, artefato `STATE_SNAPSHOT` identitario, HMAC keyed de
+  igualdade para campos sensiveis, barreiras `PROBE_BARRIER` por marcador de
+  conclusao declarado, pinning de estado na referencia com re-checagem stale,
+  estado no executionHash de estabilidade e preservacao diferencial independente
+  dos claims. Ciclo completo `COMPLETE`/`PASS` 6/6 · 14/14 · 5/5; regressao
+  oculta de estado detectada como `BEHAVIOR_DIVERGENCE (STATE_DIVERGENCE)` na
+  preservacao. Criterios 1-9 do design registrados em PLAN-PHP-JAVA.md.
 
 Progresso segue o protocolo abaixo; as decisoes (1)-(4) do doc devem estar
 registradas como resolvidas antes de declarar P7 entregue.
