@@ -588,6 +588,10 @@ substitui os criterios de aceite de produto ainda sem evidencia.
   nao comprova essas tres injecoes. Nao substituir/resetar sua sessao para esta tarefa.
 - [ ] Completar medicao de preparacao/intervencoes humanas do P5. Tempos de
   verificacao e dois probes ja constam do registro; o restante nao foi medido.
+- [ ] MINOR adiado da revisao de seguranca (2026-09-28): canonicalizar ancestrais
+  ausentes e comparar com awareness de maiusculas/minusculas na checagem de
+  proveniencia do importador HAR (contract-synthesizer/importers.ts). Nao busca
+  referencias externas; nao bloqueia o ciclo atual.
 
 Handoff: manutencao do harness; perfis standard/restricted preservados. Commit e
 push do harness autorizados; nenhum merge, push dos apps ou alteracao de contratos

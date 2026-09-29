@@ -55,6 +55,37 @@ Behavioral checks were green, yet the harness refused `COMPLETE` because the
 example apps were rebuilt. Independence means the agent cannot declare success
 when evaluation inputs drift. Response: `REVIEW_REFERENCE`, not silent rebaseline.
 
+## Session C — full standard loop (`gpt-6-luna`, post-change revalidation)
+
+| Identity | Recorded value |
+| --- | --- |
+| Date | 2026-09-28 |
+| Agent transport | GitHub Copilot CLI 1.0.88, model **`gpt-6-luna`**, non-interactive `-p` + `--resume` |
+| MCP server | `harness-mcp` → `packages/mcp-server/dist/server.js` (stdio) |
+| Workspace | isolated copy of `examples/component-first` (rewritten roots `angular`/`react`, fresh session path under `artifacts/pilot-luna-*`) |
+| Config | `profile: "standard"`, 5 scenarios, 11 requirements, 3 checks |
+| Session | `67a1d246f04c5477b8749d26da70974e`, generation 0 |
+| Preparation | `artifacts/prepared`, status `PASS`, referenceHash `09fddb334227bf3d…` |
+| Verdict run | `0000`, evaluatedAt `2026-09-29T01:44:57.379Z` |
+| Decision | **`COMPLETE`** |
+| Report | **`PASS`** / preservation `PASS` / requirements `PASS` / projectChecks `PASS` / reference `VERIFIED` |
+| Coverage | 5/5 scenarios, 11/11 requirements, 3/3 checks |
+| Diagnostics | `[]` |
+| Budget after | `attemptsUsed: 1/4`, `usedMs: 15164`, `remainingMs: 164836`, `scope: PASS`, `lastReportMatchesWorkspace: true` |
+
+### Tool sequence issued by the agent (Copilot → MCP → engine)
+
+1. `prepare_migration` (`allowProjectCommands: true`, `artifactPath: artifacts/prepared`) → `MIGRATION_PREPARATION` `PASS` (source observations `STABLE` over 2 runs).
+2. `start_migration_session` — the first call passed the artifact *directory* as `preparationPath` and failed with `ENOENT`; no session was created and no status was fabricated. With the corrected `preparationPath` (`…/preparation.json`) it returned `MIGRATION_SESSION_STARTED` (`maxAttempts: 4`, `maxActiveMs: 180000`).
+3. `verify_migration_session` (`allowProjectCommands: true`) → `MIGRATION_SESSION_RESULT` `COMPLETE` / `PASS` on attempt 0.
+4. `inspect_migration_session` → durable status matching the workspace.
+
+The agent did **not** edit candidate files (`Changes +0 -0`) and did **not** run shell
+commands. Two observations are recorded as evidence: the failed call surfaced as a
+raw `MCP error -32000: ENOENT …` string carrying a filesystem path rather than a
+stable refusal code (error-hygiene gap on this channel), and the missing session
+failed closed instead of fabricating a report.
+
 ## Limits
 
 - Session A used an isolated workspace (fresh session id); it is not the published
