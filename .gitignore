@@ -3,6 +3,7 @@ node_modules/
 /migrations/
 .harness-brief-path
 dist/
+target/
 artifacts/*
 !artifacts/.gitkeep
 .pnpm-store/

@@ -1,14 +1,23 @@
-export type InteractionActionType = 'click' | 'fill' | 'select' | 'press' | 'focus';
+export type InteractionActionType = 'click' | 'fill' | 'select' | 'press' | 'focus' | 'request';
+
+/** Methods an API request step may issue directly against a side's served origin. */
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface ScenarioInteractionStep {
   stepId: string;
   action: InteractionActionType;
-  targetRole: string;
+  /** Browser steps address a control by ARIA role; API request steps address the server and omit it. */
+  targetRole?: string;
   targetName?: string;
   targetLabel?: string;
   inputValue?: string;
   description?: string;
   completionSignal?: CompletionSignal;
+  /** Request steps: method and absolute path of the direct call. Completion is the response receipt. */
+  method?: HttpMethod;
+  path?: string;
+  /** Request steps: JSON request body. */
+  body?: unknown;
 }
 
 export interface MockApiResponse {

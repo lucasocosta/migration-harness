@@ -5,17 +5,19 @@ import { dirname, join, resolve } from 'node:path';
 import {
   canonical, MigrationPathSchema, migrationConfigHash, migrationReferenceHash, parseMigrationConfig,
   parseMigrationPreparation, parseSanitizedTrace, parseContract, SourceObservationsSchema,
-  normalizeUrl, unitAssertionsForScenario, scenarioBindingProjection, classifyReferenceChange,
+  normalizeUrl, responseFieldClaimsForScenario, unitAssertionsForScenario, scenarioBindingProjection, classifyReferenceChange,
+  UnitAssertionOutcomeSchema,
   type MigrationConfig, type MigrationDiagnostic, type MigrationPreparation, type MigrationReport,
   type MigrationReference, type ScenarioVerification, type VerificationIdentity, type VerificationStatus,
 } from '@migration-harness/core';
 import { EquivalenceValidator, evaluateUnitAssertions, resolveExpectedDifferences, migrationComparisonPolicy, verifyCriticalContract, verifySourceStability } from '@migration-harness/equivalence-validator';
-import { assertionRequirementStatuses, buildMigrationReport } from '@migration-harness/quality-gates';
+import { assertionRequirementStatuses, buildMigrationReport, compareStateProjections, evaluateResponseFieldClaims, evaluateStateClaims, resolveStateAcceptedDivergence, type KeyedField } from '@migration-harness/quality-gates';
 import { ArtifactStore, safeArtifactPath } from './artifacts.js';
 import { captureProjectSuite, type CaptureSuiteResult, type SuiteCapture } from './capture-suite.js';
 import { collectMigrationReference, verifyMigrationReference } from './migration-reference.js';
 import { preflightProjectChecks } from './project-checks.js';
 import { preflightBuildServers, ProjectBuildError } from './build-servers.js';
+import { compareSourceStateEvidence, keyedStateValue, readStateSnapshot, stateEvidencePins, type StateSnapshotEnvelope } from './state-capture.js';
 import { assertNotPrivateWorkspace, coversPosix, isWithin, privateBaseDir } from './platform-paths.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
@@ -31,7 +33,11 @@ async function reserve(input: OperationInput): Promise<{ config: MigrationConfig
   const overlap = (other: string): boolean => other === output || isWithin(output, other) || isWithin(other, output);
   if ([config.source.root, config.target.root, ...config.scenarios.map(item => item.fixtureRoot),
     ...(config.criticalContract ? [config.criticalContract.path] : [])].some(item => overlap(resolve(workspace, item)))) throw new Error('UNSAFE_OPERATION_OUTPUT');
-  await safeArtifactPath(workspace, path); await mkdir(dirname(output), { recursive: true }); await mkdir(output);
+  await safeArtifactPath(workspace, path); await mkdir(dirname(output), { recursive: true });
+  try { await mkdir(output); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    throw new Error('ARTIFACT_NOT_FRESH');
+  }
   const store = new ArtifactStore(output, undefined, input.allowInsecurePrivateStore || process.env.MIGRATION_HARNESS_ALLOW_INSECURE_PRIVATE_STORE === '1'
     ? { allowInsecurePrivateStore: true } : {});
   await store.write('started.json', { kind: 'MIGRATION_OPERATION_STARTED', configurationHash: migrationConfigHash(config), completed: false });
@@ -55,8 +61,16 @@ async function readEvidence(root: string, path: string): Promise<unknown> {
 
 async function referenceKey(store: ArtifactStore, create?: string): Promise<string> {
   const path = await store.privatePath('pseudonymization.key');
-  const file = await open(path, create === undefined ? constants.O_RDONLY | constants.O_NOFOLLOW
-    : constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  let file;
+  try {
+    file = await open(path, create === undefined ? constants.O_RDONLY | constants.O_NOFOLLOW
+      : constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  } catch (error) {
+    // A previous operation over the same artifact identity already owns the key: reuse it (stable
+    // pseudonyms across re-prepares) instead of failing, preserving the read-side validation below.
+    if (create === undefined || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    return referenceKey(store);
+  }
   try {
     const stat = await file.stat();
     const weakMode = Boolean(stat.mode & 0o077);
@@ -131,12 +145,22 @@ export async function prepareMigration(input: OperationInput & { previous?: unkn
     const reference = previous && classifyReferenceChange(previous.reference, fresh).classification === 'INITIAL' ? previous.reference
       : previous ? await collectMigrationReference({ ...referenceInput, sourceObservations: fresh.sourceObservations }) : fresh;
     const verified = await verifyMigrationReference({ config, workspaceRoot: workspace, reference });
+    // Source STATE_SNAPSHOTs are pinned alongside their traces. An INCOMPLETE snapshot is not evidence:
+    // it never becomes a pin and it keeps the prepared reference unverifiable (fail closed).
+    const sourceEvidence = (suite?.captures ?? []).flatMap(item => {
+      if (item.side !== 'source' || item.status !== 'COMPLETED' || !item.evidencePath) return [];
+      const state = stateEvidencePins(item.state);
+      return [{ scenarioId: item.scenarioId, runIndex: item.runIndex, runId: item.traceRunId!, traceHash: item.traceHash!,
+        path: `capture/${item.evidencePath}`, ...(state.pins.length ? { state: state.pins } : {}) }];
+    });
+    const sourceStateComplete = (suite?.captures ?? [])
+      .every(item => item.side !== 'source' || !stateEvidencePins(item.state).incomplete);
     const preparation = parseMigrationPreparation({ kind: 'MIGRATION_PREPARATION', version: '1',
-      status: !session.expired() && suite?.status === 'COMPLETED' && verified.status === 'VERIFIED' ? suite.checks?.status ?? 'INCONCLUSIVE' : 'INCONCLUSIVE',
+      status: !session.expired() && suite?.status === 'COMPLETED' && verified.status === 'VERIFIED' && sourceStateComplete
+        ? suite.checks?.status ?? 'INCONCLUSIVE' : 'INCONCLUSIVE',
       reference, referenceHash: migrationReferenceHash(reference),
       artifactPath: input.artifactPath, keyId: digest(key),
-      sourceEvidence: (suite?.captures ?? []).flatMap(item => item.side === 'source' && item.status === 'COMPLETED' && item.evidencePath
-        ? [{ scenarioId: item.scenarioId, runIndex: item.runIndex, runId: item.traceRunId!, traceHash: item.traceHash!, path: `capture/${item.evidencePath}` }] : []),
+      sourceEvidence,
       ...(suite?.checks ? { baseline: suite.checks } : {}), ...(suite?.builds?.source ? { sourceBuild: suite.builds.source } : {}) });
     await store.write('reference.json', reference); await store.write('reference-verification.json', verified);
     if (preparation.baseline) await store.write('baseline.json', preparation.baseline);
@@ -161,6 +185,70 @@ async function traceFor(config: MigrationConfig, suite: CaptureSuiteResult, capt
 const incompleteCodes = new Set(['INSUFFICIENT_EVIDENCE', 'NETWORK_INCOMPLETE_EXCHANGE', 'NON_DETERMINISTIC_EXECUTION',
   'CAUSAL_ALIGNMENT_BUDGET_EXCEEDED', 'VALUE_EVIDENCE_OMITTED', 'UNIT_ASSERTION_NOT_EVALUABLE', 'SCENARIO_FAILED']);
 
+export interface ScenarioRequirementStatus {
+  requirementId: string;
+  status: VerificationStatus;
+  /** Declared reason code of the failing target-side outcome (assertion or response field), never an observed value. */
+  reason?: string;
+}
+
+/**
+ * Map one scenario's machine-checkable requirements onto report statuses.
+ *
+ * A requirement declaring an `assertion` is answered by the differential assertion outcomes already
+ * evaluated on the target; a requirement declaring a `responseClaim` is evaluated here against the
+ * recorded HTTP exchanges of both sides, so an API-first requirement reaches PASS on evidence instead of
+ * falling through to INCONCLUSIVE. When a requirement declares both, every declared source must hold.
+ * A requirement with no machine-checkable evidence, or evidence that cannot decide, stays INCONCLUSIVE —
+ * unevaluable evidence is never a pass.
+ */
+export function scenarioRequirementStatuses(config: MigrationConfig, scenarioId: string, input: {
+  /** Target outcomes of the scenario's differential assertion pass, as produced by `evaluateUnitAssertions`. */
+  assertionOutcomes: unknown;
+  /** Sanitized source execution of the scenario: the evidence for response-field claims. */
+  source: unknown;
+  /** Sanitized target execution of the scenario: the evidence for response-field claims. */
+  target: unknown;
+  /** STATE_SNAPSHOT evidence of both sides plus the keyed-literal context for HMAC'd claim values. */
+  state?: {
+    sourceSnapshots: unknown[];
+    targetSnapshots: unknown[];
+    keyed?: readonly KeyedField[] | undefined;
+    hmac?: ((value: unknown, domain: string) => string) | undefined;
+  } | undefined;
+}): ScenarioRequirementStatus[] {
+  const statuses = assertionRequirementStatuses(input.assertionOutcomes);
+  const reasons = new Map<string, string>();
+  for (const outcome of UnitAssertionOutcomeSchema.array().max(10000).parse(input.assertionOutcomes)) {
+    if (outcome.side === 'target' && outcome.reason) reasons.set(outcome.assertionId, outcome.reason);
+  }
+  const claims = responseFieldClaimsForScenario(config, scenarioId);
+  if (claims.length) {
+    // Satisfaction per side, then the shared mapping: VIOLATED -> FAIL, unevaluable -> INCONCLUSIVE.
+    const evaluation = evaluateResponseFieldClaims({ claims, source: input.source, target: input.target });
+    statuses.push(...assertionRequirementStatuses(evaluation.outcomes));
+    for (const outcome of evaluation.outcomes) if (outcome.side === 'target' && outcome.reason) reasons.set(outcome.assertionId, outcome.reason);
+  }
+  // STATE_FIELD requirements are answered against the captured domain-state projections of both sides;
+  // keyed fields decide declared literals under their representation, and absent or incomplete state
+  // evidence stays INCONCLUSIVE exactly like the other claim vocabularies.
+  const stateClaims = config.requirements.flatMap(item => item.scenarioId === scenarioId && item.stateClaim
+    ? [{ id: item.id, required: item.required, stateClaim: item.stateClaim }] : []);
+  if (stateClaims.length && input.state) {
+    const evaluation = evaluateStateClaims({ claims: stateClaims, sourceSnapshots: input.state.sourceSnapshots,
+      targetSnapshots: input.state.targetSnapshots,
+      ...(input.state.keyed ? { keyed: input.state.keyed } : {}),
+      ...(input.state.hmac ? { hmac: input.state.hmac } : {}) });
+    statuses.push(...assertionRequirementStatuses(evaluation.outcomes));
+    for (const outcome of evaluation.outcomes) if (outcome.side === 'target' && outcome.reason) reasons.set(outcome.assertionId, outcome.reason);
+  }
+  return config.requirements.filter(item => item.scenarioId === scenarioId).map(item => {
+    const declared = statuses.filter(entry => entry.requirementId === item.id).map(entry => entry.status);
+    const reason = reasons.get(item.id);
+    return { requirementId: item.id, status: declared.length ? combine(declared) : 'INCONCLUSIVE', ...(reason ? { reason } : {}) };
+  });
+}
+
 /** Verify all declared behavior and native regression checks against an explicit, unchanged prepared reference. */
 export async function verifyMigration(input: OperationInput & { preparation: unknown }): Promise<MigrationReport> {
   if (input.allowProjectCommands !== true) throw new Error('EXECUTION_NOT_AUTHORIZED');
@@ -182,19 +270,33 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
     if (!validPreparation) diagnostics.push({ code: 'OPERATION_FAILED', category: 'EVIDENCE', detailCode: 'BASELINE_MISMATCH' });
     let key: string | undefined;
     const originalSources = new Map<string, ReturnType<typeof parseSanitizedTrace>>();
+    const originalStates = new Map<string, Array<{ runIndex: number; envelope: StateSnapshotEnvelope }>>();
     try {
       key = await referenceKey(new ArtifactStore(resolve(workspace, preparation.artifactPath)));
       if (digest(key) !== preparation.keyId) throw new Error('KEY_MISMATCH');
       if (preparation.sourceEvidence.length !== config.scenarios.length * config.limits.sourceRuns) throw new Error('REFERENCE_COVERAGE_MISMATCH');
+      const preparedRoot = resolve(workspace, preparation.artifactPath);
       const runIds = new Set<string>();
       for (const item of config.scenarios) for (let index = 0; index < config.limits.sourceRuns; index++) {
         const entries = preparation.sourceEvidence.filter(entry => entry.scenarioId === item.definition.scenarioId && entry.runIndex === index);
         if (entries.length !== 1) throw new Error('REFERENCE_COVERAGE_MISMATCH');
-        const entry = entries[0]!, trace = parseSanitizedTrace(await readEvidence(resolve(workspace, preparation.artifactPath), entry.path));
+        const entry = entries[0]!, trace = parseSanitizedTrace(await readEvidence(preparedRoot, entry.path));
         if (digest(trace) !== entry.traceHash || trace.runId !== entry.runId || runIds.has(entry.runId)
           || trace.scenarioId !== entry.scenarioId || trace.runIndex !== index || trace.completion?.status !== 'COMPLETED') throw new Error('REFERENCE_EVIDENCE_CHANGED');
         runIds.add(entry.runId);
         if (index === 0) originalSources.set(entry.scenarioId, trace);
+        // Pinned STATE_SNAPSHOTs of this run: re-read, integrity-checked and identity-matched exactly
+        // like the trace above. An incomplete or drifted pin makes the prepared reference unverifiable.
+        for (const pin of entry.state ?? []) {
+          if (pin.completeness !== 'COMPLETE') throw new Error('REFERENCE_STATE_EVIDENCE_INCOMPLETE');
+          const snapshot = await readStateSnapshot(preparedRoot, pin.path);
+          if (snapshot.completeness !== 'COMPLETE' || snapshot.side !== 'source' || snapshot.evidenceHash !== pin.evidenceHash
+            || snapshot.projectionFingerprint !== pin.projectionFingerprint || snapshot.captureId !== pin.captureId
+            || snapshot.checkpoint !== pin.checkpoint || snapshot.scenarioId !== entry.scenarioId
+            || snapshot.runIndex !== index) throw new Error('REFERENCE_STATE_EVIDENCE_CHANGED');
+          originalStates.set(entry.scenarioId, [...(originalStates.get(entry.scenarioId) ?? []),
+            { runIndex: index, envelope: snapshot }]);
+        }
       }
     } catch {
       key = undefined;
@@ -239,6 +341,20 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
           sourceUnchanged = false;
           diagnostics.push({ code: 'STALE_EVIDENCE', scenarioId, category: 'EVIDENCE', detailCode: 'SOURCE_REFERENCE_CHANGED' });
         }
+        // Fresh source STATE_SNAPSHOTs must reproduce the pinned prepared state. Drift is stale
+        // evidence (same codebook as the trace comparison); missing or INCOMPLETE fresh state is
+        // reported once here and can never leave the scenario in PASS.
+        const stateOutcome = await compareSourceStateEvidence({ config, scenarioId,
+          pinned: originalStates.get(scenarioId) ?? [], captureRoot: resolve(store.root, 'capture'),
+          freshRecords: suite.captures.filter(record => record.side === 'source' && record.scenarioId === scenarioId) });
+        if (stateOutcome.stale) {
+          sourceUnchanged = false;
+          if (!diagnostics.some(item => item.scenarioId === scenarioId && item.detailCode === 'SOURCE_REFERENCE_CHANGED')) {
+            diagnostics.push({ code: 'STALE_EVIDENCE', scenarioId, category: 'EVIDENCE', detailCode: 'SOURCE_REFERENCE_CHANGED' });
+          }
+        }
+        if (stateOutcome.incomplete) diagnostics.push({ code: 'EXECUTION_INCOMPLETE', scenarioId, category: 'EVIDENCE',
+          detailCode: 'STATE_EVIDENCE_UNAVAILABLE' });
         const entry = normalizeUrl(item.definition.entryUrl);
         policy.observables = { ...policy.observables, navigationAliases: {
           [normalizeUrl(item.bindings.source.entryUrl)]: entry, [normalizeUrl(item.bindings.target.entryUrl)]: entry,
@@ -257,19 +373,64 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
         result.diagnostics = comparison.divergences.map(item => ({ scenarioId, code: accepted.has(item.divergenceId) ? 'EXPECTED_DIFFERENCE' : item.code === 'MOCKED_COVERAGE' ? 'MOCKED_COVERAGE'
           : item.severity !== 'BLOCKING' ? 'STANDARD_WARNING' : result.status === 'FAIL' ? 'BEHAVIOR_DIVERGENCE' : 'EXECUTION_INCOMPLETE',
           detailCode: item.code, category: item.severity === 'BLOCKING' ? 'IMPLEMENTATION' : 'EVIDENCE' }));
-        const outcomes = assertionRequirementStatuses(assertions.outcomes);
+        // STATE_SNAPSHOT evidence of run 0 per side feeds the state-claim evaluation; unreadable or
+        // incomplete entries are simply absent evidence and stay INCONCLUSIVE.
+        const stateSnapshots = async (side: 'source' | 'target'): Promise<unknown[]> => {
+          const record = suite?.captures.find(entry => entry.side === side && entry.scenarioId === scenarioId);
+          const snapshots: unknown[] = [];
+          for (const entry of record?.state ?? []) {
+            if (entry.evidencePath && entry.completeness === 'COMPLETE') {
+              try { snapshots.push(await readStateSnapshot(resolve(store.root, 'capture'), entry.evidencePath)); } catch { /* absent evidence */ }
+            }
+          }
+          return snapshots;
+        };
+        const sourceState = await stateSnapshots('source'), targetState = await stateSnapshots('target');
+        const stateKeyed: KeyedField[] = (config.stateProjections ?? []).flatMap(projection =>
+          (projection.privacy.fields ?? []).filter(field => field.representation === 'KEYED_EQUALITY'));
+        const statuses = scenarioRequirementStatuses(config, scenarioId, {
+          assertionOutcomes: assertions.outcomes, source: source.trace, target: target.trace,
+          state: { sourceSnapshots: sourceState, targetSnapshots: targetState,
+            keyed: stateKeyed, ...(key ? { hmac: (value, domain) => keyedStateValue(value, domain, key) } : {}) },
+        });
         for (const requirement of requirements) {
-          requirement.status = outcomes.find(item => item.requirementId === requirement.requirementId)?.status ?? 'INCONCLUSIVE';
+          const mapped = statuses.find(item => item.requirementId === requirement.requirementId);
+          const reason = mapped?.reason;
+          requirement.status = mapped?.status ?? 'INCONCLUSIVE';
           if (requirement.status !== 'PASS') diagnostics.push({ code: requirement.status === 'FAIL' ? 'REQUIREMENT_VIOLATED' : 'REQUIREMENT_NOT_EVALUABLE',
             scenarioId, requirementId: requirement.requirementId, category: requirement.status === 'FAIL' ? 'IMPLEMENTATION' : 'EVIDENCE',
-            ...(assertions.outcomes.find(item => item.side === 'target' && item.assertionId === requirement.requirementId)?.reason
-              ? { detailCode: assertions.outcomes.find(item => item.side === 'target' && item.assertionId === requirement.requirementId)!.reason! } : {}) });
+            ...(reason ? { detailCode: reason } : {}) });
         }
         if (contract?.unitId === item.definition.unitId) {
           const failed = verifyCriticalContract(contract, target.trace).some(item => item.severity === 'BLOCKING');
           criticalStates.push(failed ? 'FAIL' : 'PASS');
           if (failed) diagnostics.push({ code: 'CRITICAL_CONTRACT_VIOLATED', scenarioId, category: 'IMPLEMENTATION' });
         }
+        // Domain-state preservation is evaluated independently of the declared claims: paired projections
+        // must match structurally, so an uncovered state divergence still fails the scenario. Only an
+        // exact, evidenced STATE_DIVERGENCE accepted difference (source predicate + satisfied required
+        // claims + owner decision) may resolve one — acceptance never stands in for evidence.
+        for (const capture of item.stateCaptures ?? []) {
+          const left = sourceState.find(value => (value as { captureId?: string }).captureId === capture.id);
+          const right = targetState.find(value => (value as { captureId?: string }).captureId === capture.id);
+          if (left === undefined || right === undefined) continue;
+          const projectionConfig = (config.stateProjections ?? []).find(entry => entry.id === capture.projectionId);
+          const compared = compareStateProjections({ scenarioId, captureId: capture.id, source: left, target: right,
+            ...(projectionConfig ? { comparison: projectionConfig.comparison } : {}) });
+          for (const finding of compared.findings) {
+            const acceptedEntry = config.acceptedDifferences.find((entry): entry is Extract<MigrationConfig['acceptedDifferences'][number], { code: 'STATE_DIVERGENCE' }> =>
+              'code' in entry && entry.code === 'STATE_DIVERGENCE'
+              && entry.scenarioId === finding.scenarioId && entry.captureId === finding.captureId && entry.path === finding.path);
+            const resolved = acceptedEntry !== undefined && resolveStateAcceptedDivergence({ difference: acceptedEntry, source: left,
+              claimOutcomes: requirements.map(item => ({ assertionId: item.requirementId,
+                status: item.status === 'PASS' ? 'SATISFIED' : item.status === 'FAIL' ? 'VIOLATED' : 'NOT_EVALUABLE' })) });
+            diagnostics.push({ code: resolved ? 'EXPECTED_DIFFERENCE' : 'BEHAVIOR_DIVERGENCE', scenarioId,
+              category: resolved ? 'EVIDENCE' : 'IMPLEMENTATION', detailCode: 'STATE_DIVERGENCE' });
+            if (!resolved) result.status = 'FAIL';
+          }
+        }
+        // Missing or INCOMPLETE fresh state evidence can never end a scenario in PASS.
+        if (stateOutcome.incomplete && result.status === 'PASS') result.status = 'INCONCLUSIVE';
         const evidencePath = `comparisons/${scenarioId}.json`;
         await store.write(evidencePath, { scenarioId, preservation: result.status, diagnostics: result.diagnostics, assertions: assertions.outcomes,
           observedPreservation: comparison.status, expectedDifferences: expected.evidence });

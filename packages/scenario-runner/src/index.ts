@@ -5,6 +5,7 @@ import type { CompletionSignal, RawObservedTrace, ScenarioDefinition, ScenarioIn
 import { parseScenario } from '@migration-harness/core';
 import { TemporalTraceRecorder, type TraceRecorderOptions } from '@migration-harness/trace-recorder';
 export * from './browser.js';
+export * from './api.js';
 
 type StorageSnapshot = { local: Record<string, string>; session: Record<string, string> };
 
@@ -53,6 +54,7 @@ export class ScenarioRunner {
 
   async run(scenario: ScenarioDefinition, runIndex: number): Promise<RawObservedTrace> {
     scenario = parseScenario(scenario);
+    if (scenario.steps.some(step => step.action === 'request')) throw new Error('Request steps are executed by the API capture driver, not the browser runner.');
     if (this.used) throw new Error('Use a fresh BrowserContext and ScenarioRunner for each run.');
     this.used = true;
     const recorder = this.recorder = new TemporalTraceRecorder(this.page, { ...this.options.traceRecorder, validateServiceWorkerProxy: scenario.serviceWorkers === 'allow' });
@@ -143,10 +145,11 @@ export class ScenarioRunner {
   }
 
   private async executeStep(step: ScenarioInteractionStep, recorder: TemporalTraceRecorder, captureCheckpoint = false): Promise<void> {
+    if (step.action === 'request') throw new Error('Request steps are executed by the API capture driver, not the browser runner.');
     const interaction = recorder.recordUserInteraction({
       stepId: step.stepId,
       action: step.action,
-      targetAriaRole: step.targetRole,
+      ...(step.targetRole !== undefined ? { targetAriaRole: step.targetRole } : {}),
       ...(step.targetName !== undefined ? { targetAriaName: step.targetName } : {}),
       ...(step.inputValue !== undefined ? { inputValue: step.inputValue } : {}),
     });

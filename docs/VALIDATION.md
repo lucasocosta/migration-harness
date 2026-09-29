@@ -701,6 +701,72 @@ secrets, mock filesystem and origin boundaries, path/response/storage volatility
 replayed execution identities, causal comparison, static-scan bypass patterns and
 worker HTTP error/redirect/size/deadline behavior.
 
+## P7 — API-pure PHP→Java cycle (2026-09-28)
+
+The first cross-language standard cycle ran on `examples/api-first/` (PHP 8.3
+built-in server → Spring Boot 3.3.5 JAR, managed serve mode, HTTP `request`
+scenarios): `MIGRATION_PREPARATION: PASS`, then session
+`98efc2e25f1d6927456fea9addc9fd96` `verify-migration` → `COMPLETE`/`PASS` on
+attempt 0 (preservation, requirements and native checks PASS; reference
+VERIFIED; 3/3 scenarios, 5/5 `responseClaim` requirements, 4/4 checks).
+
+Controlled regression (acceptance core): breaking the target's email validation
+(`isValidEmail` → `return true`) exited 4 with three independent detections —
+scenario `BEHAVIOR_DIVERGENCE` (`NETWORK_STATUS_MISMATCH` plus response shape
+and field diffs), `REQUIREMENT_VIOLATED (RESPONSE_FIELD_MISSING)`, and
+`NATIVE_CHECK_FAILED (target-regression)`; restoring the file returned
+`COMPLETE`/`PASS` on attempt 2 of 4. Negative behavior (off-scope refusal
+without attempt consumption, persistent budgets, inconclusive-never-success,
+reference weakening) remains covered by the existing session/scope suites.
+
+The full acceptance suite lives in `tests/api-first-acceptance.test.mjs` (5/5,
+skips cleanly where php/JDK/Maven are absent): baseline PASS; three controlled
+regressions on the Java target — wrong response value, missing validation, wrong
+flow — each exiting 4 with `BEHAVIOR_DIVERGENCE` on its scenario; and the
+restored candidate verifying PASS again with `lastReportMatchesWorkspace: true`.
+Open items: `responseClaim` failures reach `REPAIR_IMPLEMENTATION` without a
+network divergence for the repair loop to target; `--preparation` resolves
+against the process cwd while `--artifact-path` is workspace-relative (CLI
+asymmetry found by the suite); database behavior is scoped (P7.7/P7.8) but this
+example has no persistence side effects by design.
+
+## P7 — database state verification (2026-09-29)
+
+Cross-engine persistence (source PHP + SQLite relational tables, target Java +
+H2 JSON documents — deliberately different physical schemas) completed the
+standard cycle on the api-first pair: `prepare` pins source `STATE_SNAPSHOT`
+identities, `verify` reached `COMPLETE`/`PASS` with 6/6 scenarios, 14/14
+requirements (9 `stateClaim`) and 5/5 checks. Controlled regressions: a broken
+audit increment was detected by both the `save-persists` state claim
+(`STATE_FIELD_DIFFERS`) and the native persistence check; a hidden stored-value
+mutation (persisted name, no dedicated state claim) failed preservation through
+the differential state comparison (`BEHAVIOR_DIVERGENCE (STATE_DIVERGENCE)`)
+while requirements stayed green — acceptance of a declared `STATE_DIVERGENCE`
+requires a satisfied source predicate, satisfied required claims and an owner
+decision reference, and never covers missing or incomplete evidence. Probe
+failures, unsettled barriers and privacy-omitted fields stay INCONCLUSIVE.
+Evaluation is covered by `tests/state-claims.test.mjs` (predicate matrix,
+equally-wrong, keyed collections, acceptance gate, no-value-leaks) and capture
+by `tests/state-capture.test.mjs` (persistence, sanitization/HMAC, fail-closed
+probe failures, settle barriers, source stability, reference digests and
+prepared-state re-checks); the persisted pair itself runs in
+`tests/api-first-persistence.test.mjs`. Known limits: EQUALS on KEYED_EQUALITY
+fields is decided under the protected key only (without it NOT_EVALUABLE),
+STRUCTURAL fields cannot decide literals, wildcard claim paths are ambiguous,
+and per-requirement side applicability (`appliesTo`) is a future refinement —
+today both sides must satisfy.
+
+Review note (PR #4): the oracle review found robustness gaps in the new state
+paths — raw scalars surviving allowlist ancestor handling, `ABSENT`/
+`KEYED_EQUAL` false passes over privacy-omitted or structural-only evidence,
+unbound target snapshots, candidate-writable probe dependencies, unbounded
+accepted differences, unbounded API response buffering, managed-serve endpoint
+attribution and descendant teardown. They are tracked in the
+[PLAN](PLAN.md) backlog and were accepted as non-blocking for merge: the
+exercised paths and all suites stay green. The privacy and acceptance
+guarantees above hold for declared, well-formed probe output; adversarial or
+unexpected shapes are the open risk.
+
 ## Environment facts that affect interpretation
 
 - Private raw artifacts live under `~/.local/state/migration-harness/<hash>/raw`,

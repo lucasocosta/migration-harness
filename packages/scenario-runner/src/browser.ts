@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { chromium, type Browser } from '@playwright/test';
 import { parseScenario, urlPatternMatches, type CompletionSignal, type RawObservedTrace, type ScenarioDefinition } from '@migration-harness/core';
+import { captureApiScenario } from './api.js';
 import { ScenarioRunner, type ScenarioRunnerOptions, type WebSocketFrameSink } from './index.js';
 
 type WebSocketCompletionSignal = Extract<CompletionSignal, { type: 'WEBSOCKET_FRAME' }>;
@@ -15,6 +16,8 @@ export function webSocketCompletionSignals(scenario: ScenarioDefinition): WebSoc
 
 export async function captureScenario(scenario: ScenarioDefinition, runIndex: number, options: ScenarioRunnerOptions & { browser?: Browser; baseUrl?: string; allowedOrigins?: string[]; signal?: AbortSignal } = {}): Promise<RawObservedTrace> {
   scenario = parseScenario(structuredClone(scenario));
+  // API-pure scenarios never launch a browser: the request driver talks to the side's base URL directly.
+  if (scenario.steps.some(step => step.action === 'request')) return captureApiScenario(scenario, runIndex, options);
   if (options.baseUrl) {
     const entry = new URL(scenario.entryUrl);
     scenario.entryUrl = new URL(`${entry.pathname}${entry.search}${entry.hash}`, options.baseUrl).toString();

@@ -557,6 +557,89 @@ autorizacao explicita.
   (PLAN.md secao P2 e VALIDATION.md atualizados). Limites mantidos: callbacks
   por efeito observavel, sem novo schema, sem units[] no config.
 
+## P7 - Migracao PHP → Java (em execucao)
+
+Contrato de escopo completo em [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md). Decisoes (1)-(5)
+resolvidas: API pura, Spring Boot, par `examples/api-first/`, briefs fora do
+primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
+
+- [x] P7.1 Spike do par de apps PHP→Java: `MIGRATION_PREPARATION: PASS`,
+  sessao `98efc2e2...`, verify `COMPLETE`/`PASS` 3/3 · 5/5 · 4/4 e ciclo
+  PASS->FAIL->PASS com regressao controlada. Relatorio de gaps em
+  [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md).
+- [x] P7.2 Modo servidor gerenciado: `serve`/readiness/teardown em
+  `packages/engine/src/build-servers.ts`; 5 testes em
+  `tests/managed-server.test.mjs`; item "custom server" do STATUS coberto.
+- [x] P7.3 Vocabulario HTTP de cenarios (obrigatorio apos decisao 1): steps
+  `request` + claims `RESPONSE_FIELD`, driver em
+  `packages/scenario-runner/src/api.ts`, avaliacao no engine; 6 testes em
+  `tests/http-scenarios.test.mjs`.
+- [x] P7.4 Checks nativos dos dois lados (`php` script + `java` RegressionTest
+  como `kind:"test"`); `target-regression` detectou a regressao controlada.
+- [x] P7.5 Gate de aceitacao P7: 5/5 em `tests/api-first-acceptance.test.mjs`
+  (baseline PASS; tres regressoes controladas — valor errado, validacao ausente,
+  fluxo errado — detectadas com `BEHAVIOR_DIVERGENCE` e exit 4; restauracao PASS
+  com `lastReportMatchesWorkspace`). Negativas no padrao P4.3 cobertas pelas
+  suites de sessao/escopo/budgets.
+- [x] P7.6 Piloto assistido e CI: Session D `COMPLETE`/`PASS` — Copilot
+  `gpt-6-luna` + harness-mcp no api-first, 3/3 · 5/5 · 4/4, registrada em
+  [MCP-COPILOT-EVIDENCE](MCP-COPILOT-EVIDENCE.md). Achou e corrigiu dois bugs de
+  re-prepare (reuso da chave de pseudonimizacao + `ARTIFACT_NOT_FRESH`), com
+  regressao em `tests/prepare-retry.test.mjs`; toolchains PHP/JDK/Maven na
+  matriz CI, verde nos 3 SOes no run 36582270212 (apos corrigir o gitignore que
+  engolia o projeto Java `target/`).
+- [x] P7.7 Banco Tier 1 — cobertura obrigatoria de estado: persistencia real
+  cross-engine no api-first (SQLite relacional -> H2 documento JSON), resets
+  `COMMANDS` com baseline sentinela, cenarios read-after-write / invalido-sem-
+  efeito / falha-injetada com rollback atomico, testes nativos com ciclo proprio
+  reset->acao->assercao, stores sinteticos reais. Regressao controlada de
+  persistencia detectada em duas camadas (stateClaim `STATE_FIELD_DIFFERS` +
+  `NATIVE_CHECK_FAILED`). Evidencia em VALIDATION.md.
+- [x] P7.8 Banco Tier 2 — state capture com sondas declaradas: `kind:"probe"`,
+  `stateProjections`/`stateCaptures`/`stateClaim` + acceptedDifferences
+  `STATE_DIVERGENCE`, artefato `STATE_SNAPSHOT` identitario, HMAC keyed de
+  igualdade para campos sensiveis, barreiras `PROBE_BARRIER` por marcador de
+  conclusao declarado, pinning de estado na referencia com re-checagem stale,
+  estado no executionHash de estabilidade e preservacao diferencial independente
+  dos claims. Ciclo completo `COMPLETE`/`PASS` 6/6 · 14/14 · 5/5; regressao
+  oculta de estado detectada como `BEHAVIOR_DIVERGENCE (STATE_DIVERGENCE)` na
+  preservacao. Criterios 1-9 do design registrados em PLAN-PHP-JAVA.md.
+
+Revisao do PR #4 (oraculo, 2026-09-29): request changes com 8 MAJOR + 3 MINOR,
+aceitos pelo responsavel como nao-bloqueantes para merge — nada impede o
+funcionamento do ciclo (suítes 305/305 · 32/32 e acceptance verdes). As
+garantias afetadas (privacidade de estado em shapes adversariais, binding de
+evidencia alvo, atribuicao de endpoint, teardown de descendentes) devem ser
+tratadas antes de uso intensivo em migracao real.
+
+### Backlog de revisao do PR #4
+
+- [ ] MAJOR: a sanitizacao de estado retem escalares brutos em ancestrais de
+  paths permitidos, valores em chaves-curinga e ecoa key tuples em caminhos de
+  divergencia (`packages/engine/src/state-capture.ts`).
+- [ ] MAJOR: falsos passes — `ABSENT` sobre campo omitido pela privacidade e
+  `KEYED_EQUAL` sobre evidencia so-estrutural passam; o avaliador mistura
+  representacoes entre projecoes (`packages/quality-gates/src/state-field.ts`).
+- [ ] MAJOR: snapshot alvo ausente/stale pode ser pulado na preservacao;
+  binding de identidade do snapshot alvo e incompleto
+  (`packages/engine/src/migration-operations.ts`).
+- [ ] MAJOR: dependencias de extracao das probes continuam editaveis pelo
+  candidato (falta inventario protegido de entradas de avaliacao).
+- [ ] MAJOR: `acceptedDifferences` de estado sem cardinalidade nem vinculo ao
+  capture dos claims exigidos.
+- [ ] MAJOR: resposta do driver API com buffer ilimitado antes do cap
+  (`packages/scenario-runner/src/api.ts`).
+- [ ] MAJOR: readiness do managed serve nao atribui o endpoint ao filho
+  lancado (processo antigo pode responder e ser capturado).
+- [ ] MAJOR: teardown pode deixar descendentes vivos (SIGKILL condicional ao
+  fechamento do lider).
+- [ ] MINOR: settle aceita resultado apos o deadline; estabilidade ignora
+  ordem de colecoes KEYED (falso-INCONCLUSIVE); `serve` ignora o `cwd`
+  declarado.
+
+Progresso segue o protocolo abaixo; as decisoes (1)-(5) do doc devem estar
+registradas como resolvidas antes de declarar P7 entregue.
+
 ## Auditoria de intencao e prontidao - 2026-09-12
 
 A [auditoria inicial](AUDIT-2026-09-12.md) descreve `5d01da6` mais o working tree

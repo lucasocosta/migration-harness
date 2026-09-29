@@ -25,6 +25,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install PHP for the api-first example
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sqlite3, pdo_sqlite
+      - name: Install JDK 21 for the api-first example
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
       - name: Install pinned package manager and dependencies
         run: |
           npm install --global pnpm@10.15.0

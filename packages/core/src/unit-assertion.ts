@@ -57,13 +57,30 @@ export const UnitAssertionBodySchema = z.object({
 }).strict();
 export const UnitAssertionSchema = UnitAssertionBodySchema.extend({ id: identifier, required: z.boolean() }).strict();
 
+/**
+ * API-surface requirement claim: a recorded HTTP exchange of the scenario must expose the structural
+ * `path` (dot-separated keys) in its response body with the declared JSON type, or not expose it at all
+ * when `absent` is declared. It is a separate vocabulary from the differential `UnitAssertionClaim` because
+ * it is evaluated against recorded HTTP exchanges per side in quality-gates, never inside the ARIA/network
+ * assertion pass; unevaluable evidence is INCONCLUSIVE, never a pass.
+ */
+export const ResponseFieldClaimSchema = z.object({
+  kind: z.literal('RESPONSE_FIELD'),
+  path: z.string().min(1).max(512).regex(/^[^\s.]+(?:\.[^\s.]+)*$/, 'Expected a dot-separated structural path such as data.email'),
+  valueType: z.enum(['string', 'number', 'boolean', 'object', 'array', 'absent']),
+}).strict();
+/** Assertion body of a response-field requirement: its id and enforcement, mirroring `UnitAssertion`. */
+export const ResponseFieldRequirementSchema = z.object({ id: identifier, required: z.boolean(), claim: ResponseFieldClaimSchema }).strict();
+
 export const UnitAssertionOutcomeSchema = z.object({
   assertionId: identifier, side: z.enum(['source', 'target']), required: z.boolean(),
   status: z.enum(['SATISFIED', 'VIOLATED', 'NOT_EVALUABLE']),
   reason: z.enum(['CHECKPOINT_MISSING', 'CAPTURE_EMPTY', 'SCOPE_NOT_FOUND', 'NODE_MISSING', 'NODE_STATE_DIFFERS',
     'NODE_TEXT_DIFFERS', 'NODE_PRESENT_UNEXPECTED', 'REQUEST_OBSERVED_UNEXPECTED', 'REQUEST_MISSING',
     'PAYLOAD_FIELD_MISSING', 'PAYLOAD_VALUE_DIFFERS', 'REQUEST_COUNT_DIFFERS', 'STORAGE_MUTATION_MISSING', 'NAVIGATION_MISSING', 'WRITE_MISSING',
-    'READ_BACK_MISSING', 'READ_BACK_VALUE_DIFFERS', 'READ_BACK_MOCKED']).optional(),
+    'READ_BACK_MISSING', 'READ_BACK_VALUE_DIFFERS', 'READ_BACK_MOCKED',
+    'STATE_NO_SNAPSHOT', 'STATE_INCOMPLETE', 'STATE_FIELD_MISSING', 'STATE_FIELD_DIFFERS', 'STATE_FIELD_UNEXPECTED', 'STATE_FIELD_AMBIGUOUS',
+    'RESPONSE_FIELD_NO_EXCHANGE', 'RESPONSE_FIELD_AMBIGUOUS', 'RESPONSE_FIELD_MISSING', 'RESPONSE_FIELD_TYPE_DIFFERS']).optional(),
   /** Declared role of the inspected node, echoed from the assertion itself for localization. */
   role: AriaRoleSchema.optional(),
 }).strict().superRefine((value, ctx) => {
@@ -76,5 +93,9 @@ export type UnitAssertionClaim = z.infer<typeof UnitAssertionClaimSchema>;
 export type UnitAssertionBody = z.infer<typeof UnitAssertionBodySchema>;
 export type UnitAssertion = z.infer<typeof UnitAssertionSchema>;
 export type UnitAssertionOutcome = z.infer<typeof UnitAssertionOutcomeSchema>;
+export type ResponseFieldClaim = z.infer<typeof ResponseFieldClaimSchema>;
+export type ResponseFieldRequirement = z.infer<typeof ResponseFieldRequirementSchema>;
 export const parseUnitAssertion = (value: unknown): UnitAssertion => UnitAssertionSchema.parse(value);
 export const parseUnitAssertions = (value: unknown): UnitAssertion[] => z.array(UnitAssertionSchema).max(10000).parse(value);
+export const parseResponseFieldClaim = (value: unknown): ResponseFieldClaim => ResponseFieldClaimSchema.parse(value);
+export const parseResponseFieldRequirements = (value: unknown): ResponseFieldRequirement[] => z.array(ResponseFieldRequirementSchema).max(10000).parse(value);

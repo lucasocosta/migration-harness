@@ -20,8 +20,9 @@ export interface BaseTraceEvent {
 export interface UserInteractionEvent extends BaseTraceEvent {
   type: 'USER_INTERACTION';
   stepId: string;
-  action: 'click' | 'fill' | 'select' | 'press' | 'focus';
-  targetAriaRole: string;
+  action: 'click' | 'fill' | 'select' | 'press' | 'focus' | 'request';
+  /** Absent on a `request` interaction, which addresses the server instead of an ARIA control. */
+  targetAriaRole?: string;
   targetAriaName?: string;
   inputValue?: string;
 }
