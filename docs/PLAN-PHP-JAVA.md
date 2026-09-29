@@ -133,6 +133,11 @@ veredito honesto em 3 cenarios (PASS geral + o FAIL da regressao controlada).
 - Toolchains PHP + JDK na matriz CI (3 SOes), budget de tempo de build,
   hygiene de portas dos runners.
 - Aceite: sessao `COMPLETE`/`PASS` dirigida pelo agente + CI verde.
+- Registro (2026-09-29): Session D `COMPLETE`/`PASS` 3/3 · 5/5 · 4/4 obtida; os
+  tres primeiros expostos do piloto acharam dois bugs reais de re-prepare
+  (crash `EEXIST` na chave de pseudonimizacao; crash `EEXIST` no mkdir de
+  diretorio de artefato sujo, agora `ARTIFACT_NOT_FRESH`), corrigidos e cobertos
+  por `tests/prepare-retry.test.mjs`. Pendente apenas o run verde do CI.
 
 ### P7.7 Banco Tier 1 — cobertura obrigatoria de estado (M)
 

@@ -581,8 +581,12 @@ primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
   fluxo errado — detectadas com `BEHAVIOR_DIVERGENCE` e exit 4; restauracao PASS
   com `lastReportMatchesWorkspace`). Negativas no padrao P4.3 cobertas pelas
   suites de sessao/escopo/budgets.
-- [ ] P7.6 Piloto assistido (Session D Copilot/MCP) e CI com toolchains
-  PHP+JDK na matriz.
+- [ ] P7.6 (quase completo): Session D `COMPLETE`/`PASS` — Copilot `gpt-6-luna` +
+  harness-mcp no api-first, 3/3 · 5/5 · 4/4, registrada em
+  [MCP-COPILOT-EVIDENCE](MCP-COPILOT-EVIDENCE.md). Achou e corrigiu dois bugs de
+  re-prepare (reuso da chave de pseudonimizacao + `ARTIFACT_NOT_FRESH`), com
+  regressao em `tests/prepare-retry.test.mjs`; toolchains PHP/JDK/Maven na
+  matriz CI. Falta apenas o run verde do CI nesta revisao.
 - [ ] P7.7 Banco Tier 1 — cobertura obrigatoria de estado (ver PLAN-PHP-JAVA).
 - [ ] P7.8 Banco Tier 2 — state capture com sondas declaradas (ver PLAN-PHP-JAVA).
 
