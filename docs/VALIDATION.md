@@ -192,7 +192,7 @@ preflight-only discipline (preflight.json/started.json without
 preparation.json); CLI option validation and help; and the full example
 lifecycle: prepare PASS -> verify PASS -> controlled candidate regression FAIL
 (BEHAVIOR_DIVERGENCE on the save scenario, exit 4) -> restore -> verify PASS,
-with ports 43120/43153 owned and released by the harness.
+with ports 4320/4353 owned and released by the harness.
 
 Reference integration: the preparation fixes a verified reference and verify
 re-checks it before and after capture, refuses an invalid cache, requires

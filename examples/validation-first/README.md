@@ -12,7 +12,7 @@ node packages/cli/dist/index.js prepare-migration --config examples/validation-f
 node packages/cli/dist/index.js verify-migration --config examples/validation-first/migration.json --workspace-root . --artifact-path artifacts/example-verify --preparation artifacts/example-baseline/preparation.json --allow-project-commands
 ```
 
-Use a new artifact directory each time. Ports 43120/43153 must be free; the harness
+Use a new artifact directory each time. Ports 4320/4353 must be free; the harness
 owns and closes both servers. Build outputs under each app's dist are disposable.
 No API server is needed: the save response is explicitly mocked, which proves
 request/observable behavior, not backend persistence. Existing destination permissions
