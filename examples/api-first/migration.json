@@ -1,0 +1,115 @@
+{
+  "kind": "MIGRATION_CONFIG", "version": "1", "migrationId": "api-first-example", "profile": "standard",
+  "source": {
+    "root": "examples/api-first/source", "baseUrl": "http://127.0.0.1:8310",
+    "relevantFiles": ["index.php", "validation.php", "build.php", "tests/validation-test.php"],
+    "commands": [
+      {"id":"build","kind":"build","argv":["php","build.php"],"cwd":".","timeoutMs":30000},
+      {"id":"serve","kind":"serve","argv":["php","-S","127.0.0.1:8310","-t",".","index.php"],"cwd":".","timeoutMs":3600000},
+      {"id":"regression","kind":"test","argv":["php","tests/validation-test.php"],"cwd":".","timeoutMs":15000}
+    ],
+    "build": {"commandId":"build","outputDir":"dist","cleanOutput":true},
+    "serve": {"commandId":"serve","readyTimeoutMs":60000}
+  },
+  "target": {
+    "root": "examples/api-first/target", "baseUrl": "http://127.0.0.1:8353",
+    "relevantFiles": [
+      "pom.xml",
+      "src/main/java/com/example/apifirst/ApiFirstApplication.java",
+      "src/main/java/com/example/apifirst/ApiSemantics.java",
+      "src/main/java/com/example/apifirst/ApiExceptionHandler.java",
+      "src/main/java/com/example/apifirst/ProfileController.java",
+      "src/main/java/com/example/apifirst/RegressionTest.java"
+    ],
+    "writePaths": [
+      "pom.xml",
+      "src/main/java/com/example/apifirst/ApiFirstApplication.java",
+      "src/main/java/com/example/apifirst/ApiSemantics.java",
+      "src/main/java/com/example/apifirst/ApiExceptionHandler.java",
+      "src/main/java/com/example/apifirst/ProfileController.java"
+    ],
+    "protectedPaths": ["src/main/java/com/example/apifirst/RegressionTest.java"],
+    "commands": [
+      {"id":"build","kind":"build","argv":["mvn","-q","-DskipTests","package"],"cwd":".","timeoutMs":900000},
+      {"id":"serve","kind":"serve","argv":["java","-jar","target/api-first-target.jar","--server.port=8353"],"cwd":".","timeoutMs":3600000},
+      {"id":"regression","kind":"test","argv":["java","-cp","target/classes","com.example.apifirst.RegressionTest"],"cwd":".","timeoutMs":30000}
+    ],
+    "build": {"commandId":"build","outputDir":"target","cleanOutput":true},
+    "serve": {"commandId":"serve","readyTimeoutMs":60000}
+  },
+  "scenarios": [
+    {
+      "definition": {
+        "scenarioId":"profile-mount","unitId":"profile-api","name":"Read fixed profile",
+        "description":"GET /api/profile returns the fixed deterministic profile document",
+        "entryUrl":"http://127.0.0.1:8310/api/profile","preconditions":{},
+        "steps":[
+          {"stepId":"get-profile","action":"request","method":"GET","path":"/api/profile"}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/api-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:8310/api/profile","steps":[]},
+        "target":{"entryUrl":"http://127.0.0.1:8353/api/profile","steps":[]}
+      }
+    },
+    {
+      "definition": {
+        "scenarioId":"customer-save-valid","unitId":"customer-api","name":"Save a valid email",
+        "description":"PUT /api/customer with a valid email string answers 200 and echoes the email unchanged",
+        "entryUrl":"http://127.0.0.1:8310/api/customer","preconditions":{},
+        "steps":[
+          {"stepId":"put-valid-email","action":"request","method":"PUT","path":"/api/customer","body":{"email":"new@example.test"}}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/api-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:8310/api/customer","steps":[]},
+        "target":{"entryUrl":"http://127.0.0.1:8353/api/customer","steps":[]}
+      }
+    },
+    {
+      "definition": {
+        "scenarioId":"customer-save-invalid","unitId":"customer-api","name":"Reject an invalid email",
+        "description":"PUT /api/customer with an email that fails the rule answers 422 invalid email",
+        "entryUrl":"http://127.0.0.1:8310/api/customer","preconditions":{},
+        "steps":[
+          {"stepId":"put-invalid-email","action":"request","method":"PUT","path":"/api/customer","body":{"email":"not-an-email"}}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/api-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:8310/api/customer","steps":[]},
+        "target":{"entryUrl":"http://127.0.0.1:8353/api/customer","steps":[]}
+      }
+    }
+  ],
+  "checks":[
+    {"id":"source-build","side":"source","commandId":"build","required":true},
+    {"id":"target-build","side":"target","commandId":"build","required":true},
+    {"id":"source-regression","side":"source","commandId":"regression","required":true},
+    {"id":"target-regression","side":"target","commandId":"regression","required":true}
+  ],
+  "requirements":[
+    {"id":"profile-email-string","scenarioId":"profile-mount","description":"GET /api/profile returns an email field of type string",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/index.php","required":true,
+      "responseClaim":{"kind":"RESPONSE_FIELD","path":"email","valueType":"string"}},
+    {"id":"profile-name-string","scenarioId":"profile-mount","description":"GET /api/profile returns a name field of type string",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/index.php","required":true,
+      "responseClaim":{"kind":"RESPONSE_FIELD","path":"name","valueType":"string"}},
+    {"id":"save-status-string","scenarioId":"customer-save-valid","description":"A valid save returns a status field of type string",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/index.php","required":true,
+      "responseClaim":{"kind":"RESPONSE_FIELD","path":"status","valueType":"string"}},
+    {"id":"save-email-string","scenarioId":"customer-save-valid","description":"A valid save echoes the email as a string field",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/index.php","required":true,
+      "responseClaim":{"kind":"RESPONSE_FIELD","path":"email","valueType":"string"}},
+    {"id":"invalid-error-string","scenarioId":"customer-save-invalid","description":"An invalid save returns an error field of type string",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/index.php","required":true,
+      "responseClaim":{"kind":"RESPONSE_FIELD","path":"error","valueType":"string"}}
+  ],
+  "acceptedDifferences":[],
+  "policy":{"sanitization":{"allowedPayloadKeys":["email","name","status","error"]}},
+  "reset":{"kind":"ISOLATED_FIXTURES"},
+  "environment":{"browser":"chromium","locale":"en-US","viewport":{"width":1280,"height":720}},
+  "limits":{"sourceRuns":2,"maxRepairAttempts":3,"maxDurationMs":180000}
+}
