@@ -701,6 +701,31 @@ secrets, mock filesystem and origin boundaries, path/response/storage volatility
 replayed execution identities, causal comparison, static-scan bypass patterns and
 worker HTTP error/redirect/size/deadline behavior.
 
+## P7 — API-pure PHP→Java cycle (2026-09-28)
+
+The first cross-language standard cycle ran on `examples/api-first/` (PHP 8.3
+built-in server → Spring Boot 3.3.5 JAR, managed serve mode, HTTP `request`
+scenarios): `MIGRATION_PREPARATION: PASS`, then session
+`98efc2e25f1d6927456fea9addc9fd96` `verify-migration` → `COMPLETE`/`PASS` on
+attempt 0 (preservation, requirements and native checks PASS; reference
+VERIFIED; 3/3 scenarios, 5/5 `responseClaim` requirements, 4/4 checks).
+
+Controlled regression (acceptance core): breaking the target's email validation
+(`isValidEmail` → `return true`) exited 4 with three independent detections —
+scenario `BEHAVIOR_DIVERGENCE` (`NETWORK_STATUS_MISMATCH` plus response shape
+and field diffs), `REQUIREMENT_VIOLATED (RESPONSE_FIELD_MISSING)`, and
+`NATIVE_CHECK_FAILED (target-regression)`; restoring the file returned
+`COMPLETE`/`PASS` on attempt 2 of 4. Negative behavior (off-scope refusal
+without attempt consumption, persistent budgets, inconclusive-never-success,
+reference weakening) remains covered by the existing session/scope suites.
+
+Open items recorded in [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md): the remaining
+controlled regressions ("wrong value", "wrong flow") need a fresh session
+(budget exhausted to 3/4 by the first probe); `responseClaim` failures reach
+`REPAIR_IMPLEMENTATION` without a network divergence for the repair loop to
+target; database behavior is scoped (P7.7/P7.8) but this example has no
+persistence side effects by design.
+
 ## Environment facts that affect interpretation
 
 - Private raw artifacts live under `~/.local/state/migration-harness/<hash>/raw`,

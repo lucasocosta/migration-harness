@@ -14,16 +14,23 @@ esta em tres lacunas: modo servidor gerenciado (apps donos da propria porta),
 vocabulario de observacao sem browser (se a superficie for API pura) e um gate
 de aceitacao proprio, no padrao P4/P5/P6.
 
-## Decisoes em aberto (bloqueiam P7.2 em diante)
+## Decisoes: (1) e (2) resolvidas em 2026-09-28; (3) e (4) em aberto
 
-1. Superficie de observacao do piloto: UI web renderizada pelo servidor, API pura
-   ou hibrida. UI ja funciona com Playwright nos dois lados; API pura exige P7.3.
-2. Stack alvo: Spring Boot (JAR auto-servido) ou servlet leve (Javalin/Jetty).
-   Spring Boot maximiza o valor do modo servidor.
-3. Par de apps piloto: propondo um equivalente PHP→Java do exemplo
-   validation-first (salvar e-mail com validacao e persistencia mockada), para
-   reaproveitar o formato de regressao controlada ja conhecido.
+1. RESOLVIDA — Superficie de observacao: **API pura**. Consequencia: P7.3
+   (vocabulario HTTP de cenarios) torna-se obrigatorio no primeiro ciclo e deixa
+   de ser condicional.
+2. RESOLVIDA — Stack alvo: **Spring Boot** (JAR auto-servido).
+3. Par de apps piloto: propondo `examples/api-first/` — API PHP (fonte) e API
+   Spring Boot (alvo) com os mesmos endpoints (GET /api/profile, PUT
+   /api/customer com validacao de e-mail), reaproveitando o formato de regressao
+   controlada ja conhecido.
 4. Perfil restrito (briefs) para Java: fora do primeiro ciclo (ver Nao-objetivos).
+5. RESOLVIDA — Verificacao de banco de dados: **sondas declaradas por lado**
+   (design do oraculo, 2026-09-28). Unidade comparada: efeitos em estado logico
+   de dominio (projecao JSON canonica emitida por sonda `kind:"probe"`), nunca
+   operacoes ou texto de query. Tecnologia-agnostico: SQL, NoSQL ou chave-valor
+   por lado, engines diferentes entre fonte e alvo. **Tier 1 e Tier 2 ambos em
+   escopo do P7** (decisao do responsavel).
 
 ## Fases
 
@@ -36,6 +43,46 @@ de aceitacao proprio, no padrao P4/P5/P6.
 - Aceite: `MIGRATION_PREPARATION: PASS`, fonte `STABLE` em `sourceRuns`, e um
   veredito honesto em pelo menos 1 cenario (PASS/FAIL/INCONCLUSIVE documentado).
 - Depende de: decisao de superficie (1). Entrega: relatorio de gaps anexado aqui.
+
+#### Relatorio do spike P7.1 — 2026-09-28 (branch `feat/p7-php-java`)
+
+Ambiente: PHP 8.3.6, OpenJDK 21.0.12.1, Maven 3.8.7. Par `examples/api-first/`
+(PHP built-in server :8310 -> Spring Boot 3.3.5 JAR :8353), 3 cenarios
+`request`, 5 requisitos `responseClaim`, 4 checks.
+
+- `prepare-migration` -> `MIGRATION_PREPARATION: PASS` (serve gerenciado da
+  fonte, capturas HTTP em 2 runs, observacoes `STABLE`).
+- `start-migration-session` -> sessao `98efc2e25f1d6927456fea9addc9fd96`
+  (`maxAttempts: 4`, `maxActiveMs: 180000`).
+- `verify-migration` -> **`COMPLETE`/`PASS`** na tentativa 0: preservacao,
+  requisitos e checks nativos PASS; referencia `VERIFIED`; 3/3 cenarios,
+  5/5 requisitos, 4/4 checks; `diagnostics: []`.
+- Regressao controlada (nucleo do P7.5): `isValidEmail` quebrado no alvo
+  (`return true`) -> exit 4 com deteccao em tres camadas — `BEHAVIOR_DIVERGENCE`
+  (`NETWORK_STATUS_MISMATCH`, `NETWORK_RESPONSE_SHAPE_MISMATCH`,
+  `NETWORK_RESPONSE_FIELD_*`), `REQUIREMENT_VIOLATED (RESPONSE_FIELD_MISSING)` e
+  `NATIVE_CHECK_FAILED (target-regression)`; restaurado -> `COMPLETE`/`PASS` na
+  tentativa 2 (3/4 tentativas consumidas). Ciclo PASS -> FAIL -> PASS completo.
+
+Gaps e desconfortos encontrados (nenhum bloqueante):
+
+1. Fluxo do perfil standard: `verify-migration --preparation/--artifact-path` e
+   recusado com `STANDARD_SESSION_OWNS_REFERENCE_AND_OUTPUT` (correto por
+   design — a sessao e dona da referencia/saida). O loop e `prepare-migration`
+   -> `start-migration-session` -> `verify-migration` ->
+   `migration-session-status`. Melhoria opcional: a recusa poderia sugerir o
+   proximo comando.
+2. `environment.browser` exige `"chromium"` mesmo em config API-pura (o trace
+   ja emite `browser: 'none'`): item de schema futuro permitir `none`.
+3. Falha de `responseClaim` produz `REPAIR_IMPLEMENTATION` sem divergencia de
+   rede para o loop de reparo mirar (mesmo caso das assertions) — definir
+   expectativa de reparo para API pura em P7.5/P7.6.
+4. Maven frio e lento (timeout 900s no primeiro `package`; `~/.m2` esquenta);
+   `maxActiveMs` conta apenas verificacao, nao build.
+5. Banco de dados intencionalmente fora do spike (P7.7/P7.8 em escopo, decisao 5).
+
+Aceite P7.1 batido com folga: `MIGRATION_PREPARATION: PASS`, fonte `STABLE`,
+veredito honesto em 3 cenarios (PASS geral + o FAIL da regressao controlada).
 
 ### P7.2 Modo servidor gerenciado (L)
 
@@ -82,14 +129,90 @@ de aceitacao proprio, no padrao P4/P5/P6.
   hygiene de portas dos runners.
 - Aceite: sessao `COMPLETE`/`PASS` dirigida pelo agente + CI verde.
 
+### P7.7 Banco Tier 1 — cobertura obrigatoria de estado (M)
+
+Todo exemplo com persistencia deve verificar efeitos em estado de dominio
+contra persistencia de teste real e controlada. Fonte e alvo podem usar
+tecnologias diferentes; o aceite trata estado inicial equivalente, pos-estado
+exigido e invariantes — nunca texto de query ou sequencia de operacoes.
+
+- Resets declarados (`reset: COMMANDS`) por lado antes de cada run independente,
+  re-semeeiando todos os stores/filas/indices participantes com sentinela de
+  estado inicial equivalente; nunca reset entre a mutacao e a leitura.
+- Cenarios read-after-write; entrada invalida deixa o estado intacto;
+  normalizacao declarada verificada como propriedade de valor; injecao de falha
+  em operacoes multi-efeito (rollback sem estado parcial proibido).
+- Testes nativos `kind:"test"` com ciclo PROPRIO reset->acao->assercao (checks
+  nativos rodam antes da captura da suite e nao inspecionam o pos-estado de
+  cenarios posteriores).
+- Stores sinteticos reais; mocks nunca contam como evidencia de banco.
+- Aceite: mutacao sobrevive a leitura fresca; invalido sem efeito; normalizacao
+  conferida; rollback limpo; efeitos de auditoria/cascade/assincronos verificados
+  ou nao-aplicabilidade documentada; resets repetiveis (fonte `STABLE`);
+  evidencia ausente nunca e COMPLETE; regressoes controladas (persistencia,
+  rollback, efeito secundario) detectadas. Divergencia de estado intencional va
+  em `acceptedDifferences` com predicados e decisao do dono.
+
+### P7.8 Banco Tier 2 — state capture com sondas declaradas (L)
+
+Arquitetura (decisao 5): cada lado declara um comando `kind:"probe"` (argv
+proprio — PHP e Java diferentes) que devolve uma projecao JSON canonica do
+estado de dominio; o harness e dono de captura, sanitizacao, comparacao e
+avaliacao. O comando retorna observacao, nunca veredito (`equivalent: true` e
+proibido); exit 0 = execucao bem-sucedida, nao evidencia completa.
+
+- Config: `stateProjections` (schema de dominio, colecoes `KEYED` por campo
+  logico, politica de privacidade com allowlist), `stateCaptures` por cenario
+  (projectionId, checkpoint `SCENARIO_END`/`AFTER_RESET`, bindings de comando
+  por lado, `settle` com barreira de conclusao), requisitos `stateClaim`
+  (`STATE_FIELD` com predicados) analogos a `responseClaim`.
+- Evidencia: artefato versionado `STATE_SNAPSHOT` com identidade propria
+  (run/cenario/lado/checkpoint, fingerprints de probe/projecao, reset/fixture,
+  hash de config/referencia/build), sanitizado; hash e identidade atribuidos
+  pelo harness — saida do comando nunca e autoridade.
+- Semantica: preservacao (comparacao diferencial) e requisitos avaliados
+  separadamente; "igualmente errado nao e sucesso" (dois lados violando o mesmo
+  invariante reprova o requisito); alvo pode corrigir defeito da fonte quando o
+  requisito o declara (defeito da fonte divulgado); evidencia incompleta,
+  ambigua, stale, omitida por privacidade ou nao-resolvida => INCONCLUSIVE.
+- Quiescencia: barreira de conclusao declarada e ligada a execucao (token de
+  correlacao, watermark de outbox, ack de indice; espera fixa as cegas e
+  proibida) — polling do estado esperado tambem e proibido, porque confunde
+  "terminou" com "esta certo"; ausencia exigida (ex.: rollback sem escrita)
+  requer barreira cobrindo todos os workers ou janela declarada com limitacao
+  documentada.
+- Privacidade: minimizacao na extracao (so particoes/campos declarados);
+  allowlist no harness; stdout bruto privado a execucao (nunca em relatorios,
+  CLI, MCP ou contexto do assistente); representacoes de igualdade por HMAC
+  type-tagged com chave compartilhada do harness (nunca hash de PII de baixa
+  entropia) + tipos estruturais em resumos; chaves/identificadores sinteticos;
+  predicado nao-sseguro => NOT_EVALUABLE; telas de leak screening valem para
+  definicoes de probe — apos a referencia, probe/projecao sao entradas de
+  avaliacao protegidas.
+- Estabilidade de fonte: estado entra no `executionHash` e nas comparacoes de
+  estabilidade (sem contagens de poll/tempos); evidencia de estado da fonte
+  presa a referencia fixa, como os traces.
+- Aceite Tier 2 (9 criterios): (1) fixture cross-engine (ex.: SQL -> documento)
+  passando com schemas fisicos diferentes; (2) regressoes ocultas detectadas
+  (auditoria, normalizacao, orfao, commit parcial, escrita secundaria);
+  (3) igualmente-errado reprova requisito independente; (4) snapshots
+  incompletos/truncados/ambiguos/stale/omitidos/nao-resolvidos => INCONCLUSIVE;
+  (5) barreiras cobrem escritas atrasadas sem polling; (6) estado participa de
+  estabilidade, referencia e identidade de run/build/reset; (7) mudancas de
+  probe/config nao enfraquecem criterios nem resetam budgets; (8) valores
+  brutos, credenciais e pseudonimos nunca chegam a saidas do assistente;
+  (9) diferencas semanticas explicitas funcionam; ignores amplos e aceitacao de
+  evidencia incompleta sao recusados.
+
 ## Nao-objetivos do primeiro ciclo
 
 - Adaptadores de analise estatica (php-parser/JavaParser): inventario manual
   basta; o oraculo nao depende de discovery.
 - Briefs do perfil restrito emitindo patches Java (contrato de patch hoje e
   TS/TSX): operar apenas no perfil standard.
-- SSR/proxy/HTTPS completos alem do minimo do piloto; migracao de banco real
-  (usar `reset: COMMANDS` sintetico).
+- SSR/proxy/HTTPS completos alem do minimo do piloto. Migracao de DADOS de
+  producao e transferencia entre engines ficam fora; verificacao de
+  COMPORTAMENTO de persistencia esta em escopo (P7.7/P7.8).
 - Equivalencia de fonte: semantica PHP→Java (tipagem, includes, exceptions) e
   trabalho do agente; o harness so exige equivalencia observavel.
 
@@ -104,6 +227,10 @@ de aceitacao proprio, no padrao P4/P5/P6.
 - Shims Windows para `php`/`java` nos runners (aprendizado do `cmd.exe /c`).
 - Prazo do piloto assistido depende de o agente Java errar dentro de
   `writePaths` — budgets e escopo ja cobrem isso.
+- Sondas enganosas (fixture constante), enumeracao incompleta de estado,
+  leituras stale/cached e contaminacao entre runs por workers: mitigadas por
+  projecoes declaradas protegidas, barreiras de conclusao e regressoes
+  controladas — nao por mais adaptadores de banco.
 
 ## Definition of Done (P7)
 
@@ -111,4 +238,6 @@ de aceitacao proprio, no padrao P4/P5/P6.
 2. P7.5 verde com evidencia em VALIDATION.md; negativas comprovadas.
 3. P7.6 gravado (Session D) e CI verde na matriz.
 4. STATUS.md atualizado: P7 entregue com limites declarados.
-5. Decisoes (1)-(4) registradas como resolvidas neste documento.
+5. P7.7 obrigatoria em todo exemplo persistente e P7.8 entregue com os 9
+   criterios de aceite, incluindo fixture cross-engine.
+6. Decisoes (1)-(5) registradas como resolvidas neste documento.

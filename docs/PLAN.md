@@ -557,24 +557,34 @@ autorizacao explicita.
   (PLAN.md secao P2 e VALIDATION.md atualizados). Limites mantidos: callbacks
   por efeito observavel, sem novo schema, sem units[] no config.
 
-## P7 - Migracao PHP → Java (planejado)
+## P7 - Migracao PHP → Java (em execucao)
 
-Contrato de escopo completo em [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md). Nenhuma
-implementacao iniciada; decisoes de superficie/stack em aberto antes de P7.2.
+Contrato de escopo completo em [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md). Decisoes (1)-(5)
+resolvidas: API pura, Spring Boot, par `examples/api-first/`, briefs fora do
+primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
 
-- [ ] P7.1 Spike do par de apps PHP→Java: commands declarados, prepare/verify
-  medidos, relatorio de gaps. Bloqueado na decisao de superficie de observacao
-  (UI web vs API pura).
-- [ ] P7.2 Modo servidor gerenciado: fechar "custom server" do STATUS (processo
-  `serve` proprio, readiness, teardown sem residuo, portas fora do range
-  efemero). Maior lacuna do ciclo.
-- [ ] P7.3 Vocabulario HTTP de cenarios (condicional: apenas se API pura);
-  claims de metodo/status/shape integrados a comparacao de traces.
-- [ ] P7.4 Checks nativos phpunit/JUnit como checks de projeto.
-- [ ] P7.5 Gate de aceitacao P7: regressoes controladas + negativas no padrao
-  P4.3, evidencia registrada em VALIDATION.md.
+- [x] P7.1 Spike do par de apps PHP→Java: `MIGRATION_PREPARATION: PASS`,
+  sessao `98efc2e2...`, verify `COMPLETE`/`PASS` 3/3 · 5/5 · 4/4 e ciclo
+  PASS->FAIL->PASS com regressao controlada. Relatorio de gaps em
+  [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md).
+- [x] P7.2 Modo servidor gerenciado: `serve`/readiness/teardown em
+  `packages/engine/src/build-servers.ts`; 5 testes em
+  `tests/managed-server.test.mjs`; item "custom server" do STATUS coberto.
+- [x] P7.3 Vocabulario HTTP de cenarios (obrigatorio apos decisao 1): steps
+  `request` + claims `RESPONSE_FIELD`, driver em
+  `packages/scenario-runner/src/api.ts`, avaliacao no engine; 6 testes em
+  `tests/http-scenarios.test.mjs`.
+- [x] P7.4 Checks nativos dos dois lados (`php` script + `java` RegressionTest
+  como `kind:"test"`); `target-regression` detectou a regressao controlada.
+- [ ] P7.5 Gate de aceitacao P7 (em execucao): regressao de validacao/fluxo
+  demonstrada com deteccao em tres camadas (ver VALIDATION.md); faltam "valor
+  errado" e "fluxo errado" em nova sessao (budget 3/4 consumido) e a medida de
+  esforço do piloto; negativas no padrao P4.3 cobertas pelas suites de
+  sessao/escopo/budgets.
 - [ ] P7.6 Piloto assistido (Session D Copilot/MCP) e CI com toolchains
   PHP+JDK na matriz.
+- [ ] P7.7 Banco Tier 1 — cobertura obrigatoria de estado (ver PLAN-PHP-JAVA).
+- [ ] P7.8 Banco Tier 2 — state capture com sondas declaradas (ver PLAN-PHP-JAVA).
 
 Progresso segue o protocolo abaixo; as decisoes (1)-(4) do doc devem estar
 registradas como resolvidas antes de declarar P7 entregue.
