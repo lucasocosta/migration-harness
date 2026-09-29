@@ -12,7 +12,7 @@
     "serve": {"commandId":"serve","readyTimeoutMs":60000}
   },
   "target": {
-    "root": "examples/api-first/target", "baseUrl": "http://127.0.0.1:8353",
+    "root": "examples/api-first/java", "baseUrl": "http://127.0.0.1:8353",
     "relevantFiles": [
       "pom.xml",
       "src/main/java/com/example/apifirst/ApiFirstApplication.java",

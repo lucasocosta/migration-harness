@@ -90,7 +90,7 @@ test('api-first acceptance: prepare and the untouched candidate verify PASS', as
 for (const [name, mutation] of Object.entries(mutations)) {
   test(`api-first acceptance: controlled regression (${name}) is detected on ${mutation.scenario}`, async t => {
     const f = await ensure(t); if (!f) return;
-    const path = join(f.root, 'examples/api-first/target/src/main/java/com/example/apifirst/', mutation.file);
+    const path = join(f.root, 'examples/api-first/java/src/main/java/com/example/apifirst/', mutation.file);
     const original = await readFile(path, 'utf8');
     assert.ok(original.includes(mutation.from), `mutation anchor exists for ${name}`);
     await writeFile(path, original.replace(mutation.from, mutation.to));

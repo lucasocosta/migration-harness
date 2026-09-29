@@ -40,8 +40,8 @@ fixtures/README.md        no mocks: both APIs are deterministic, so nothing is f
 ```bash
 php examples/api-first/source/build.php                    # php -l all files + stage dist/
 php examples/api-first/source/tests/validation-test.php    # source regression, exit 0/1
-mvn -q -DskipTests package -f examples/api-first/target/pom.xml   # executable jar + classes
-java -cp examples/api-first/target/classes com.example.apifirst.RegressionTest
+mvn -q -DskipTests package -f examples/api-first/java/pom.xml   # executable jar + classes
+java -cp examples/api-first/java/target/classes com.example.apifirst.RegressionTest
 ```
 
 Build output (`source/dist/`, `target/target/`) is disposable managed output; the root
