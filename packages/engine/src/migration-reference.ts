@@ -6,9 +6,10 @@ import {
   MigrationPathSchema, parseContract, parseMigrationConfig, parseMigrationReference, ReferenceContentSchema,
   ReferenceVerificationSchema, scenarioBindingProjection, scenarioSemanticProjection, SourceObservationsSchema,
   type MigrationConfig, type MigrationReference, type ReferenceContent, type ReferenceFinding,
-  type ReferenceVerification,
+  type ReferenceVerification, type StateCapture, type StateDivergence,
 } from '@migration-harness/core';
 import { computeContractHash } from '@migration-harness/contract-review';
+import { probeCommandFor, stateCapturesOf } from './state-capture.js';
 
 const MAX_INVENTORY_FILES = 20000;
 type FileFingerprint = ReferenceContent['source']['files'][number];
@@ -112,7 +113,52 @@ async function revisionOf(base: string): Promise<string> {
   return 'UNVERSIONED';
 }
 
-const semanticHashOf = (definition: ConfiguredScenario['definition']): string => digestOf(scenarioSemanticProjection(definition));
+/**
+ * A capture joins the criteria digest with the probe commands it resolves on each side: argv, cwd and
+ * timeout of a probe are protected evaluation inputs, so changing one after reference creation is a
+ * criteria change the owner has to decide, never a silent configuration edit.
+ */
+function captureCriteria(config: MigrationConfig, capture: StateCapture): unknown {
+  const command = (side: 'source' | 'target'): unknown => {
+    const probe = probeCommandFor(config, side, capture.bindings[side].commandId);
+    return { id: probe.id, kind: probe.kind, argv: probe.argv, cwd: probe.cwd, timeoutMs: probe.timeoutMs };
+  };
+  return {
+    id: capture.id, projectionId: capture.projectionId, checkpoint: capture.checkpoint, required: capture.required,
+    bindings: { source: command('source'), target: command('target') },
+    ...(capture.settle ? { settle: capture.settle } : {}),
+  };
+}
+
+/**
+ * The declared state vocabulary of one scenario, folded into its digest only when declared: the whole
+ * `stateProjections` table (a projection config is an evaluation input wherever it is referenced) plus
+ * this scenario's captures with their resolved probes. Configurations without state fields take the
+ * historical `semanticHash` bytes exactly, mirroring how `responseClaim` joins a requirement digest.
+ */
+function stateCriteria(config: MigrationConfig, scenarioId: string): unknown | undefined {
+  const projections = config.stateProjections ?? [];
+  const captures = stateCapturesOf(config, scenarioId);
+  if (!projections.length && !captures.length) return undefined;
+  return {
+    ...(projections.length ? { stateProjections: projections } : {}),
+    ...(captures.length ? { stateCaptures: captures.map(capture => captureCriteria(config, capture)) } : {}),
+  };
+}
+
+const semanticHashOf = (config: MigrationConfig, scenario: ConfiguredScenario): string => {
+  const state = stateCriteria(config, scenario.definition.scenarioId);
+  return state ? digestOf({ semantic: scenarioSemanticProjection(scenario.definition), state })
+    : digestOf(scenarioSemanticProjection(scenario.definition));
+};
+
+/**
+ * Criteria identity of an accepted state divergence: it declares no network id, so the id is derived
+ * from where it is tolerated (scenario, capture, path) and never from its resolution — re-deciding the
+ * same location is then a change of that criterion, not a replacement of it.
+ */
+const stateDifferenceId = (item: StateDivergence): string =>
+  `state-${digestOf({ scenarioId: item.scenarioId, captureId: item.captureId, path: item.path }).slice(0, 40)}`;
 
 /** Effective per-side entry URL, locators and unit scope, the only part an integration adaptation changes. */
 const bindingHashOf = (scenario: ConfiguredScenario, side: 'source' | 'target'): string => digestOf(scenarioBindingProjection(scenario, side));
@@ -121,21 +167,29 @@ function criteriaWithoutFixtures(config: MigrationConfig, contract?: ReferenceCo
   return {
     scenarios: config.scenarios.map(scenario => ({
       scenarioId: scenario.definition.scenarioId, required: scenario.required,
-      semanticHash: semanticHashOf(scenario.definition),
+      semanticHash: semanticHashOf(config, scenario),
       bindings: { source: bindingHashOf(scenario, 'source'), target: bindingHashOf(scenario, 'target') },
     })),
     requirements: config.requirements.map(item => ({
       id: item.id, scenarioId: item.scenarioId, required: item.required,
       // The machine-checkable claim is part of the criterion: changing it is a criteria change, not a repair.
-      // The API response-field claim is part of it too, but only when declared, so configurations without
-      // one keep their historical digest.
+      // The API response-field claim and the domain-state claim join it too, but only when declared, so
+      // configurations without either keep their historical digest.
       digest: digestOf({ description: item.description, origin: item.origin, sourceReference: item.sourceReference, assertion: item.assertion ?? null,
-        ...(item.responseClaim ? { responseClaim: item.responseClaim } : {}) }),
+        ...(item.responseClaim ? { responseClaim: item.responseClaim } : {}),
+        ...(item.stateClaim ? { stateClaim: item.stateClaim } : {}) }),
     })),
-    acceptedDifferences: config.acceptedDifferences.map(item => ({
-      id: item.id, scenarioId: item.scenarioId,
-      digest: digestOf({ description: item.description, decisionReference: item.decisionReference }),
-    })),
+    acceptedDifferences: config.acceptedDifferences.map(item => {
+      if ('code' in item) {
+        // A STATE_DIVERGENCE entry declares no network id: its criteria identity is the tolerated
+        // location, and its digest covers that location plus the owner decision (and the resolution
+        // that decision covers), so re-deciding or re-scoping it is a recorded criteria change.
+        return { id: stateDifferenceId(item), scenarioId: item.scenarioId,
+          digest: digestOf({ captureId: item.captureId, path: item.path, resolution: item.resolution }) };
+      }
+      return { id: item.id, scenarioId: item.scenarioId,
+        digest: digestOf({ description: item.description, decisionReference: item.decisionReference }) };
+    }),
     checks: config.checks.map(item => {
       const command = config[item.side].commands.find(candidate => candidate.id === item.commandId)!;
       return {
@@ -181,7 +235,7 @@ async function collectContent(config: MigrationConfig, workspaceRoot: string, so
   const protectedPaths = (await Promise.all(config.target.protectedPaths.map(path => subtreePaths(targetBase, path)))).flat();
   const scenarios = await Promise.all(config.scenarios.map(async scenario => ({
     scenarioId: scenario.definition.scenarioId, required: scenario.required,
-    semanticHash: semanticHashOf(scenario.definition),
+    semanticHash: semanticHashOf(config, scenario),
     bindings: { source: bindingHashOf(scenario, 'source'), target: bindingHashOf(scenario, 'target') },
     fixtures: await scenarioFixtures(config, workspaceRoot, scenario),
   })));

@@ -7,13 +7,29 @@ import {
   type ServedBuildIdentity,
 } from '@migration-harness/core';
 import { sanitizeTrace } from '@migration-harness/trace-sanitizer';
-import { migrationComparisonPolicy, verifySourceStability, type SourceStabilityResult } from '@migration-harness/equivalence-validator';
+import { migrationComparisonPolicy, type SourceStabilityResult } from '@migration-harness/equivalence-validator';
 import { ArtifactStore, safeArtifactPath } from './artifacts.js';
 import { ProjectBuildError, serveDeclarations, withProjectBuildServers, type BuildServerSession } from './build-servers.js';
 import { preflightProjectChecks, runProjectReset, type ProjectResetResult } from './project-checks.js';
+import {
+  captureStateSnapshot, stateCapturesOf, stateEvidenceKey, verifyStateSourceStability,
+  type StateCaptureReason, type StateCheckpoint, type StateCompleteness, type StateSettleStatus,
+} from './state-capture.js';
 
 type Side = 'source' | 'target';
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
+/** One declared state capture of this record: codes, hashes and paths only, never projection values. */
+export interface SuiteStateEvidence {
+  captureId: string; checkpoint: StateCheckpoint; required: boolean;
+  completeness: StateCompleteness;
+  settle?: StateSettleStatus;
+  /** Stable probe failure code; present exactly when the snapshot is INCOMPLETE. */
+  reason?: StateCaptureReason;
+  evidencePath?: string;
+  evidenceHash?: string;
+  /** Fingerprint of the projection's privacy+comparison config, absent when no envelope was produced. */
+  projectionFingerprint?: string;
+}
 export interface SuiteCapture {
   scenarioId: string; unitId: string; required: boolean; side: Side; runIndex: number;
   status: 'COMPLETED' | 'INCONCLUSIVE' | 'NOT_RUN';
@@ -22,6 +38,8 @@ export interface SuiteCapture {
   buildRunId?: string; buildHash?: string; bindingHash: string;
   traceRunId?: string; traceHash?: string; evidencePath?: string;
   stepId?: string; executionCode?: string;
+  /** Declared state-capture outcomes; absent when the configuration declares no state vocabulary. */
+  state?: SuiteStateEvidence[];
 }
 export interface CaptureSuiteResult {
   kind: 'CAPTURE_SUITE'; version: '1'; suiteId: string; configurationHash: string;
@@ -78,6 +96,9 @@ export async function captureProjectSuite(input: {
     report.builds = { source: session.source, target: session.target };
     for (const item of config.scenarios) {
       const runs: SanitizedObservedTrace[] = [];
+      // Sanitized state of each observed source run, aligned with `runs` for the stability projection.
+      const stateRuns: Array<Record<string, unknown>> = [];
+      const declaredState = stateCapturesOf(config, item.definition.scenarioId);
       for (const record of report.captures.filter(record => record.scenarioId === item.definition.scenarioId)) {
         if (session.signal.aborted) return;
         const build = session[record.side];
@@ -87,6 +108,34 @@ export async function captureProjectSuite(input: {
         if (record.reset.status !== 'PASS') {
           record.status = 'INCONCLUSIVE'; record.reason = session.signal.aborted ? 'ABORTED' : 'RESET_FAILED';
         } else {
+          const state: SuiteStateEvidence[] = [];
+          const observed: Record<string, unknown> = {};
+          const stateRunId = randomUUID();
+          if (declaredState.length) record.state = state;
+          const checkpointState = async (checkpoint: StateCheckpoint): Promise<void> => {
+            for (const declaration of declaredState.filter(entry => entry.checkpoint.kind === checkpoint)) {
+              try {
+                const result = await captureStateSnapshot({ config, workspaceRoot: workspace, side: record.side,
+                  scenarioId: record.scenarioId, captureId: declaration.id, checkpoint, runIndex: record.runIndex,
+                  runId: stateRunId, buildHash: record.buildHash!, pseudonymizationKey: key,
+                  configurationHash: report.configurationHash, store, signal: session.signal });
+                observed[stateEvidenceKey(declaration)] = result.envelope.completeness === 'COMPLETE'
+                  ? result.envelope.projection : null;
+                state.push({ captureId: declaration.id, checkpoint, required: declaration.required,
+                  completeness: result.envelope.completeness, settle: result.envelope.settle.status,
+                  evidenceHash: result.envelope.evidenceHash,
+                  projectionFingerprint: result.envelope.projectionFingerprint,
+                  ...(result.reason ? { reason: result.reason } : {}),
+                  ...(result.evidencePath ? { evidencePath: result.evidencePath } : {}) });
+              } catch {
+                // A declaration failure is a stable code in the report; nothing from the probe reaches it.
+                state.push({ captureId: declaration.id, checkpoint, required: declaration.required,
+                  completeness: 'INCOMPLETE', reason: 'PROBE_DECLARATION_INVALID' });
+              }
+            }
+          };
+          // AFTER_RESET: after the reset/baseline and before the scenario's steps.
+          await checkpointState('AFTER_RESET');
           try {
             const scenario = resolveScenarioForSide(config, record.scenarioId, record.side);
             const raw = await captureScenario(parseScenario(scenario.definition), record.runIndex, {
@@ -105,8 +154,14 @@ export async function captureProjectSuite(input: {
             const path = await store.writeSanitized(record.unitId, record.side, trace);
             record.evidencePath = relative(output, path).split('\\').join('/');
             record.traceRunId = trace.runId; record.traceHash = digest(trace);
-            record.status = 'COMPLETED'; delete record.reason;
-            if (record.side === 'source') runs.push(trace);
+            // SCENARIO_END: after the scenario's steps.
+            await checkpointState('SCENARIO_END');
+            // A required snapshot is part of this capture: without complete state evidence the record
+            // is not COMPLETED, so source stability sees a missing run and fails closed.
+            if (state.some(entry => entry.required && entry.completeness !== 'COMPLETE')) {
+              record.status = 'INCONCLUSIVE'; record.reason = 'CAPTURE_FAILED';
+            } else { record.status = 'COMPLETED'; delete record.reason; }
+            if (record.status === 'COMPLETED' && record.side === 'source') { runs.push(trace); stateRuns.push(observed); }
           } catch (error) {
             record.status = 'INCONCLUSIVE'; record.reason = session.signal.aborted ? 'ABORTED' : 'CAPTURE_FAILED';
             if (error instanceof ScenarioExecutionError) {
@@ -117,8 +172,8 @@ export async function captureProjectSuite(input: {
         }
         await store.write(`captures/${record.scenarioId}/${record.side}/${record.runIndex}.json`, record);
       }
-      report.stability.push({ scenarioId: item.definition.scenarioId, result: verifySourceStability({
-        runs, requiredRuns: config.limits.sourceRuns, reset: config.reset, policy,
+      report.stability.push({ scenarioId: item.definition.scenarioId, result: verifyStateSourceStability({
+        runs, requiredRuns: config.limits.sourceRuns, reset: config.reset, policy, captures: declaredState, stateRuns,
       }) });
     }
   };

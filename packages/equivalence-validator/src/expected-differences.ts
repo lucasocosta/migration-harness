@@ -1,7 +1,12 @@
 import { type MigrationConfig, type EquivalenceDivergence, type SanitizedObservedTrace, type UnitAssertionOutcome } from '@migration-harness/core';
 import { evaluateUnitAssertions, type DeclaredMock } from './assertions.js';
 
-/** Does not alter traces or legacy verdicts. Only exact declared NETWORK defects may be resolved. */
+type AcceptedDifference = MigrationConfig['acceptedDifferences'][number];
+/** State divergences are resolved by the state-capture evaluation; this seam only resolves NETWORK defects. */
+type NetworkDifference = Extract<AcceptedDifference, { id: string }>;
+
+/** Does not alter traces or legacy verdicts. Only exact declared NETWORK defects may be resolved;
+ *  STATE_DIVERGENCE entries are handled by the state-capture evaluation and are skipped here. */
 export function resolveExpectedDifferences(input: {
   differences: MigrationConfig['acceptedDifferences']; scenarioId: string;
   source: SanitizedObservedTrace; target: SanitizedObservedTrace;
@@ -9,7 +14,8 @@ export function resolveExpectedDifferences(input: {
 }) {
   const accepted = new Set<string>();
   const evidence: Array<{ differenceId: string; status: 'APPLIED' | 'UNVERIFIED'; sourceOutcomes: UnitAssertionOutcome[]; divergenceIds: string[] }> = [];
-  for (const difference of input.differences.filter(item => item.scenarioId === input.scenarioId && item.resolution)) {
+  for (const difference of input.differences.filter((item): item is NetworkDifference =>
+    item.scenarioId === input.scenarioId && !('code' in item) && !!item.resolution)) {
     const resolution = difference.resolution!;
     const sourceOutcomes = evaluateUnitAssertions({ source: input.source, target: input.source,
       assertions: resolution.sourceAssertions.map((assertion, index) => ({ ...assertion, id: `source-${index}`, required: true })),
