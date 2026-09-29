@@ -719,12 +719,16 @@ and field diffs), `REQUIREMENT_VIOLATED (RESPONSE_FIELD_MISSING)`, and
 without attempt consumption, persistent budgets, inconclusive-never-success,
 reference weakening) remains covered by the existing session/scope suites.
 
-Open items recorded in [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md): the remaining
-controlled regressions ("wrong value", "wrong flow") need a fresh session
-(budget exhausted to 3/4 by the first probe); `responseClaim` failures reach
-`REPAIR_IMPLEMENTATION` without a network divergence for the repair loop to
-target; database behavior is scoped (P7.7/P7.8) but this example has no
-persistence side effects by design.
+The full acceptance suite lives in `tests/api-first-acceptance.test.mjs` (5/5,
+skips cleanly where php/JDK/Maven are absent): baseline PASS; three controlled
+regressions on the Java target — wrong response value, missing validation, wrong
+flow — each exiting 4 with `BEHAVIOR_DIVERGENCE` on its scenario; and the
+restored candidate verifying PASS again with `lastReportMatchesWorkspace: true`.
+Open items: `responseClaim` failures reach `REPAIR_IMPLEMENTATION` without a
+network divergence for the repair loop to target; `--preparation` resolves
+against the process cwd while `--artifact-path` is workspace-relative (CLI
+asymmetry found by the suite); database behavior is scoped (P7.7/P7.8) but this
+example has no persistence side effects by design.
 
 ## Environment facts that affect interpretation
 

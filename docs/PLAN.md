@@ -576,11 +576,11 @@ primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
   `tests/http-scenarios.test.mjs`.
 - [x] P7.4 Checks nativos dos dois lados (`php` script + `java` RegressionTest
   como `kind:"test"`); `target-regression` detectou a regressao controlada.
-- [ ] P7.5 Gate de aceitacao P7 (em execucao): regressao de validacao/fluxo
-  demonstrada com deteccao em tres camadas (ver VALIDATION.md); faltam "valor
-  errado" e "fluxo errado" em nova sessao (budget 3/4 consumido) e a medida de
-  esforço do piloto; negativas no padrao P4.3 cobertas pelas suites de
-  sessao/escopo/budgets.
+- [x] P7.5 Gate de aceitacao P7: 5/5 em `tests/api-first-acceptance.test.mjs`
+  (baseline PASS; tres regressoes controladas — valor errado, validacao ausente,
+  fluxo errado — detectadas com `BEHAVIOR_DIVERGENCE` e exit 4; restauracao PASS
+  com `lastReportMatchesWorkspace`). Negativas no padrao P4.3 cobertas pelas
+  suites de sessao/escopo/budgets.
 - [ ] P7.6 Piloto assistido (Session D Copilot/MCP) e CI com toolchains
   PHP+JDK na matriz.
 - [ ] P7.7 Banco Tier 1 — cobertura obrigatoria de estado (ver PLAN-PHP-JAVA).

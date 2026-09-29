@@ -80,6 +80,11 @@ Gaps e desconfortos encontrados (nenhum bloqueante):
 4. Maven frio e lento (timeout 900s no primeiro `package`; `~/.m2` esquenta);
    `maxActiveMs` conta apenas verificacao, nao build.
 5. Banco de dados intencionalmente fora do spike (P7.7/P7.8 em escopo, decisao 5).
+6. Assimetria de caminho no CLI (encontrada pela suite de aceitacao P7.5):
+   `prepare-migration --artifact-path` resolve contra `--workspace-root`, mas
+   `start-migration-session --preparation` resolve contra o CWD do processo —
+   mascarado quando `--workspace-root .`. Caminhos absolutos funcionam;
+   padronizar a resolucao e melhoria opcional.
 
 Aceite P7.1 batido com folga: `MIGRATION_PREPARATION: PASS`, fonte `STABLE`,
 veredito honesto em 3 cenarios (PASS geral + o FAIL da regressao controlada).
