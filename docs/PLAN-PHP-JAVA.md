@@ -137,7 +137,9 @@ veredito honesto em 3 cenarios (PASS geral + o FAIL da regressao controlada).
   tres primeiros expostos do piloto acharam dois bugs reais de re-prepare
   (crash `EEXIST` na chave de pseudonimizacao; crash `EEXIST` no mkdir de
   diretorio de artefato sujo, agora `ARTIFACT_NOT_FRESH`), corrigidos e cobertos
-  por `tests/prepare-retry.test.mjs`. Pendente apenas o run verde do CI.
+  por `tests/prepare-retry.test.mjs`. CI verde nos 3 SOes (run 36582270212) apos
+  renomear o projeto Java `target/`→`java/` — o gitignore de build outputs
+  engolia as fontes no checkout do CI, derrubando setup-java e o prepare.
 
 ### P7.7 Banco Tier 1 — cobertura obrigatoria de estado (M)
 
