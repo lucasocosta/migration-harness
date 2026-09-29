@@ -9,7 +9,7 @@ import {
 import { sanitizeTrace } from '@migration-harness/trace-sanitizer';
 import { migrationComparisonPolicy, verifySourceStability, type SourceStabilityResult } from '@migration-harness/equivalence-validator';
 import { ArtifactStore, safeArtifactPath } from './artifacts.js';
-import { ProjectBuildError, withProjectBuildServers, type BuildServerSession } from './build-servers.js';
+import { ProjectBuildError, serveDeclarations, withProjectBuildServers, type BuildServerSession } from './build-servers.js';
 import { preflightProjectChecks, runProjectReset, type ProjectResetResult } from './project-checks.js';
 
 type Side = 'source' | 'target';
@@ -43,6 +43,7 @@ export async function captureProjectSuite(input: {
   /** Harness-owned shared key for versioned reference comparison; omitted keys remain invocation-local. */
   pseudonymizationKey?: string;
 }): Promise<CaptureSuiteResult> {
+  const serve = serveDeclarations(input.config);
   const config = parseMigrationConfig(input.config);
   if (input.allowProjectCommands !== true) throw new Error('EXECUTION_NOT_AUTHORIZED');
   for (const scenario of config.scenarios) MigrationIdSchema.parse(scenario.definition.unitId);
@@ -92,7 +93,8 @@ export async function captureProjectSuite(input: {
               fixtureBaseDir: resolve(workspace, item.fixtureRoot), signal: session.signal,
               locale: config.environment.locale, viewport: config.environment.viewport,
               allowedOrigins: [...new Set([build.origin, ...(config.policy.allowedOrigins ?? [])])],
-              expectedBuild: { origin: build.origin, buildHash: build.buildHash },
+              // Managed sides answer with their own bytes: the harness health header cannot attest them.
+              ...(serve[record.side] ? {} : { expectedBuild: { origin: build.origin, buildHash: build.buildHash } }),
             });
             const trace = sanitizeTrace(raw, { pseudonymizationKey: key,
               allowedPayloadKeys: config.policy.sanitization?.allowedPayloadKeys ?? [],

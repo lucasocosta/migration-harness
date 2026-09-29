@@ -127,7 +127,10 @@ function criteriaWithoutFixtures(config: MigrationConfig, contract?: ReferenceCo
     requirements: config.requirements.map(item => ({
       id: item.id, scenarioId: item.scenarioId, required: item.required,
       // The machine-checkable claim is part of the criterion: changing it is a criteria change, not a repair.
-      digest: digestOf({ description: item.description, origin: item.origin, sourceReference: item.sourceReference, assertion: item.assertion ?? null }),
+      // The API response-field claim is part of it too, but only when declared, so configurations without
+      // one keep their historical digest.
+      digest: digestOf({ description: item.description, origin: item.origin, sourceReference: item.sourceReference, assertion: item.assertion ?? null,
+        ...(item.responseClaim ? { responseClaim: item.responseClaim } : {}) }),
     })),
     acceptedDifferences: config.acceptedDifferences.map(item => ({
       id: item.id, scenarioId: item.scenarioId,

@@ -15,7 +15,10 @@ const json: z.ZodType<unknown> = z.lazy(() => z.union([z.null(), z.boolean(), z.
 const object = z.record(json);
 const time = z.string().datetime({ offset: true });
 const severity = z.enum(['BLOCKING', 'WARNING', 'INFORMATIONAL']);
-const action = z.enum(['click', 'fill', 'select', 'press', 'focus']);
+const action = z.enum(['click', 'fill', 'select', 'press', 'focus', 'request']);
+const httpMethod = z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+/** Absolute origin-rooted path of a request step; no scheme, host, fragment or escape into another origin. */
+const requestPath = z.string().min(1).max(2048).regex(/^\/(?!\/)[^\s#\\]*$/, 'Expected an absolute path such as /api/customer');
 const storageType = z.enum(['localStorage', 'sessionStorage']);
 const mutationType = z.enum(['SET', 'REMOVE', 'CLEAR']);
 const role = z.enum(['alert', 'alertdialog', 'application', 'article', 'banner', 'blockquote', 'button', 'caption', 'cell', 'checkbox', 'code', 'columnheader', 'combobox', 'complementary', 'contentinfo', 'definition', 'deletion', 'dialog', 'directory', 'document', 'emphasis', 'feed', 'figure', 'form', 'generic', 'grid', 'gridcell', 'group', 'heading', 'img', 'insertion', 'link', 'list', 'listbox', 'listitem', 'log', 'main', 'marquee', 'math', 'meter', 'menu', 'menubar', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'navigation', 'none', 'note', 'option', 'paragraph', 'presentation', 'progressbar', 'radio', 'radiogroup', 'region', 'row', 'rowgroup', 'rowheader', 'scrollbar', 'search', 'searchbox', 'separator', 'slider', 'spinbutton', 'status', 'strong', 'subscript', 'superscript', 'switch', 'tab', 'table', 'tablist', 'tabpanel', 'term', 'textbox', 'time', 'timer', 'toolbar', 'tooltip', 'tree', 'treegrid', 'treeitem']);
@@ -31,7 +34,7 @@ export const CompletionSignalSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('STORAGE_KEY_SET'), storageType, storageKey: id, timeoutMs }).strict(),
   z.object({ type: z.literal('WEBSOCKET_FRAME'), urlPattern: id, direction: wsDirection, payloadShape: frameShape, timeoutMs }).strict(),
 ]);
-const step = z.object({ stepId: id, action, targetRole: role, targetName: text.optional(), targetLabel: id.optional(), inputValue: text.optional(), description: text.optional(), completionSignal: CompletionSignalSchema.optional() }).strict();
+const step = z.object({ stepId: id, action, targetRole: role.optional(), targetName: text.optional(), targetLabel: id.optional(), inputValue: text.optional(), description: text.optional(), completionSignal: CompletionSignalSchema.optional(), method: httpMethod.optional(), path: requestPath.optional(), body: json.optional() }).strict();
 export const ScenarioDefinitionSchema = z.object({
   scenarioId: id, unitId: id, name: id, description: text, entryUrl: z.string().url(),
   preconditions: z.object({
@@ -47,7 +50,17 @@ export const ScenarioDefinitionSchema = z.object({
   testDataProfile: z.enum(['standard', 'edge_case', 'error_flow']),
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.steps.map(item => item.stepId)).size !== value.steps.length) ctx.addIssue({ code: 'custom', message: 'Duplicate stepId' });
-  for (const item of value.steps) if (['fill', 'select', 'press'].includes(item.action) && item.inputValue === undefined) ctx.addIssue({ code: 'custom', message: `${item.stepId} requires inputValue` });
+  const requestSteps = value.steps.filter(item => item.action === 'request').length;
+  for (const item of value.steps) {
+    if (item.action === 'request') {
+      // A request step completes when its response arrives, bounded by the step timeout like other steps.
+      if (item.completionSignal !== undefined) ctx.addIssue({ code: 'custom', message: `${item.stepId} completionSignal is not allowed on request steps` });
+      if (item.method === undefined || item.path === undefined) ctx.addIssue({ code: 'custom', message: `${item.stepId} requires method and path` });
+    } else if (item.targetRole === undefined) ctx.addIssue({ code: 'custom', message: `${item.stepId} requires targetRole` });
+    if (['fill', 'select', 'press'].includes(item.action) && item.inputValue === undefined) ctx.addIssue({ code: 'custom', message: `${item.stepId} requires inputValue` });
+  }
+  // Direct HTTP calls and browser interactions are driven by different capture paths; one scenario uses one of them.
+  if (requestSteps && requestSteps !== value.steps.length) ctx.addIssue({ code: 'custom', message: 'A scenario may not mix request steps with browser interaction steps' });
   // 'allow' is meaningless without at least one real http(s) origin for a worker to control; the entry URL is the scenario-carried origin.
   if (value.serviceWorkers === 'allow') {
     let protocol = '';
@@ -58,7 +71,7 @@ export const ScenarioDefinitionSchema = z.object({
 
 const base = { eventId: id, timestampMs: z.number().finite().nonnegative(), sequenceIndex: z.number().int().nonnegative(), correlationId: id.optional(), causedByEventIds: strings.optional() };
 export const TraceEventSchema = z.discriminatedUnion('type', [
-  z.object({ ...base, type: z.literal('USER_INTERACTION'), stepId: id, action, targetAriaRole: id, targetAriaName: text.optional(), inputValue: text.optional() }).strict(),
+  z.object({ ...base, type: z.literal('USER_INTERACTION'), stepId: id, action, targetAriaRole: id.optional(), targetAriaName: text.optional(), inputValue: text.optional() }).strict(),
   z.object({ ...base, type: z.literal('HTTP_REQUEST'), method: id, url: z.string().url(), headers: record, payload: json }).strict(),
   z.object({ ...base, type: z.literal('HTTP_RESPONSE'), method: id, url: z.string().url(), statusCode: z.number().int().min(100).max(599), headers: record, body: json, requestToResponseEndMs: z.number().nonnegative(), servedByServiceWorker: z.boolean().optional() }).strict(),
   z.object({ ...base, type: z.literal('HTTP_FAILED'), method: id, url: z.string().url(), errorText: text }).strict(),
@@ -82,6 +95,7 @@ function validateTrace(value: z.infer<typeof trace>, ctx: z.RefinementCtx): void
     if (ids.has(event.eventId) || event.sequenceIndex <= sequence) ctx.addIssue({ code: 'custom', message: 'Duplicate event or non-increasing sequenceIndex' });
     for (const parent of event.causedByEventIds ?? []) if (!ids.has(parent)) ctx.addIssue({ code: 'custom', message: 'Causal parent must precede event' });
     ids.add(event.eventId); sequence = event.sequenceIndex;
+    if (event.type === 'USER_INTERACTION' && event.action !== 'request' && event.targetAriaRole === undefined) ctx.addIssue({ code: 'custom', message: 'A browser interaction requires targetAriaRole' });
     if (event.type.startsWith('HTTP_')) {
       if (!event.correlationId) { ctx.addIssue({ code: 'custom', message: 'HTTP event requires correlationId' }); continue; }
       if (event.type === 'HTTP_REQUEST') {

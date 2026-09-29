@@ -5,12 +5,13 @@ import { dirname, join, resolve } from 'node:path';
 import {
   canonical, MigrationPathSchema, migrationConfigHash, migrationReferenceHash, parseMigrationConfig,
   parseMigrationPreparation, parseSanitizedTrace, parseContract, SourceObservationsSchema,
-  normalizeUrl, unitAssertionsForScenario, scenarioBindingProjection, classifyReferenceChange,
+  normalizeUrl, responseFieldClaimsForScenario, unitAssertionsForScenario, scenarioBindingProjection, classifyReferenceChange,
+  UnitAssertionOutcomeSchema,
   type MigrationConfig, type MigrationDiagnostic, type MigrationPreparation, type MigrationReport,
   type MigrationReference, type ScenarioVerification, type VerificationIdentity, type VerificationStatus,
 } from '@migration-harness/core';
 import { EquivalenceValidator, evaluateUnitAssertions, resolveExpectedDifferences, migrationComparisonPolicy, verifyCriticalContract, verifySourceStability } from '@migration-harness/equivalence-validator';
-import { assertionRequirementStatuses, buildMigrationReport } from '@migration-harness/quality-gates';
+import { assertionRequirementStatuses, buildMigrationReport, evaluateResponseFieldClaims } from '@migration-harness/quality-gates';
 import { ArtifactStore, safeArtifactPath } from './artifacts.js';
 import { captureProjectSuite, type CaptureSuiteResult, type SuiteCapture } from './capture-suite.js';
 import { collectMigrationReference, verifyMigrationReference } from './migration-reference.js';
@@ -161,6 +162,50 @@ async function traceFor(config: MigrationConfig, suite: CaptureSuiteResult, capt
 const incompleteCodes = new Set(['INSUFFICIENT_EVIDENCE', 'NETWORK_INCOMPLETE_EXCHANGE', 'NON_DETERMINISTIC_EXECUTION',
   'CAUSAL_ALIGNMENT_BUDGET_EXCEEDED', 'VALUE_EVIDENCE_OMITTED', 'UNIT_ASSERTION_NOT_EVALUABLE', 'SCENARIO_FAILED']);
 
+export interface ScenarioRequirementStatus {
+  requirementId: string;
+  status: VerificationStatus;
+  /** Declared reason code of the failing target-side outcome (assertion or response field), never an observed value. */
+  reason?: string;
+}
+
+/**
+ * Map one scenario's machine-checkable requirements onto report statuses.
+ *
+ * A requirement declaring an `assertion` is answered by the differential assertion outcomes already
+ * evaluated on the target; a requirement declaring a `responseClaim` is evaluated here against the
+ * recorded HTTP exchanges of both sides, so an API-first requirement reaches PASS on evidence instead of
+ * falling through to INCONCLUSIVE. When a requirement declares both, every declared source must hold.
+ * A requirement with no machine-checkable evidence, or evidence that cannot decide, stays INCONCLUSIVE —
+ * unevaluable evidence is never a pass.
+ */
+export function scenarioRequirementStatuses(config: MigrationConfig, scenarioId: string, input: {
+  /** Target outcomes of the scenario's differential assertion pass, as produced by `evaluateUnitAssertions`. */
+  assertionOutcomes: unknown;
+  /** Sanitized source execution of the scenario: the evidence for response-field claims. */
+  source: unknown;
+  /** Sanitized target execution of the scenario: the evidence for response-field claims. */
+  target: unknown;
+}): ScenarioRequirementStatus[] {
+  const statuses = assertionRequirementStatuses(input.assertionOutcomes);
+  const reasons = new Map<string, string>();
+  for (const outcome of UnitAssertionOutcomeSchema.array().max(10000).parse(input.assertionOutcomes)) {
+    if (outcome.side === 'target' && outcome.reason) reasons.set(outcome.assertionId, outcome.reason);
+  }
+  const claims = responseFieldClaimsForScenario(config, scenarioId);
+  if (claims.length) {
+    // Satisfaction per side, then the shared mapping: VIOLATED -> FAIL, unevaluable -> INCONCLUSIVE.
+    const evaluation = evaluateResponseFieldClaims({ claims, source: input.source, target: input.target });
+    statuses.push(...assertionRequirementStatuses(evaluation.outcomes));
+    for (const outcome of evaluation.outcomes) if (outcome.side === 'target' && outcome.reason) reasons.set(outcome.assertionId, outcome.reason);
+  }
+  return config.requirements.filter(item => item.scenarioId === scenarioId).map(item => {
+    const declared = statuses.filter(entry => entry.requirementId === item.id).map(entry => entry.status);
+    const reason = reasons.get(item.id);
+    return { requirementId: item.id, status: declared.length ? combine(declared) : 'INCONCLUSIVE', ...(reason ? { reason } : {}) };
+  });
+}
+
 /** Verify all declared behavior and native regression checks against an explicit, unchanged prepared reference. */
 export async function verifyMigration(input: OperationInput & { preparation: unknown }): Promise<MigrationReport> {
   if (input.allowProjectCommands !== true) throw new Error('EXECUTION_NOT_AUTHORIZED');
@@ -257,13 +302,16 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
         result.diagnostics = comparison.divergences.map(item => ({ scenarioId, code: accepted.has(item.divergenceId) ? 'EXPECTED_DIFFERENCE' : item.code === 'MOCKED_COVERAGE' ? 'MOCKED_COVERAGE'
           : item.severity !== 'BLOCKING' ? 'STANDARD_WARNING' : result.status === 'FAIL' ? 'BEHAVIOR_DIVERGENCE' : 'EXECUTION_INCOMPLETE',
           detailCode: item.code, category: item.severity === 'BLOCKING' ? 'IMPLEMENTATION' : 'EVIDENCE' }));
-        const outcomes = assertionRequirementStatuses(assertions.outcomes);
+        const statuses = scenarioRequirementStatuses(config, scenarioId, {
+          assertionOutcomes: assertions.outcomes, source: source.trace, target: target.trace,
+        });
         for (const requirement of requirements) {
-          requirement.status = outcomes.find(item => item.requirementId === requirement.requirementId)?.status ?? 'INCONCLUSIVE';
+          const mapped = statuses.find(item => item.requirementId === requirement.requirementId);
+          const reason = mapped?.reason;
+          requirement.status = mapped?.status ?? 'INCONCLUSIVE';
           if (requirement.status !== 'PASS') diagnostics.push({ code: requirement.status === 'FAIL' ? 'REQUIREMENT_VIOLATED' : 'REQUIREMENT_NOT_EVALUABLE',
             scenarioId, requirementId: requirement.requirementId, category: requirement.status === 'FAIL' ? 'IMPLEMENTATION' : 'EVIDENCE',
-            ...(assertions.outcomes.find(item => item.side === 'target' && item.assertionId === requirement.requirementId)?.reason
-              ? { detailCode: assertions.outcomes.find(item => item.side === 'target' && item.assertionId === requirement.requirementId)!.reason! } : {}) });
+            ...(reason ? { detailCode: reason } : {}) });
         }
         if (contract?.unitId === item.definition.unitId) {
           const failed = verifyCriticalContract(contract, target.trace).some(item => item.severity === 'BLOCKING');

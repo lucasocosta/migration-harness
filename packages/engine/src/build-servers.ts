@@ -1,24 +1,36 @@
-import { createServer, get, type Server } from 'node:http';
+import { createServer, get, type ClientRequest, type Server } from 'node:http';
+import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import { lstat, open, readdir, realpath, rm } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  canonical, parseMigrationConfig, parseProjectCheckReport, MigrationPathSchema, ServedBuildIdentitySchema,
+  canonical, parseMigrationConfig, parseProjectCheckReport, MigrationIdSchema, MigrationPathSchema, ServedBuildIdentitySchema,
   isWithin, pathSegments, type MigrationConfig, type ProjectCheckReport, type ServedBuildIdentity,
 } from '@migration-harness/core';
 import { preflightProjectChecks, runProjectChecks } from './project-checks.js';
+import { killTree, resolveExecutable } from './process-tree.js';
 
 const HEALTH = '/__migration_harness_health__';
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_BUILD_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 5000;
+const DEFAULT_READY_TIMEOUT_MS = 30_000;
+const MAX_READY_TIMEOUT_MS = 3_600_000;
+const READY_POLL_INTERVAL_MS = 100;
+const READY_ATTEMPT_TIMEOUT_MS = 1000;
+const SERVE_KILL_GRACE_MS = 500;
 type Side = 'source' | 'target';
+type Command = MigrationConfig['source']['commands'][number];
 type BuildErrorCode = 'SERVING_CONFIG_MISSING' | 'UNSAFE_BUILD_DIRECTORY' | 'PORT_IN_USE' | 'SERVER_START_FAILED'
+  | 'SERVE_CONFIG_INVALID' | 'SERVE_COMMAND_INVALID' | 'SERVER_READY_TIMEOUT' | 'SERVER_EXITED_EARLY'
   | 'BUILD_CHECK_FAILED' | 'BUILD_OUTPUT_MISSING' | 'BUILD_OUTPUT_UNSAFE' | 'BUILD_OUTPUT_TOO_LARGE'
   | 'BUILD_INPUT_CHANGED' | 'BUILD_DISK_CHANGED' | 'HEALTHCHECK_FAILED' | 'ABORTED' | 'SESSION_TIMEOUT' | 'EXECUTION_NOT_AUTHORIZED' | 'BASELINE_MISMATCH';
 export class ProjectBuildError extends Error {
-  constructor(readonly code: BuildErrorCode, readonly side?: Side, readonly checks?: ProjectCheckReport) { super(code); this.name = 'ProjectBuildError'; }
+  constructor(readonly code: BuildErrorCode, readonly side?: Side, readonly checks?: ProjectCheckReport,
+    /** Exit code of a managed serve child that died before readiness; process output is never carried. */
+    readonly exitCode?: number | null) { super(code); this.name = 'ProjectBuildError'; }
 }
 const hash = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 interface Snapshot { files: Map<string, Buffer>; buildHash: string; totalBytes: number; }
@@ -98,6 +110,147 @@ function servingUrl(value: string, side: Side): URL {
   return url;
 }
 
+/** Managed-serve declaration a side may carry; the parallel core lane adds the identical optional field. */
+export interface SideServeDeclaration { commandId: string; readyTimeoutMs?: number }
+export type ServeDeclarations = Record<Side, SideServeDeclaration | undefined>;
+interface ServePlan { command: Command; cwd: string }
+interface ManagedServe {
+  /** Resolve when any HTTP response arrives; fail closed on spawn error, early exit, readiness timeout or abort. */
+  ready(signal: AbortSignal, checkAbort: () => void): Promise<void>;
+  /** Kill the whole process tree: SIGTERM grace first, SIGKILL escalation; idempotent. */
+  stop(): Promise<void>;
+}
+
+/** Read and fail-closed validate each side's optional serve declaration from the raw configuration. */
+export function serveDeclarations(config: unknown): ServeDeclarations {
+  const declarations: ServeDeclarations = { source: undefined, target: undefined };
+  if (!config || typeof config !== 'object') return declarations;
+  for (const side of ['source', 'target'] as const) {
+    const project = (config as Record<string, unknown>)[side];
+    const serve = project && typeof project === 'object' ? (project as Record<string, unknown>).serve : undefined;
+    if (serve === undefined) continue;
+    if (!serve || typeof serve !== 'object' || Array.isArray(serve)) throw new ProjectBuildError('SERVE_CONFIG_INVALID', side);
+    const { commandId, readyTimeoutMs } = serve as Record<string, unknown>;
+    const validTimeout = readyTimeoutMs === undefined
+      || typeof readyTimeoutMs === 'number' && Number.isInteger(readyTimeoutMs) && readyTimeoutMs >= 1 && readyTimeoutMs <= MAX_READY_TIMEOUT_MS;
+    if (Object.keys(serve).some(key => !['commandId', 'readyTimeoutMs'].includes(key)) || typeof commandId !== 'string'
+      || !MigrationIdSchema.safeParse(commandId).success || !validTimeout) throw new ProjectBuildError('SERVE_CONFIG_INVALID', side);
+    declarations[side] = { commandId, ...(typeof readyTimeoutMs === 'number' ? { readyTimeoutMs } : {}) };
+  }
+  return declarations;
+}
+
+/**
+ * Parse a configuration that may carry `serve`. The core schema gains that key in the parallel lane;
+ * until then tolerate exactly its unrecognized presence and strip it, while every other rejection fails closed.
+ */
+function parseServerConfig(config: unknown): { config: MigrationConfig; serve: ServeDeclarations } {
+  const serve = serveDeclarations(config);
+  try { return { config: parseMigrationConfig(config), serve }; }
+  catch (error) {
+    if (!(serve.source || serve.target) || !serveOnlyRejection(error)) throw error;
+    const stripped = { ...(config as Record<string, unknown>) };
+    for (const side of ['source', 'target'] as const) {
+      const project = stripped[side];
+      if (project && typeof project === 'object') {
+        const rest = { ...(project as Record<string, unknown>) };
+        delete rest.serve;
+        stripped[side] = rest;
+      }
+    }
+    return { config: parseMigrationConfig(stripped), serve };
+  }
+}
+
+/** Only the not-yet-declared `serve` key on a side may be tolerated; no other schema rejection is ever masked. */
+function serveOnlyRejection(error: unknown): boolean {
+  const issues = (error as { issues?: unknown }).issues;
+  return Array.isArray(issues) && issues.length > 0 && issues.every((issue: { code?: unknown; keys?: unknown; path?: unknown }) =>
+    issue.code === 'unrecognized_keys' && Array.isArray(issue.keys) && issue.keys.length === 1 && issue.keys[0] === 'serve'
+    && Array.isArray(issue.path) && issue.path.length === 1 && ['source', 'target'].includes(String(issue.path[0])));
+}
+
+/** Resolve a side's declared serve command and the side root it runs from, before any project command executes. */
+async function servePlan(workspace: string, config: MigrationConfig, side: Side, declaration: SideServeDeclaration): Promise<ServePlan> {
+  const command = config[side].commands.find(item => item.id === declaration.commandId);
+  if (!command || command.kind !== 'serve') throw new ProjectBuildError('SERVE_COMMAND_INVALID', side);
+  let cwd = workspace, valid = true;
+  for (const segment of pathSegments(config[side].root)) {
+    cwd = join(cwd, segment);
+    const stat = await lstat(cwd).catch(() => undefined);
+    if (!stat || !stat.isDirectory() || stat.isSymbolicLink()) { valid = false; break; }
+  }
+  if (!valid) throw new ProjectBuildError('SERVE_COMMAND_INVALID', side);
+  return { command, cwd };
+}
+
+/** Launch a side's declared serve command and own its whole process tree for the session lifetime. */
+function startManagedServe(input: { side: Side; plan: ServePlan; url: URL; readyTimeoutMs: number }): ManagedServe {
+  const { side, plan, url } = input;
+  // Same spawn contract as declared commands: scrubbed environment, POSIX process group, Windows cmd.exe shims.
+  const env: NodeJS.ProcessEnv = { CI: '1', NO_COLOR: '1' };
+  for (const key of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP']) if (process.env[key] !== undefined) env[key] = process.env[key];
+  const exe = resolveExecutable(plan.command.argv[0]!);
+  const viaCmd = process.platform === 'win32' && exe.toLowerCase().endsWith('.cmd');
+  const child = viaCmd
+    ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', exe, ...plan.command.argv.slice(1)],
+      { cwd: plan.cwd, env, shell: false, detached: false, stdio: ['ignore', 'pipe', 'pipe'] })
+    : spawn(exe, plan.command.argv.slice(1),
+      { cwd: plan.cwd, env, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+  // Managed output is drained and discarded: it must never reach traces, evidence or reports.
+  child.stdout?.resume(); child.stderr?.resume();
+  let spawnFailed = false;
+  let exitCode: number | null | undefined;
+  let hasClosed = false;
+  const closed = new Promise<void>(done => { child.once('close', () => { hasClosed = true; done(); }); });
+  child.once('error', () => { spawnFailed = true; });
+  child.once('exit', code => { exitCode = code; });
+  const deadline = Date.now() + input.readyTimeoutMs;
+  let stopping: Promise<void> | undefined;
+  return {
+    ready: async (signal, checkAbort) => {
+      for (;;) {
+        checkAbort();
+        if (spawnFailed) throw new ProjectBuildError('SERVER_START_FAILED', side);
+        if (exitCode !== undefined) throw new ProjectBuildError('SERVER_EXITED_EARLY', side, undefined, exitCode);
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new ProjectBuildError('SERVER_READY_TIMEOUT', side);
+        if (await readyProbe(url, Math.min(READY_ATTEMPT_TIMEOUT_MS, remaining), signal)) return;
+        await delay(READY_POLL_INTERVAL_MS);
+      }
+    },
+    stop: () => stopping ??= (async () => {
+      if (child.pid) {
+        try { killTree(child, 'SIGTERM'); } catch { /* the SIGKILL pass below still runs */ }
+        await Promise.race([closed, delay(SERVE_KILL_GRACE_MS)]);
+        if (!hasClosed) { try { killTree(child, 'SIGKILL'); } catch { /* already reaped */ } }
+        await Promise.race([closed, delay(SERVE_KILL_GRACE_MS)]);
+      }
+      child.stdout?.destroy(); child.stderr?.destroy();
+    })(),
+  };
+}
+
+/** Any HTTP response, whatever the status, proves the managed side accepts requests on its base URL. */
+function readyProbe(url: URL, timeoutMs: number, signal: AbortSignal): Promise<boolean> {
+  return new Promise<boolean>(done => {
+    if (signal.aborted) { done(false); return; }
+    let settled = false;
+    let request: ClientRequest | undefined;
+    const finish = (ready: boolean): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', abort);
+      done(ready);
+    };
+    const abort = (): void => { request?.destroy(); finish(false); };
+    request = get(`${url.origin}/`, { timeout: timeoutMs }, response => { response.resume(); finish(true); });
+    request.once('timeout', () => { request?.destroy(); finish(false); });
+    request.once('error', () => finish(false));
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
 async function reserveServer(url: URL, side: Side): Promise<BuildServer> {
   let snapshot: Snapshot | undefined;
   let identity: ServedBuildIdentity | undefined;
@@ -166,21 +319,25 @@ export interface BuildServerSession {
   signal: AbortSignal;
 }
 
-/** Probe declared static output paths and reserve/release ports without cleaning or running project commands. */
+/** Probe declared static output paths and managed serve declarations, and reserve/release ports without cleaning or running project commands. */
 export async function preflightBuildServers(input: { config: unknown; workspaceRoot: string }): Promise<void> {
-  const config = parseMigrationConfig(input.config);
-  if ((await preflightProjectChecks(input)).status !== 'PASS') throw new ProjectBuildError('BUILD_INPUT_CHANGED');
+  const { config, serve } = parseServerConfig(input.config);
+  if ((await preflightProjectChecks({ ...input, config })).status !== 'PASS') throw new ProjectBuildError('BUILD_INPUT_CHANGED');
   const workspace = await realpath(resolve(input.workspaceRoot));
   const servers: BuildServer[] = [];
   try {
     for (const side of ['source', 'target'] as const) {
-      await buildDirectory(workspace, config, side);
+      // A managed side replaces the static output probe, but its base URL port must still be free for the child.
+      const declaration = serve[side];
+      if (declaration) await servePlan(workspace, config, side, declaration);
+      else await buildDirectory(workspace, config, side);
       servers.push(await reserveServer(servingUrl(config[side].baseUrl, side), side));
     }
   } finally { await Promise.all(servers.map(server => server.close())); }
 }
 
-/** Builds from clean declared output directories and serves immutable snapshots only for the callback lifetime. */
+/** Builds from clean declared output directories and serves immutable snapshots only for the callback lifetime;
+ * a side that declares `serve` is launched and readiness-gated as a managed child process instead. */
 export async function withProjectBuildServers<T>(input: {
   config: unknown; workspaceRoot: string; allowProjectCommands?: boolean; signal?: AbortSignal;
   phase?: 'baseline' | 'candidate'; baseline?: unknown;
@@ -188,7 +345,7 @@ export async function withProjectBuildServers<T>(input: {
   value: T; builds: { source: ServedBuildIdentity; target: ServedBuildIdentity }; checks: ProjectCheckReport;
 }> {
   if (input.allowProjectCommands !== true) throw new ProjectBuildError('EXECUTION_NOT_AUTHORIZED');
-  const config = parseMigrationConfig(input.config);
+  const { config, serve } = parseServerConfig(input.config);
   const controller = new AbortController();
   let timedOut = false;
   const abort = (): void => controller.abort();
@@ -196,37 +353,64 @@ export async function withProjectBuildServers<T>(input: {
   if (input.signal?.aborted) abort();
   const timeout = setTimeout(() => { timedOut = true; abort(); }, config.limits.maxDurationMs);
   const checkAbort = (): void => { if (controller.signal.aborted) throw new ProjectBuildError(timedOut ? 'SESSION_TIMEOUT' : 'ABORTED'); };
-  const servers: BuildServer[] = [];
+  const servers = new Map<Side, BuildServer>();
+  const managed: ManagedServe[] = [];
   try {
     checkAbort();
-    const preflight = await preflightProjectChecks(input);
+    const preflight = await preflightProjectChecks({ ...input, config });
     if (preflight.status !== 'PASS') throw new ProjectBuildError('BUILD_INPUT_CHANGED');
     const baseline = input.baseline === undefined ? undefined : parseProjectCheckReport(input.baseline);
     if (baseline && (input.phase === 'baseline' || baseline.phase !== 'baseline' || baseline.configurationHash !== preflight.configurationHash
       || baseline.workspaceHash !== preflight.workspaceHash || baseline.preflight.status !== 'PASS'
       || baseline.inputHashAfter !== baseline.preflight.inputHash || baseline.findings.length)) throw new ProjectBuildError('BASELINE_MISMATCH');
     const workspace = await realpath(resolve(input.workspaceRoot));
-    const paths = { source: await buildDirectory(workspace, config, 'source'), target: await buildDirectory(workspace, config, 'target') };
+    const paths: Record<Side, string | undefined> = { source: undefined, target: undefined };
+    for (const side of ['source', 'target'] as const) if (!serve[side] || config[side].build) paths[side] = await buildDirectory(workspace, config, side);
     const urls = { source: servingUrl(config.source.baseUrl, 'source'), target: servingUrl(config.target.baseUrl, 'target') };
-    for (const side of ['source', 'target'] as const) { checkAbort(); servers.push(await reserveServer(urls[side], side)); }
-    // Both ports are now owned. Never reuse an unrelated server or its preexisting output.
-    for (const side of ['source', 'target'] as const) { checkAbort(); await buildDirectory(workspace, config, side); await rm(paths[side], { recursive: true, force: true }); }
+    const plans: Record<Side, ServePlan | undefined> = { source: undefined, target: undefined };
+    for (const side of ['source', 'target'] as const) {
+      const declaration = serve[side];
+      if (declaration) plans[side] = await servePlan(workspace, config, side, declaration);
+    }
+    for (const side of ['source', 'target'] as const) { checkAbort(); if (!serve[side]) servers.set(side, await reserveServer(urls[side], side)); }
+    // Static ports are now owned; managed sides bind their own port only when their declared serve command starts.
+    for (const side of ['source', 'target'] as const) {
+      checkAbort();
+      const path = paths[side];
+      if (path) { await buildDirectory(workspace, config, side); await rm(path, { recursive: true, force: true }); }
+    }
     const checks = await runProjectChecks({ config, workspaceRoot: workspace, phase: input.phase ?? 'candidate',
       ...(baseline ? { baseline } : {}), allowProjectCommands: true, signal: controller.signal });
     checkAbort();
     if (checks.preflight.inputHash !== preflight.inputHash || checks.inputHashAfter !== preflight.inputHash) throw new ProjectBuildError('BUILD_INPUT_CHANGED', undefined, checks);
-    if (checks.findings.length || (['source', 'target'] as const).some(side =>
-      checks.checks.some(check => check.side === side && check.commandId === config[side].build!.commandId && check.status !== 'PASS'))) {
+    if (checks.findings.length || (['source', 'target'] as const).some(side => config[side].build
+      && checks.checks.some(check => check.side === side && check.commandId === config[side].build!.commandId && check.status !== 'PASS'))) {
       throw new ProjectBuildError('BUILD_CHECK_FAILED', undefined, checks);
     }
     const builds = {} as { source: ServedBuildIdentity; target: ServedBuildIdentity };
-    for (const [index, side] of (['source', 'target'] as const).entries()) {
+    for (const side of ['source', 'target'] as const) {
+      const declaration = serve[side];
+      if (declaration) {
+        checkAbort();
+        const plan = plans[side]!;
+        const server = startManagedServe({ side, plan, url: urls[side], readyTimeoutMs: declaration.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS });
+        // Registered before readiness so every failure path still tears the child down.
+        managed.push(server);
+        await server.ready(controller.signal, checkAbort);
+        // Managed bytes belong to the application: identity covers the declared launch, never a harness snapshot.
+        const served = canonical({ kind: 'MANAGED_SERVE', side, origin: urls[side].origin,
+          commandId: declaration.commandId, argv: plan.command.argv, cwd: plan.command.cwd });
+        builds[side] = ServedBuildIdentitySchema.parse({ kind: 'SERVED_BUILD', version: '1', side, runId: randomUUID(),
+          origin: urls[side].origin, configurationHash: checks.configurationHash, inputHash: preflight.inputHash,
+          buildHash: hash(served), fileCount: 1, totalBytes: Buffer.byteLength(served) });
+        continue;
+      }
       await buildDirectory(workspace, config, side);
-      const snapshot = await snapshotBuild(paths[side], side, checkAbort);
+      const snapshot = await snapshotBuild(paths[side]!, side, checkAbort);
       builds[side] = ServedBuildIdentitySchema.parse({ kind: 'SERVED_BUILD', version: '1', side, runId: randomUUID(),
         origin: urls[side].origin, configurationHash: checks.configurationHash, inputHash: preflight.inputHash,
         buildHash: snapshot.buildHash, fileCount: snapshot.files.size, totalBytes: snapshot.totalBytes });
-      servers[index]!.install(snapshot, builds[side]); await verifyHealth(builds[side]);
+      servers.get(side)!.install(snapshot, builds[side]); await verifyHealth(builds[side]);
     }
     checkAbort();
     let onAbort: () => void;
@@ -239,15 +423,21 @@ export async function withProjectBuildServers<T>(input: {
     finally { controller.signal.removeEventListener('abort', onAbort!); }
     checkAbort();
     for (const side of ['source', 'target'] as const) {
+      // Managed sides serve their own live bytes; snapshot health and disk-changed guards do not apply.
+      if (serve[side]) continue;
       await verifyHealth(builds[side]); await buildDirectory(workspace, config, side);
-      if ((await snapshotBuild(paths[side], side, checkAbort)).buildHash !== builds[side].buildHash) throw new ProjectBuildError('BUILD_DISK_CHANGED', side);
+      if ((await snapshotBuild(paths[side]!, side, checkAbort)).buildHash !== builds[side].buildHash) throw new ProjectBuildError('BUILD_DISK_CHANGED', side);
     }
-    const after = await preflightProjectChecks(input);
+    const after = await preflightProjectChecks({ ...input, config });
     if (after.status !== 'PASS' || after.inputHash !== preflight.inputHash) throw new ProjectBuildError('BUILD_INPUT_CHANGED');
     checkAbort();
     return { value, builds, checks };
   } finally {
     clearTimeout(timeout); input.signal?.removeEventListener('abort', abort);
-    await Promise.all(servers.map(server => server.close()));
+    // Every teardown runs to completion before the session settles, whatever any single close reports.
+    const results = await Promise.allSettled([...servers.values()].map(server => server.close())
+      .concat(managed.map(server => server.stop())));
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failed) throw failed.reason;
   }
 }

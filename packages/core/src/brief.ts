@@ -69,7 +69,7 @@ const types = z.array(z.enum(['string', 'number', 'boolean', 'null']));
 export const LlmSafeTraceSchema = z.object({ kind: z.literal('LLM_SAFE_TRACE'), events: z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('HTTP_REQUEST'), method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'OTHER']), payloadTypes: types }).strict(),
   z.object({ type: z.literal('HTTP_RESPONSE'), statusCode: z.number().int().min(100).max(599), bodyTypes: types }).strict(),
-  z.object({ type: z.literal('USER_INTERACTION'), action: z.enum(['click', 'fill', 'select', 'press', 'focus']) }).strict(),
+  z.object({ type: z.literal('USER_INTERACTION'), action: z.enum(['click', 'fill', 'select', 'press', 'focus', 'request']) }).strict(),
   z.object({ type: z.literal('STORAGE_DELTA'), storageType: z.enum(['localStorage', 'sessionStorage']), mutationType: z.enum(['SET', 'REMOVE', 'CLEAR']) }).strict(),
   z.object({ type: z.literal('WEBSOCKET_FRAME'), direction: z.enum(['sent', 'received']), frameTypes: types }).strict(),
   z.object({ type: z.literal('HTTP_FAILED') }).strict(), z.object({ type: z.literal('NAVIGATION') }).strict(), z.object({ type: z.literal('ARIA_STATE_CHANGE') }).strict(),

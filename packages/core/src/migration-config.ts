@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { canonical } from './normalization.js';
 import { HarnessPolicySchema, ScenarioDefinitionSchema } from './schemas.js';
-import { UnitAssertionBodySchema, UnitScopeSchema, type UnitAssertion, type UnitScope } from './unit-assertion.js';
+import { ResponseFieldClaimSchema, UnitAssertionBodySchema, UnitScopeSchema, type ResponseFieldRequirement, type UnitAssertion, type UnitScope } from './unit-assertion.js';
 
 export const MigrationIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
 export const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -36,6 +36,12 @@ const project = z.object({
   generatedPaths: z.array(MigrationPathSchema).max(30).optional(),
   /** Explicit consent to clean an exclusively generated output directory before managed builds. */
   build: z.object({ commandId: MigrationIdSchema, outputDir: MigrationPathSchema, cleanOutput: z.literal(true) }).strict().optional(),
+  /**
+   * Managed self-serving application (PHP built-in server, Java JAR, SSR runtime): the harness spawns this
+   * command with the side root as cwd, gates capture on readiness at baseUrl and tears down the whole
+   * process tree. Absent, the harness serves build.outputDir statically instead.
+   */
+  serve: z.object({ commandId: MigrationIdSchema, readyTimeoutMs: z.number().int().positive().max(3_600_000).optional() }).strict().optional(),
 }).strict();
 const binding = z.object({
   entryUrl: httpUrl,
@@ -58,6 +64,12 @@ const requirement = z.object({
   required: z.boolean(),
   /** Optional machine-checkable claim; without it the requirement needs caller-supplied evidence. */
   assertion: UnitAssertionBodySchema.optional(),
+  /**
+   * Optional API-surface claim over the scenario's recorded HTTP exchanges. It is deliberately not part of
+   * `assertion`: the differential assertion pass never evaluates it, quality-gates does, so an unevaluable
+   * response field stays INCONCLUSIVE instead of being judged by a pass it does not belong to.
+   */
+  responseClaim: ResponseFieldClaimSchema.optional(),
 }).strict();
 
 export const MigrationConfigSchema = z.object({
@@ -168,6 +180,12 @@ export function unitAssertionsForScenario(config: MigrationConfig, scenarioId: s
     ? [{ id: item.id, required: item.required, ...item.assertion }] : []);
 }
 
+/** Response-field requirements of one scenario; evaluated per side against its recorded HTTP exchanges. */
+export function responseFieldClaimsForScenario(config: MigrationConfig, scenarioId: string): ResponseFieldRequirement[] {
+  return config.requirements.flatMap(item => item.scenarioId === scenarioId && item.responseClaim
+    ? [{ id: item.id, required: item.required, claim: item.responseClaim }] : []);
+}
+
 type ConfiguredScenario = MigrationConfig['scenarios'][number];
 export type ScenarioSide = 'source' | 'target';
 
@@ -184,6 +202,8 @@ export function scenarioSemanticProjection(definition: ConfiguredScenario['defin
     steps: definition.steps.map(step => ({
       stepId: step.stepId, action: step.action, inputValue: step.inputValue ?? null,
       description: step.description ?? null, completionSignal: step.completionSignal ?? null,
+      // Request steps carry their own semantics: method, path and body are shared by both sides.
+      ...(step.action === 'request' ? { method: step.method ?? null, path: step.path ?? null, body: step.body ?? null } : {}),
     })),
   };
 }
