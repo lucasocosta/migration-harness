@@ -557,6 +557,28 @@ autorizacao explicita.
   (PLAN.md secao P2 e VALIDATION.md atualizados). Limites mantidos: callbacks
   por efeito observavel, sem novo schema, sem units[] no config.
 
+## P7 - Migracao PHP → Java (planejado)
+
+Contrato de escopo completo em [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md). Nenhuma
+implementacao iniciada; decisoes de superficie/stack em aberto antes de P7.2.
+
+- [ ] P7.1 Spike do par de apps PHP→Java: commands declarados, prepare/verify
+  medidos, relatorio de gaps. Bloqueado na decisao de superficie de observacao
+  (UI web vs API pura).
+- [ ] P7.2 Modo servidor gerenciado: fechar "custom server" do STATUS (processo
+  `serve` proprio, readiness, teardown sem residuo, portas fora do range
+  efemero). Maior lacuna do ciclo.
+- [ ] P7.3 Vocabulario HTTP de cenarios (condicional: apenas se API pura);
+  claims de metodo/status/shape integrados a comparacao de traces.
+- [ ] P7.4 Checks nativos phpunit/JUnit como checks de projeto.
+- [ ] P7.5 Gate de aceitacao P7: regressoes controladas + negativas no padrao
+  P4.3, evidencia registrada em VALIDATION.md.
+- [ ] P7.6 Piloto assistido (Session D Copilot/MCP) e CI com toolchains
+  PHP+JDK na matriz.
+
+Progresso segue o protocolo abaixo; as decisoes (1)-(4) do doc devem estar
+registradas como resolvidas antes de declarar P7 entregue.
+
 ## Auditoria de intencao e prontidao - 2026-09-12
 
 A [auditoria inicial](AUDIT-2026-09-12.md) descreve `5d01da6` mais o working tree
