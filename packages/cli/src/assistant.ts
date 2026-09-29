@@ -5,7 +5,7 @@ import { canonical, computeBriefId, parseApplyResult, parseBrief, parseContract,
 import { verifyContractIntegrity } from '@migration-harness/contract-review';
 import { projectTraceForLlm } from '@migration-harness/contract-synthesizer';
 import { ArtifactStore, AuditTrail, safeArtifactPath } from '@migration-harness/engine';
-import { changedBytes, fileHash, screenPatchContent, validatePatches } from '@migration-harness/llm-worker';
+import { changedBytes, collectTraceValues, fileHash, screenPatchContent, validatePatches, type TraceScreen } from '@migration-harness/llm-worker';
 import { classifyFailure } from '@migration-harness/quality-gates/dist/evaluate.js';
 import { applyCandidateBatch, candidateFile, publicPath, readPublicJson, writePublicBatch, withAssistantLock } from './assistant-files.js';
 
@@ -137,6 +137,8 @@ export async function applyAssistantSubmission(flags: Flags, store: ArtifactStor
     const fail = (code: ApplyRefusalCode, message: string, path?: string) => refusals.push({ code, message, ...(path ? { path: publicPatchPath(path) } : {}) });
     const trail = await audit(store);
     let brief: TransformBrief | undefined, issued: Issuance | undefined, submission: Submission | undefined;
+    const implementationTexts: string[] = [];
+    let trace: TraceScreen | undefined = undefined;
     let briefId = 'brief-unreadable';
     try {
       const parsed = parseBrief(await readPublicJson(briefPath, store)); briefId = parsed.briefId;
@@ -152,10 +154,23 @@ export async function applyAssistantSubmission(flags: Flags, store: ArtifactStor
     if (brief && issued) {
       if (issued.candidateRoot !== candidateRoot) fail('PATCH_PATH_OUTSIDE_BOUNDARY', 'Candidate root differs from the issued boundary.');
       if ([briefPath, submissionPath, ...issued.protectedFiles.map(file => file.path), ...brief.allowedFiles.map(file => resolve(candidateRoot, file.path))].includes(resolve(store.root, out))) throw new Error('Apply output overlaps protected or candidate files.');
+      const entries: Array<{ path: string; content: string }> = [];
       for (const file of issued.protectedFiles) {
-        try { await publicPath(file.path, store); if (fileHash(await readFile(file.path, 'utf8')) !== file.sha256) throw new Error('Changed'); }
+        try { await publicPath(file.path, store); const content = await readFile(file.path, 'utf8'); if (fileHash(content) !== file.sha256) throw new Error('Changed'); entries.push({ path: resolve(file.path), content }); }
         catch { fail('BASELINE_HASH_MISMATCH', 'A protected input changed after brief issuance.'); break; }
       }
+      // Leak screening compares against the sanitized source trace harness-side; its value set never enters the assistant-facing brief.
+      let sourceTrace: { path: string; value: unknown } | undefined;
+      for (const entry of entries) {
+        try { const value = parseSanitizedTrace(JSON.parse(entry.content)); if (!sourceTrace) sourceTrace = { path: entry.path, value }; }
+        catch { /* only the sanitized source trace parses as one */ }
+      }
+      trace = collectTraceValues(sourceTrace?.value);
+      // Exemptions come only from authorized implementation/context files plus candidate baselines. Evaluation inputs
+      // (contract, scenarios, policy) and the trace itself never confer permission, whatever else lists them.
+      const contextPaths = new Set(brief.contextFiles.map(path => resolve(path)));
+      const evaluationPaths = new Set([resolve(issued.contractPath), ...issued.scenarioPaths.map(path => resolve(path)), ...(issued.policyPath ? [resolve(issued.policyPath)] : [])]);
+      for (const entry of entries) if (entry.path !== sourceTrace?.path && contextPaths.has(entry.path) && !evaluationPaths.has(entry.path)) implementationTexts.push(entry.content);
       try { submission = parseSubmission(await readPublicJson(submissionPath, store, issued.maxSubmissionBytes)); }
       catch { fail('SCHEMA_INVALID', 'Submission failed schema validation or exceeded its size cap.'); }
     }
@@ -177,7 +192,8 @@ export async function applyAssistantSubmission(flags: Flags, store: ArtifactStor
         catch (error) { const code = workerCode((error as Error).message); fail(code, `Candidate rejected by ${code}.`, patch.path); }
       }
       if (brief.repair && submission.patches.reduce((sum, patch) => sum + changedBytes(files[patch.path] ?? '', patch.content), 0) > brief.repair.editBudgetBytes) fail('EDIT_BUDGET_EXCEEDED', 'The entire repair exceeds its edit budget.');
-      for (const item of [...screenPatchContent(submission.patches), ...screen(submission.manifest)]) fail(item.code, item.message, item.path);
+      const screenOptions = { trace, baselineTexts: [...implementationTexts, ...Object.values(files)] };
+      for (const item of [...screenPatchContent(submission.patches, screenOptions), ...screen(submission.manifest)]) fail(item.code, item.message, item.path);
       if (!refusals.length && (issued.typecheck || issued.lint)) {
         const overlay = { ...files, ...Object.fromEntries(submission.patches.map(patch => [patch.path, patch.content])) };
         if (issued.typecheck) { const { checkTypeScript } = await import('@migration-harness/quality-gates/dist/typescript/index.js'); if (!checkTypeScript(overlay, candidateRoot).passed) fail('SCHEMA_INVALID', 'Candidate failed the configured TypeScript gate.'); }

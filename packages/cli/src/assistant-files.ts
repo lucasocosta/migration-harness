@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, realpath, rename, unlink, type FileHandle } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ArtifactStore, safeArtifactPath, privateBaseDir, pathSegments, isWithin } from '@migration-harness/engine';
@@ -7,27 +7,91 @@ import { assertCandidatePath, fileHash, type CandidatePatch } from '@migration-h
 
 const inside = (root: string, path: string): boolean => isWithin(root, path) || resolve(root) === resolve(path);
 
-/** Check both lexical and resolved paths before reading any assistant-facing input. */
-export async function publicPath(path: string, store: ArtifactStore): Promise<string> {
-  const check = (value: string): void => {
-    if (pathSegments(value).includes('.migration-private') || [store.privateRoot, store.keysRoot, ...(store.options.backup ? [resolve(store.options.backup.root)] : []), privateBaseDir()].some(root => inside(root, value))) throw new Error('Assistant-facing paths cannot resolve inside the private artifact domain.');
-  };
+/**
+ * Canonical spelling of a path: symlinks resolved on the nearest existing ancestor with any missing
+ * suffix reattached, so a destination that does not exist yet is still validated where it would land.
+ */
+async function canonicalPath(path: string): Promise<string> {
   const target = resolve(path);
-  check(target);
   let ancestor = target;
   while (true) {
-    try { check(resolve(await realpath(ancestor), relative(ancestor, target))); break; }
+    try { return resolve(await realpath(ancestor), relative(ancestor, target)); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || dirname(ancestor) === ancestor) throw error;
       ancestor = dirname(ancestor);
     }
   }
-  return target;
+}
+
+/**
+ * Every private root for assistant-facing access, in lexical and canonical spellings: the store's
+ * private, keys and backup roots plus the private state root resolved by `privateBaseDir()`
+ * (env override or default user state directory). Comparing both spellings of a root is what lets an
+ * override or root that is itself reached through a symlink still match a resolved candidate;
+ * segment matching and containment split both path separators, so Windows spellings are covered too.
+ */
+async function privateRoots(store: ArtifactStore): Promise<string[]> {
+  const roots = new Set<string>();
+  for (const root of [store.privateRoot, store.keysRoot, ...(store.options.backup ? [resolve(store.options.backup.root)] : []), privateBaseDir()]) {
+    roots.add(resolve(root));
+    try { roots.add(await canonicalPath(root)); } catch { /* keep the lexical spelling */ }
+  }
+  return [...roots];
+}
+
+/** Refuse one spelling that carries a private segment or sits inside a private root. */
+function assertPublicSpelling(value: string, roots: readonly string[]): void {
+  if (pathSegments(value).includes('.migration-private') || roots.some(root => inside(root, value))) throw new Error('Assistant-facing paths cannot resolve inside the private artifact domain.');
+}
+
+/** Validate the lexical and the canonical spelling of a path against every private root. */
+async function resolvePublicPath(path: string, store: ArtifactStore): Promise<{ target: string; canonical: string }> {
+  const target = resolve(path);
+  const roots = await privateRoots(store);
+  assertPublicSpelling(target, roots);
+  const canonical = await canonicalPath(target);
+  assertPublicSpelling(canonical, roots);
+  return { target, canonical };
+}
+
+/** Check both lexical and resolved paths before reading any assistant-facing input. */
+export async function publicPath(path: string, store: ArtifactStore): Promise<string> {
+  return (await resolvePublicPath(path, store)).target;
+}
+
+/** Identity of a validated public file: the canonical spelling plus the dev/ino it names right now. */
+export interface PublicFile { target: string; canonical: string; dev: number; ino: number; }
+
+/**
+ * Validate an assistant-facing file and capture the object identity that the later open must see,
+ * so the read is bound to this validated object instead of the unchecked lexical spelling.
+ */
+export async function publicFile(path: string, store: ArtifactStore): Promise<PublicFile> {
+  const { target, canonical } = await resolvePublicPath(path, store);
+  const stat = await lstat(canonical);
+  return { target, canonical, dev: stat.dev, ino: stat.ino };
+}
+
+/**
+ * Open a validated public file: the canonical spelling must still be the validated one and the
+ * descriptor must name the captured dev/ino, so an ancestor swapped for a symlink or a replaced
+ * leaf between validation and open is refused before any byte is read. O_NOFOLLOW covers only the
+ * final component. Residual limitation: Node has no openat(2), so a swap swapped back inside this
+ * window, or a hard link to the very same inode, cannot be detected in-process — the binding
+ * narrows the race rather than closing it.
+ */
+export async function openPublicFile(file: PublicFile): Promise<FileHandle> {
+  const handle = await open(file.target, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    const canonical = await canonicalPath(file.target);
+    if (canonical !== file.canonical || stat.dev !== file.dev || stat.ino !== file.ino) throw new Error('Assistant-facing path changed during access.');
+    return handle;
+  } catch (error) { await handle.close(); throw error; }
 }
 
 export async function readPublicJson(path: string, store: ArtifactStore, maxBytes = 4_000_000): Promise<unknown> {
-  const target = await publicPath(path, store);
-  const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const handle = await openPublicFile(await publicFile(path, store));
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > maxBytes) throw new Error('Input exceeds the size cap or is not a regular file.');
