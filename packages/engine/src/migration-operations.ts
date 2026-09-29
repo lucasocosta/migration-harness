@@ -32,7 +32,11 @@ async function reserve(input: OperationInput): Promise<{ config: MigrationConfig
   const overlap = (other: string): boolean => other === output || isWithin(output, other) || isWithin(other, output);
   if ([config.source.root, config.target.root, ...config.scenarios.map(item => item.fixtureRoot),
     ...(config.criticalContract ? [config.criticalContract.path] : [])].some(item => overlap(resolve(workspace, item)))) throw new Error('UNSAFE_OPERATION_OUTPUT');
-  await safeArtifactPath(workspace, path); await mkdir(dirname(output), { recursive: true }); await mkdir(output);
+  await safeArtifactPath(workspace, path); await mkdir(dirname(output), { recursive: true });
+  try { await mkdir(output); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    throw new Error('ARTIFACT_NOT_FRESH');
+  }
   const store = new ArtifactStore(output, undefined, input.allowInsecurePrivateStore || process.env.MIGRATION_HARNESS_ALLOW_INSECURE_PRIVATE_STORE === '1'
     ? { allowInsecurePrivateStore: true } : {});
   await store.write('started.json', { kind: 'MIGRATION_OPERATION_STARTED', configurationHash: migrationConfigHash(config), completed: false });
@@ -56,8 +60,16 @@ async function readEvidence(root: string, path: string): Promise<unknown> {
 
 async function referenceKey(store: ArtifactStore, create?: string): Promise<string> {
   const path = await store.privatePath('pseudonymization.key');
-  const file = await open(path, create === undefined ? constants.O_RDONLY | constants.O_NOFOLLOW
-    : constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  let file;
+  try {
+    file = await open(path, create === undefined ? constants.O_RDONLY | constants.O_NOFOLLOW
+      : constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  } catch (error) {
+    // A previous operation over the same artifact identity already owns the key: reuse it (stable
+    // pseudonyms across re-prepares) instead of failing, preserving the read-side validation below.
+    if (create === undefined || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    return referenceKey(store);
+  }
   try {
     const stat = await file.stat();
     const weakMode = Boolean(stat.mode & 0o077);
