@@ -56,6 +56,8 @@ A pilot passing does not certify a user migration. See the
 - [Architecture](docs/ARCHITECTURE.md), [assistant integration](docs/ASSISTANT-INTEGRATION.md)
   and [agent protocol](AGENTS.md).
 - [Research](docs/research.md): retained foundations and limits.
+- [Competitive research](docs/COMPETITIVE.md): landscape, borrowable patterns and fit analysis.
+- [MCP + Copilot evidence](docs/MCP-COPILOT-EVIDENCE.md): agent-outside spike over the standard session tools.
 - [Validation](docs/VALIDATION.md) and [review decisions](docs/REVIEWS.md): historical evidence.
 
 ## Development
@@ -87,5 +89,5 @@ is pinned for the framework fixtures and compiler helpers. `pnpm test` and
 both executable examples, the smokes, restricted pilots, dependency advisories
 and links against the files actually tracked by Git.
 
-The packages are private and `UNLICENSED`; no open-source reuse license has been
-selected. Local assistant settings in `.codex/` and `.serena/` are ignored.
+The repository is MIT-licensed; see [LICENSE](LICENSE). The packages are not
+published to npm. Local assistant settings in `.codex/` and `.serena/` are ignored.

@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import { randomBytes } from 'node:crypto';
 import { parseContract, parseRawTrace, parseSanitizedTrace, parseScenario, parseManifest, HarnessPolicySchema, HttpEvidenceBundleSchema, type Invariant, type HttpEndpointInvariant } from '@migration-harness/core';
 import { approveContract, reviewContract, verifyContractIntegrity } from '@migration-harness/contract-review';
-import { sanitizeTrace, synthesizeContract, importOpenApi, importExistingTestEvidence, type SanitizationPolicy } from '@migration-harness/contract-synthesizer';
+import { sanitizeTrace, synthesizeContract, importOpenApi, importExistingTestEvidence, importHar, type SanitizationPolicy } from '@migration-harness/contract-synthesizer';
 import { EquivalenceValidator, parseValidationPolicy } from '@migration-harness/equivalence-validator';
 import { anchorAudit, ArtifactStore, AuditTrail, runRepairLoop, safeArtifactPath, withFileLock, type ArtifactStoreOptions, type AuditEntry } from '@migration-harness/engine';
 import { fileHash } from '@migration-harness/llm-worker';
@@ -23,9 +23,9 @@ async function main(): Promise<void> {
     console.log('check-projects --config <migration.json> --workspace-root <dir> --artifact-root <dir> --out <relative.json>\n  --preflight-only: inspect declared inputs/cwd without executing\n  --allow-project-commands: authorize declared native project checks\n  --phase baseline|candidate: default baseline; --baseline <report.json> compares candidate check outcomes\nExit codes: 0 checks passed; 4 native check failed; 5 inconclusive; 1 invalid input/output. Not behavioral equivalence.');
     return;
   }
-  const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'context-files', 'attempt', 'next-out', 'ref-map', 'keys-root', 'backup-root', 'backup-generations', 'store-root', 'audit', 'path', 'prune-key-versions'];
+  const stringOptions = ['input', 'out', 'source', 'target', 'contract', 'approved-by', 'scenario', 'base-url', 'artifact-root', 'unit-id', 'runs', 'key-file', 'manifest', 'source-root', 'entrypoint', 'source-url', 'target-url', 'max-repairs', 'target-file', 'retention-hours', 'policy', 'candidate-root', 'evidence', 'unit', 'plan', 'brief', 'equivalence', 'source-trace', 'candidate-files', 'context-files', 'attempt', 'next-out', 'ref-map', 'keys-root', 'backup-root', 'backup-generations', 'store-root', 'audit', 'path', 'prune-key-versions', 'source-reference'];
   stringOptions.push('config', 'workspace-root', 'phase', 'baseline', 'artifact-path', 'preparation', 'previous', 'owner-decision');
-  const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const }, encrypt: { type: 'boolean' as const }, 'allow-project-commands': { type: 'boolean' as const }, 'preflight-only': { type: 'boolean' as const }, 'allow-insecure-private-store': { type: 'boolean' as const } }, strict: true, allowPositionals: false });
+  const { values } = parseArgs({ args, options: { ...Object.fromEntries(stringOptions.map(name => [name, { type: 'string' as const }])), repair: { type: 'boolean' as const }, encrypt: { type: 'boolean' as const }, json: { type: 'boolean' as const }, 'allow-project-commands': { type: 'boolean' as const }, 'preflight-only': { type: 'boolean' as const }, 'allow-insecure-private-store': { type: 'boolean' as const } }, strict: true, allowPositionals: false });
   if (command === 'check-projects') { await projectChecksCommand(values); return; }
   if (command === 'prepare-migration' || command === 'verify-migration' || command === 'start-migration-session' || command === 'migration-session-status' || command === 'update-migration-session') { await migrationCommand(command, values); return; }
   const flag = (name: string): string | undefined => (values as Record<string, unknown>)[name] as string | undefined;
@@ -44,6 +44,13 @@ async function main(): Promise<void> {
     ...(flag('backup-root') ? { backup: { root: required('backup-root'), ...(flag('backup-generations') ? { keepGenerations: number('backup-generations', 5, 1, 100) } : {}) } } : {}),
   };
   const store = new ArtifactStore(artifactRoot, undefined, storeOptions);
+  // import-har validates every filesystem argument (--out, --input, --policy) against the canonical
+  // private roots before any I/O touches it; a refusal never reads an argument or creates a destination.
+  if (command === 'import-har') {
+    await publicPath(required('out'), store);
+    await publicPath(required('input'), store);
+    if (flag('policy')) await publicPath(required('policy'), store);
+  }
   const loadAuditChain = async (path: string): Promise<AuditTrail> => {
     let parsed: unknown;
     try { parsed = await readPublicJson(path, store); }
@@ -51,7 +58,8 @@ async function main(): Promise<void> {
     if (!Array.isArray(parsed)) throw new Error('Audit chain must be an array of hash-chained entries.');
     return AuditTrail.load(parsed as AuditEntry[]);
   };
-  const policyConfig = HarnessPolicySchema.parse(flag('policy') ? (command === 'brief' || command === 'apply-patch' ? await readPublicJson(required('policy'), store) : await json(required('policy'))) : {});
+  // --policy is assistant-facing input for every command, so it is always read through the public-only reader.
+  const policyConfig = HarnessPolicySchema.parse(flag('policy') ? await readPublicJson(required('policy'), store) : {});
   const sanitizationPolicy = policyConfig.sanitization as Omit<SanitizationPolicy, 'pseudonymizationKey'> | undefined;
   const validationPolicy = parseValidationPolicy(policyConfig);
   const key = async (): Promise<string> => {
@@ -108,6 +116,11 @@ async function main(): Promise<void> {
     // --ref-map is an operator-provided JSON object of external-ref-prefix -> local path; the importer validates it
     // strictly (OpenApiRefMapSchema), refuses private roots and never fetches; unmapped external refs stay review findings.
     case 'import-openapi': await writeJson(required('out'), importOpenApi(await readPublicJson(required('input'), store), required('input'), { privateRoots: [store.privateRoot, store.keysRoot, ...(store.options.backup ? [store.options.backup.root] : [])], ...(flag('ref-map') ? { refMap: await readPublicJson(required('ref-map'), store) as Record<string, string> } : {}) })); break;
+    // --source-reference is the operator-declared provenance for the capture; the importer never
+    // fetches, refuses private-root references and keeps cookies/Authorization out of the evidence.
+    // The destination goes through the store-checked writer so the parent directory is validated
+    // canonically right before the exclusive create.
+    case 'import-har': await writeJson(required('out'), importHar(await readPublicJson(required('input'), store), required('source-reference'), { privateRoots: [store.privateRoot, store.keysRoot, ...(store.options.backup ? [store.options.backup.root] : [])] }), store); break;
     case 'import-test-evidence': await writeJson(required('out'), importExistingTestEvidence(await json(required('input')), required('input'))); break;
     case 'transform': {
       const { transformAngularComponent } = await import('@migration-harness/codemods');
@@ -194,16 +207,22 @@ async function main(): Promise<void> {
     }
     default:
       console.log('Standard validation: prepare-migration, verify-migration, start-migration-session, update-migration-session, migration-session-status (use --help).');
-      console.log('Migration Harness\nCommands: check-projects, discover, plan, trace, sanitize-trace, import-openapi, import-test-evidence, synthesize, review-contract, approve-contract, verify-contract, transform, compare, run, brief, apply-patch, purge-raw, rotate-raw-key, anchor-audit\nSee docs/USAGE.md and AGENTS.md for command arguments and the assistant protocol.');
+      console.log('Migration Harness\nCommands: check-projects, discover, plan, trace, sanitize-trace, import-openapi, import-har, import-test-evidence, synthesize, review-contract, approve-contract, verify-contract, transform, compare, run, brief, apply-patch, purge-raw, rotate-raw-key, anchor-audit\nSee docs/USAGE.md and AGENTS.md for command arguments and the assistant protocol.');
       if (command && command !== 'help') process.exitCode = 1;
   }
 }
-async function writeText(path: string, value: string): Promise<void> {
-  await mkdir(dirname(resolve(path)), { recursive: true });
+/** Exclusive create; with a store the destination and its parent are validated canonically before any I/O. */
+async function writeText(path: string, value: string, store?: ArtifactStore): Promise<void> {
+  const target = resolve(path);
+  if (store) await publicPath(target, store);
+  await mkdir(dirname(target), { recursive: true });
+  // Re-validate the parent immediately before the create: O_EXCL refuses an existing leaf, and this
+  // check is the only parent binding Node offers (no openat) against a directory swapped after mkdir.
+  if (store) await publicPath(dirname(target), store);
   const handle = await open(path, 'wx');
   try { await handle.writeFile(value); } finally { await handle.close(); }
 }
-async function writeJson(path: string, value: unknown): Promise<void> { await writeText(path, `${JSON.stringify(value, null, 2)}\n`); }
+async function writeJson(path: string, value: unknown, store?: ArtifactStore): Promise<void> { await writeText(path, `${JSON.stringify(value, null, 2)}\n`, store); }
 /** Operator-chain files (audit.json) are extended in place: exclusive temp write, then an atomic rename. */
 async function replaceJson(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.${randomBytes(6).toString('hex')}.tmp`;

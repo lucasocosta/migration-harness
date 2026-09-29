@@ -6,7 +6,8 @@ export type EquivalenceDimension =
   | 'STATE'
   | 'ARIA'
   | 'CONTRACT'
-  | 'SECURITY';
+  | 'SECURITY'
+  | 'VISUAL';
 
 export type DivergenceSeverity = 'BLOCKING' | 'WARNING' | 'INFORMATIONAL';
 

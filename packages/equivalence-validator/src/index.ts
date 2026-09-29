@@ -14,11 +14,13 @@ import { compareWebSockets, type WebSocketComparisonPolicy } from './websocket.j
 import { compareObservables, compareCausality, type ObservablePolicy } from './dimensions.js';
 import { evaluateUnitAssertions, discloseMockedCoverage, type DeclaredMock } from './assertions.js';
 import { verifyCriticalContract } from './contract.js';
+import { compareVisualCheckpoints } from './visual-diff.js';
 
 export interface EquivalenceValidationPolicy {
   network?: NetworkComparisonPolicy;
   observables?: ObservablePolicy;
   websockets?: WebSocketComparisonPolicy;
+  visual?: { enabled?: boolean; severity?: 'WARNING' | 'BLOCKING'; pixelThreshold?: number; masks?: string[] };
 }
 
 export interface EquivalenceValidationInput {
@@ -56,6 +58,13 @@ export class EquivalenceValidator {
     // WebSocket frame streams are compared independently of the causal-graph guard (frames are not causal labels).
     divergences.push(...compareWebSockets(input.source, input.target, input.policy?.websockets));
     const evaluatedDimensions: EquivalenceDimension[] = ['NETWORK', 'NAVIGATION', 'STATE', 'ARIA', 'CONTRACT'];
+    if (input.policy?.visual?.enabled) {
+      divergences.push(...compareVisualCheckpoints(input.source, input.target, {
+        ...(input.policy.visual.severity ? { severity: input.policy.visual.severity } : {}),
+        ...(input.policy.visual.pixelThreshold !== undefined ? { pixelThreshold: input.policy.visual.pixelThreshold } : {}),
+      }));
+      evaluatedDimensions.push('VISUAL');
+    }
     if (input.contract) divergences.push(...verifyCriticalContract(input.contract, input.target));
     if (input.assertions?.length) divergences.push(...evaluateUnitAssertions({ source: input.source, target: input.target, assertions: input.assertions, ...(input.unitScopes ? { unitScopes: input.unitScopes } : {}), ...(input.mocks ? { mocks: input.mocks } : {}) }).divergences);
     divergences.push(...discloseMockedCoverage(input.target, input.mocks));
@@ -102,6 +111,7 @@ export function parseValidationPolicy(value: unknown): EquivalenceValidationPoli
     network: { ...network, pathTemplateRules: (pathTemplates ?? []).map(template => ({ template, pattern: new RegExp('^' + template.split('/').map(part => part.startsWith(':') ? '[^/]+' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('/') + '$') })) },
     ...(parsed.observables ? { observables: parsed.observables } : {}),
     ...(parsed.websockets ? { websockets: parsed.websockets } : {}),
+    ...(parsed.visual ? { visual: parsed.visual } : {}),
   } as EquivalenceValidationPolicy;
 }
 
@@ -113,3 +123,13 @@ export function migrationComparisonPolicy(value: unknown): EquivalenceValidation
   const policy = parseValidationPolicy(value);
   return { ...policy, network: { comparePayloadValues: true, compareResponseValues: true, ...policy.network } };
 }
+
+export { proposeNoiseSuggestions, type NoiseProposal, type NoiseSuggestionInput } from './noise-suggestions.js';
+export {
+  proposeBindingAdaptations, proposeScenarioInventory, proposeFromOutcomes, isBindingAnchor,
+  type BindingSuggestionInput, type ScenarioInventoryInput,
+} from './binding-suggestions.js';
+export {
+  compareVisualCheckpoints, visualCheckpoints, hashImage,
+  type VisualCheckpoint, type VisualCompareOptions,
+} from './visual-diff.js';

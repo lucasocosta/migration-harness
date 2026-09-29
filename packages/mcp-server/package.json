@@ -1,0 +1,19 @@
+{
+  "name": "@migration-harness/mcp-server",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "bin": {
+    "harness-mcp": "dist/server.js"
+  },
+  "dependencies": {
+    "@migration-harness/core": "workspace:*",
+    "@migration-harness/engine": "workspace:*"
+  }
+}

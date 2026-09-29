@@ -6,7 +6,8 @@ export type TraceEventType =
   | 'ARIA_STATE_CHANGE'
   | 'STORAGE_DELTA'
   | 'NAVIGATION'
-  | 'WEBSOCKET_FRAME';
+  | 'WEBSOCKET_FRAME'
+  | 'VISUAL_CHECKPOINT';
 
 export interface BaseTraceEvent {
   eventId: string;
@@ -90,6 +91,16 @@ export interface WebSocketFrameEvent extends BaseTraceEvent {
   payload: unknown;
 }
 
+export interface VisualCheckpointEvent extends BaseTraceEvent {
+  type: 'VISUAL_CHECKPOINT';
+  /** Capture trigger shared with the ARIA checkpoint vocabulary (mount, step interaction or scenario end). */
+  triggerEventId: string;
+  /** SHA-256 of the PNG screenshot bytes. Image bytes live only in private storage, never in the trace. */
+  imageSha256: string;
+  width: number;
+  height: number;
+}
+
 export type TraceEvent =
   | UserInteractionEvent
   | HttpRequestEvent
@@ -98,7 +109,8 @@ export type TraceEvent =
   | AriaStateEvent
   | StorageDeltaEvent
   | NavigationEvent
-  | WebSocketFrameEvent;
+  | WebSocketFrameEvent
+  | VisualCheckpointEvent;
 
 export interface TraceEnvironment {
   browser: string;

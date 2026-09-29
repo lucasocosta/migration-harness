@@ -4,9 +4,9 @@ import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/p
 import { dirname, resolve } from 'node:path';
 import {
   canonical, migrationConfigHash, migrationReferenceHash, parseMigrationConfig, parseMigrationPreparation, parseMigrationReport,
-  parseSessionGenerations, MigrationSessionSchema, SessionAttemptStartSchema, SessionAttemptFinishSchema,
-  type MigrationConfig, type MigrationPreparation, type MigrationScopeSnapshot, type MigrationSession, type SessionAttemptStart,
-  type SessionAttemptFinish, type SessionGeneration, type MigrationReport,
+  parseSessionGenerations, MigrationSessionSchema, SessionAttemptStartSchema, SessionAttemptFinishSchema, isSuggestionOnlyDiagnostic,
+  type MigrationConfig, type MigrationPreparation, type MigrationScopeSnapshot, type MigrationSession, type ScopeEntry, type ScopeFinding,
+  type SessionAttemptStart, type SessionAttemptFinish, type SessionGeneration, type MigrationReport,
 } from '@migration-harness/core';
 import { ArtifactStore, safeArtifactPath } from './artifacts.js';
 import { withFileLock } from './sealing.js';
@@ -142,15 +142,19 @@ async function load(input: Input, options: { allowConfigDrift?: boolean } = {}) 
   return { ...context, session, generations, current, entries: await history(context.store, session, generations) };
 }
 
-function disposition(report: MigrationReport): SessionDecision {
+export function disposition(report: MigrationReport): SessionDecision {
   if (report.status === 'PASS') return 'COMPLETE';
-  if (report.referenceStatus !== 'VERIFIED' || report.diagnostics.some(item => ['REFERENCE_MISMATCH', 'CONFIGURATION_MISMATCH'].includes(item.code)
+  // Suggestion/advisory diagnostics are non-authoritative and must never force FIX_ENVIRONMENT.
+  const actionable = report.diagnostics.filter(item => !isSuggestionOnlyDiagnostic(item));
+  if (report.referenceStatus !== 'VERIFIED' || actionable.some(item => ['REFERENCE_MISMATCH', 'CONFIGURATION_MISMATCH'].includes(item.code)
     || ['REFERENCE_EVIDENCE_UNAVAILABLE', 'SOURCE_REFERENCE_CHANGED', 'SOURCE_UNSTABLE', 'BASELINE_MISMATCH'].includes(item.detailCode ?? ''))) return 'REVIEW_REFERENCE';
-  if (report.status === 'FAIL' || report.diagnostics.some(item => item.side === 'target'
+  if (report.status === 'FAIL' || actionable.some(item => item.side === 'target'
     && (item.detailCode === 'STEP_FAILED' || item.code === 'NATIVE_CHECK_FAILED'))) return 'REPAIR_IMPLEMENTATION';
   // Missing source observations/builds can be a consequence of execution failure, not reference drift.
-  if (report.diagnostics.some(item => item.code === 'OPERATION_FAILED')) return 'FIX_ENVIRONMENT';
-  if (report.diagnostics.some(item => ['STALE_EVIDENCE', 'REFERENCE_UNVERIFIED'].includes(item.code))) return 'REVIEW_REFERENCE';
+  if (actionable.some(item => item.code === 'OPERATION_FAILED')) return 'FIX_ENVIRONMENT';
+  if (actionable.some(item => ['STALE_EVIDENCE', 'REFERENCE_UNVERIFIED'].includes(item.code))) return 'REVIEW_REFERENCE';
+  // Only suggestion-level noise left and no FAIL evidence: the owner reviews what to declare next.
+  if (!actionable.length && report.diagnostics.length) return 'REVIEW_REFERENCE';
   return 'FIX_ENVIRONMENT';
 }
 function allowance(session: MigrationSession, entries: HistoryItem[]) {
@@ -182,12 +186,114 @@ export async function inspectMigrationSession(input: Input) {
       outcome: item.finish?.outcome ?? 'INTERRUPTED', reportPath: item.finish?.reportPath })) };
 }
 
+export type ScopeRefusalCode = 'SESSION_REFERENCE_UPDATE_OUT_OF_SCOPE' | 'SESSION_SCOPE_EXPANSION_NOT_AUTHORIZED'
+  | 'SESSION_SCOPE_CHANGED_DURING_UPDATE';
+
+/** Structured refusal for the update scope guards: the classified scope findings travel with the error code. */
+export class SessionScopeRefusalError extends Error {
+  constructor(readonly code: ScopeRefusalCode, readonly findings: ScopeFinding[]) {
+    super(code);
+    this.name = 'SessionScopeRefusalError';
+  }
+}
+
+const scopeKey = (entry: ScopeEntry): string => entry.path ? `path:${entry.path}` : `opaque:${entry.opaqueId!}`;
+
+/** Same classification vocabulary session verification reports, for guard invariant failures. */
+const scopeDelta = (side: 'source' | 'target', entry: ScopeEntry, change: 'ADDED' | 'REMOVED'): ScopeFinding => ({
+  side, ...(entry.path ? { path: entry.path } : {}),
+  code: entry.kind === 'OPAQUE' ? 'PRIVATE_ENTRY_CHANGED' : side === 'source' ? 'SOURCE_CHANGED' : 'OUTSIDE_WRITE_SCOPE', change });
+
+/**
+ * Validate the scope POLICY delta independently of workspace bytes: writePaths and relevant files are absent
+ * from the reference criteria hashes, so reference classification can never observe a declaration that grows
+ * the authorized writable set. Relevance is not permission to write: without the explicit opt-in, every
+ * replacement writePaths entry must stay inside the CURRENT generation's writePaths (never its relevantFiles),
+ * and the relevant-file inventory may only reorganize inside the already-declared inventory — even on a
+ * byte-identical tree.
+ */
+function assertScopePolicy(current: CurrentGeneration, config: MigrationConfig, allowScopeExpansion: boolean): void {
+  if (allowScopeExpansion) return;
+  const writable = current.config.target.writePaths;
+  const inventory = [...writable, ...current.config.target.relevantFiles];
+  const extended = new Set<string>();
+  for (const declared of new Set(config.target.writePaths)) {
+    if (!writable.some(candidate => coversPosix(candidate, declared))) extended.add(declared);
+  }
+  // The relevant-file inventory is evaluated separately: a brand-new inventory entry is scope growth that
+  // needs the same explicit transition, and it can never authorize the promotion above on its own.
+  for (const declared of new Set(config.target.relevantFiles)) {
+    if (!inventory.some(candidate => coversPosix(candidate, declared))) extended.add(declared);
+  }
+  if (!extended.size) return;
+  const findings: ScopeFinding[] = [...extended]
+    .map(declared => ({ side: 'target' as const, path: declared, code: 'OUTSIDE_WRITE_SCOPE' as const, change: 'ADDED' as const }));
+  throw new SessionScopeRefusalError('SESSION_SCOPE_EXPANSION_NOT_AUTHORIZED', findings);
+}
+
+/**
+ * Fail closed when the workspace carries any delta the current generation's scope did not authorize, and when
+ * the replacement configuration itself grows the authorized writable set (checked independently of bytes).
+ * The explicit expansion opt-in is bounded by the replacement configuration: a delta is accepted only when
+ * that configuration's (schema- and standard-scope-validated) target.writePaths declare it writable; source,
+ * protected, opaque and link deltas keep failing closed even with the opt-in.
+ */
+function assertAuthorizedScope(current: CurrentGeneration, config: MigrationConfig, snapshot: MigrationScopeSnapshot,
+  allowScopeExpansion: boolean): void {
+  const findings = compareMigrationScope(current.config, current.scope, snapshot);
+  if (findings.length) {
+    if (!allowScopeExpansion) throw new SessionScopeRefusalError('SESSION_REFERENCE_UPDATE_OUT_OF_SCOPE', findings);
+    const stillRefused = new Set(compareMigrationScope(config, current.scope, snapshot).map(finding => canonical(finding)));
+    const unauthorized = findings.filter(finding => stillRefused.has(canonical(finding)));
+    if (unauthorized.length) throw new SessionScopeRefusalError('SESSION_SCOPE_EXPANSION_NOT_AUTHORIZED', unauthorized);
+  }
+  // No early return: a byte-identical workspace can still hide a scope-policy expansion of the declaration.
+  assertScopePolicy(current, config, allowScopeExpansion);
+}
+
+type ProjectScopeSnapshot = MigrationScopeSnapshot['source'];
+
+/**
+ * Never resnapshot wholesale: fresh bytes move only into the target areas this update may adopt (writable
+ * and declared-relevant paths under the current and the replacement configuration); every other entry keeps
+ * the previous generation's baseline, so out-of-scope or protected bytes cannot ride into the new scope hash.
+ */
+function adoptAuthorizedScope(current: CurrentGeneration, config: MigrationConfig, observed: MigrationScopeSnapshot): MigrationScopeSnapshot {
+  const adoptable = (side: 'source' | 'target', entry: ScopeEntry): boolean => side === 'target' && !!entry.path
+    && [...current.config.target.writePaths, ...config.target.writePaths,
+      ...current.config.target.relevantFiles, ...config.target.relevantFiles]
+      .some(candidate => coversPosix(candidate, entry.path!)
+        || ['DIRECTORY', 'LINK'].includes(entry.kind) && coversPosix(entry.path!, candidate));
+  const merge = (side: 'source' | 'target'): ProjectScopeSnapshot => {
+    const baseline = new Map(current.scope[side].entries.map(entry => [scopeKey(entry), entry]));
+    const fresh = new Set(observed[side].entries.map(scopeKey));
+    // The guards above make both branches unreachable; keep them fail-closed as defense in depth.
+    for (const entry of current.scope[side].entries) {
+      if (!fresh.has(scopeKey(entry)) && !adoptable(side, entry)) {
+        throw new SessionScopeRefusalError('SESSION_REFERENCE_UPDATE_OUT_OF_SCOPE', [scopeDelta(side, entry, 'REMOVED')]);
+      }
+    }
+    const entries = observed[side].entries.map(entry => {
+      if (adoptable(side, entry)) return entry;
+      const prior = baseline.get(scopeKey(entry));
+      if (!prior) throw new SessionScopeRefusalError('SESSION_REFERENCE_UPDATE_OUT_OF_SCOPE', [scopeDelta(side, entry, 'ADDED')]);
+      return prior;
+    });
+    return { root: observed[side].root, entries, hash: digest(entries) };
+  };
+  return { source: merge('source'), target: merge('target') };
+}
+
 /**
  * Controlled reference update for coverage extension or binding adaptation: appends a hash-linked generation
  * with a fresh preparation while session identity, attempt history and budgets stay frozen. Weakening still
  * requires an explicit owner decision (raised by the reference collector); session resets stay impossible.
+ * The workspace is classified against the current generation's scope before and after preparation, so an
+ * out-of-scope or protected delta is refused instead of being silently adopted as the new baseline; the
+ * replacement configuration may not grow the authorized writable set without allowScopeExpansion either.
  */
-export async function updateMigrationSessionReference(input: Input & { artifactPath: string; ownerDecisionReference?: string; allowProjectCommands?: boolean }) {
+export async function updateMigrationSessionReference(input: Input & { artifactPath: string; ownerDecisionReference?: string;
+  allowProjectCommands?: boolean; allowScopeExpansion?: boolean }) {
   if (input.allowProjectCommands !== true) throw new Error('EXECUTION_NOT_AUTHORIZED');
   const initial = await storeFor(input);
   return withFileLock(resolve(initial.store.root, '.session.lock'), async () => {
@@ -195,13 +301,25 @@ export async function updateMigrationSessionReference(input: Input & { artifactP
     if (entries.at(-1) && !entries.at(-1)!.finish) throw new Error('SESSION_ATTEMPT_OPEN');
     if (config.source.root !== session.config.source.root || config.target.root !== session.config.target.root) throw new Error('SESSION_PAIR_CHANGED');
     if (canonical(config.limits) !== canonical(session.config.limits)) throw new Error('SESSION_LIMITS_IMMUTABLE');
+    const expand = input.allowScopeExpansion === true;
+    // Classify against the authorized baseline before any reference work: a coverage or binding update may
+    // never adopt a delta the current generation's scope did not authorize.
+    const before = await snapshotMigrationScope({ config, workspaceRoot: workspace });
+    assertAuthorizedScope(current, config, before, expand);
     const prepared = await prepareMigration({ config, workspaceRoot: workspace, artifactPath: input.artifactPath, allowProjectCommands: true,
       previous: current.preparation, ...(input.ownerDecisionReference ? { ownerDecisionReference: input.ownerDecisionReference } : {}) });
     if (prepared.kind !== 'MIGRATION_PREPARATION' || prepared.status !== 'PASS'
       || (await verifyMigrationReference({ config, workspaceRoot: workspace, reference: prepared.reference })).status !== 'VERIFIED') {
       throw new Error('SESSION_REFERENCE_UPDATE_INCONCLUSIVE');
     }
-    const scope = await snapshotMigrationScope({ config, workspaceRoot: workspace });
+    // Re-check after preparation: the workspace must not change underneath the operation, and the scope that
+    // becomes the new baseline still has to classify against the current generation before adoption.
+    const observed = await snapshotMigrationScope({ config, workspaceRoot: workspace });
+    assertAuthorizedScope(current, config, observed, expand);
+    if (before.source.hash !== observed.source.hash || before.target.hash !== observed.target.hash) {
+      throw new SessionScopeRefusalError('SESSION_SCOPE_CHANGED_DURING_UPDATE', compareMigrationScope(current.config, before, observed));
+    }
+    const scope = adoptAuthorizedScope(current, config, observed);
     if (compareMigrationScope(config, scope, scope).length) throw new Error('UNSAFE_REFERENCE_UPDATE_SCOPE');
     const generation: SessionGeneration = { index: generations.length + 1, createdAt: new Date().toISOString(),
       configurationHash: migrationConfigHash(config), referenceHash: migrationReferenceHash(prepared.reference),

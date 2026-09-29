@@ -44,8 +44,9 @@ Chromium execution, tracked-file documentation link checks, ignored local agent
 settings, and a portable Cinema evidence summary.
 
 Angular packages used by fixtures and compiler helpers are pinned to 20.3.31.
-The dependency audit after installation reports zero advisories. Root packages
-remain private and `UNLICENSED`; no open-source reuse license has been chosen.
+The dependency audit after installation reports zero advisories. The repository
+is MIT-licensed as of 2026-09-28 ([LICENSE](../LICENSE)); packages are not
+published to npm.
 A new same-revision verification is recorded in [PUBLICATION](PUBLICATION.md).
 The original [audit](AUDIT-2026-09-12.md) is historical and is not silently rewritten.
 

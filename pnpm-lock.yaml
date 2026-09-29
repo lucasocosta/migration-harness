@@ -168,6 +168,15 @@ importers:
         specifier: ^3.25.0
         version: 3.25.76
 
+  packages/mcp-server:
+    dependencies:
+      '@migration-harness/core':
+        specifier: workspace:*
+        version: link:../core
+      '@migration-harness/engine':
+        specifier: workspace:*
+        version: link:../engine
+
   packages/quality-gates:
     dependencies:
       '@axe-core/playwright':

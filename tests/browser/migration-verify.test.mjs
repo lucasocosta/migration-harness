@@ -24,7 +24,7 @@ test('validation-first example prepares a reference, verifies PASS, fails the do
   let probe;
   try { probe = await chromium.launch({ headless: true }); } catch { t.skip('Chromium is unavailable'); return; }
   finally { await probe?.close(); }
-  for (const port of [43120, 43153]) {
+  for (const port of [4320, 4353]) {
     const server = await listen(port).catch(() => undefined);
     assert.ok(server, `port ${port} must be free: the harness reserves it`);
     await close(server);

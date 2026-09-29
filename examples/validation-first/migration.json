@@ -1,13 +1,13 @@
 {
   "kind": "MIGRATION_CONFIG", "version": "1", "migrationId": "validation-example",
   "source": {
-    "root": "examples/validation-first/angular", "baseUrl": "http://127.0.0.1:43120",
+    "root": "examples/validation-first/angular", "baseUrl": "http://127.0.0.1:4320",
     "relevantFiles": ["main.ts", "build.mjs", "package.json"],
     "commands": [{"id":"build","kind":"build","argv":["npm","run","build"],"cwd":".","timeoutMs":30000}],
     "build": {"commandId":"build","outputDir":"dist","cleanOutput":true}
   },
   "target": {
-    "root": "examples/validation-first/react", "baseUrl": "http://127.0.0.1:43153",
+    "root": "examples/validation-first/react", "baseUrl": "http://127.0.0.1:4353",
     "relevantFiles": ["App.tsx", "build.mjs", "package.json", "existing.mjs", "regression.test.mjs"],
     "writePaths": ["App.tsx"], "protectedPaths": ["existing.mjs", "regression.test.mjs"],
     "commands": [
@@ -19,7 +19,7 @@
   "scenarios": [
     {
       "definition": {
-        "scenarioId":"save","unitId":"profile","name":"Save email","description":"Synthetic mocked save", "entryUrl":"http://127.0.0.1:43120/profile",
+        "scenarioId":"save","unitId":"profile","name":"Save email","description":"Synthetic mocked save", "entryUrl":"http://127.0.0.1:4320/profile",
         "preconditions":{"mockInitialApiResponses":[{"urlPattern":"**/api/customer","method":"PUT","statusCode":200,"fixturePath":"saved.json"}]},
         "steps":[
           {"stepId":"email","action":"fill","targetRole":"textbox","targetName":"Email","inputValue":"updated@example.test"},
@@ -27,12 +27,12 @@
         ], "testDataProfile":"standard"
       },
       "required":true, "fixtureRoot":"examples/validation-first/fixtures",
-      "bindings":{"source":{"entryUrl":"http://127.0.0.1:43120/profile","steps":[]},"target":{"entryUrl":"http://127.0.0.1:43153/account/profile","steps":[]}}
+      "bindings":{"source":{"entryUrl":"http://127.0.0.1:4320/profile","steps":[]},"target":{"entryUrl":"http://127.0.0.1:4353/account/profile","steps":[]}}
     },
     {
-      "definition":{"scenarioId":"mount","unitId":"profile","name":"Open profile","description":"Initial controls and existing shell","entryUrl":"http://127.0.0.1:43120/profile","preconditions":{},"steps":[],"testDataProfile":"standard"},
+      "definition":{"scenarioId":"mount","unitId":"profile","name":"Open profile","description":"Initial controls and existing shell","entryUrl":"http://127.0.0.1:4320/profile","preconditions":{},"steps":[],"testDataProfile":"standard"},
       "required":true,"fixtureRoot":"examples/validation-first/fixtures",
-      "bindings":{"source":{"entryUrl":"http://127.0.0.1:43120/profile","steps":[]},"target":{"entryUrl":"http://127.0.0.1:43153/account/profile","steps":[]}}
+      "bindings":{"source":{"entryUrl":"http://127.0.0.1:4320/profile","steps":[]},"target":{"entryUrl":"http://127.0.0.1:4353/account/profile","steps":[]}}
     }
   ],
   "checks":[

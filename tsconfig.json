@@ -28,6 +28,9 @@
       "path": "./packages/cli"
     },
     {
+      "path": "./packages/mcp-server"
+    },
+    {
       "path": "./packages/equivalence-validator"
     },
     {

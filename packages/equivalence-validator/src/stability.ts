@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import {
   canonical, normalizeUrl, parseSanitizedTrace, SourceObservationsSchema,
-  type EquivalenceDivergence, type SanitizedObservedTrace,
+  type EquivalenceDivergence, type SanitizedObservedTrace, type SuggestionReport,
 } from '@migration-harness/core';
 import { buildExchanges, compareNetworkBehavior, exchangeSignature, type NetworkComparisonPolicy } from './network/index.js';
 import { compareCausality, compareObservables, type ObservablePolicy } from './dimensions.js';
 import { compareWebSockets, type WebSocketComparisonPolicy } from './websocket.js';
+import { proposeNoiseSuggestions } from './noise-suggestions.js';
 
 /**
  * Source/source repeatability.
@@ -43,6 +44,11 @@ export interface SourceStabilityResult {
   advisoryCodes: string[];
   /** Structural locations to review; the owner declares volatility, the harness never assumes it. */
   reviewPaths: string[];
+  /**
+   * Ranked noise proposals derived from source/source divergences. HINT_ONLY: never applied
+   * to policy or acceptedDifferences (RFC §7). Absent when runs are insufficient or stable.
+   */
+  suggestions?: SuggestionReport;
 }
 
 /** Comparison-relevant projection of one execution: policy-filtered exchanges, routes, state and steps. */
@@ -94,5 +100,11 @@ export function verifySourceStability(input: SourceStabilityInput): SourceStabil
     ...base,
     observations: SourceObservationsSchema.parse({ status: unstableCodes.length ? 'UNSTABLE' : 'STABLE', runs: runs.length, executionHashes }),
     unstableCodes, advisoryCodes, reviewPaths,
+    ...(divergences.length ? {
+      suggestions: proposeNoiseSuggestions({
+        scenarioId: runs[0]!.scenarioId, runCount: runs.length, divergences,
+        generatedAt: new Date().toISOString(),
+      }),
+    } : {}),
   };
 }

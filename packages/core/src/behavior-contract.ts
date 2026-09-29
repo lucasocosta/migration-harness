@@ -3,7 +3,8 @@ export type EvidenceSource =
   | 'STATIC_ANALYSIS'
   | 'OPENAPI'
   | 'EXISTING_TESTS'
-  | 'HUMAN_SPECIFICATION';
+  | 'HUMAN_SPECIFICATION'
+  | 'HAR';
 
 export interface ContractEvidence {
   source: EvidenceSource;
