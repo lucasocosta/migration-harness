@@ -1,0 +1,4 @@
+# Runtime database stores of the P7 persistence fixture (reset.php / Reset recreate them;
+# the probes only read them). Disposable state, never source.
+source/data/
+java/data/

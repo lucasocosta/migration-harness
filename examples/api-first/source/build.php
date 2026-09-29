@@ -11,8 +11,37 @@ declare(strict_types=1);
  */
 
 $root = __DIR__;
-$phpFiles = ['index.php', 'validation.php', 'build.php', 'tests/validation-test.php'];
-$runtimeFiles = ['index.php', 'validation.php'];
+$runtimeFiles = ['index.php', 'validation.php', 'store.php'];
+
+/** Every PHP file of the source project, except disposable build/runtime output. */
+function phpFilesOf(string $directory, string $root): array
+{
+    $found = [];
+    $entries = scandir($directory);
+    if ($entries === false) {
+        return $found;
+    }
+    sort($entries);
+    foreach ($entries as $entry) {
+        if ($entry === '.' || $entry === '..' || $entry === 'data') {
+            continue;
+        }
+        $path = $directory . '/' . $entry;
+        if (is_dir($path)) {
+            if ($entry === 'dist') {
+                continue;
+            }
+            $found = array_merge($found, phpFilesOf($path, $root));
+            continue;
+        }
+        if (str_ends_with($entry, '.php')) {
+            $found[] = substr($path, strlen($root) + 1);
+        }
+    }
+    return $found;
+}
+
+$phpFiles = phpFilesOf($root, $root);
 
 $failed = false;
 foreach ($phpFiles as $file) {
@@ -44,7 +73,13 @@ if (!is_dir($dist) && !mkdir($dist, 0777, true) && !is_dir($dist)) {
     exit(1);
 }
 foreach ($runtimeFiles as $file) {
-    if (!copy($root . '/' . $file, $dist . '/' . $file)) {
+    $target = str_contains($file, '/') ? $dist . '/' . $file : $dist . '/' . basename($file);
+    $directory = dirname($target);
+    if (!is_dir($directory) && !mkdir($directory, 0777, true) && !is_dir($directory)) {
+        fwrite(STDERR, "build failed: cannot create " . dirname($file) . "/ inside dist/\n");
+        exit(1);
+    }
+    if (!copy($root . '/' . $file, $target)) {
         fwrite(STDERR, "build failed: cannot copy {$file} into dist/\n");
         exit(1);
     }

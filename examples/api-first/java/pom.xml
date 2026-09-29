@@ -22,10 +22,23 @@
   </properties>
 
   <dependencies>
-    <!-- The only dependency: plain web stack, no extras. -->
+    <!-- The web stack: plain Spring MVC, no extras. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <!--
+      Embedded H2 (document store of the target side; source uses SQLite via PDO).
+      Scope provided because the driver classes are unpacked into target/classes below, so the
+      CLI entry points (StateProbe, Reset, PersistenceTest) find them through
+      `java -cp target/classes` while the packaged jar carries them inside BOOT-INF/classes
+      instead of BOOT-INF/lib.
+    -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>${h2.version}</version>
+      <scope>provided</scope>
     </dependency>
   </dependencies>
 
@@ -36,6 +49,31 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <!-- Unpack H2 into target/classes so `java -cp target/classes ...` works without a second classpath entry. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>unpack-h2-driver</id>
+            <phase>process-classes</phase>
+            <goals>
+              <goal>unpack</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>com.h2database</groupId>
+                  <artifactId>h2</artifactId>
+                  <version>${h2.version}</version>
+                </artifactItem>
+              </artifactItems>
+              <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+              <excludes>META-INF/MANIFEST.MF</excludes>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

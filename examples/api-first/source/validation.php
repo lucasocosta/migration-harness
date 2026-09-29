@@ -53,3 +53,13 @@ function saveOutcome(?string $email): array
     }
     return ['status' => 200, 'body' => ['status' => 'saved', 'email' => $email]];
 }
+
+/**
+ * Outcome of a validated save whose atomic write failed (declared fault injection or a
+ * genuine store failure): 500 with the fixed body. Mirrors injectedFailure() in
+ * ApiSemantics.java; the persistence layer returns it, never an exception, to the router.
+ */
+function saveFailureOutcome(): array
+{
+    return ['status' => 500, 'body' => ['error' => 'injected failure']];
+}

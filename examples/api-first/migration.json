@@ -2,11 +2,14 @@
   "kind": "MIGRATION_CONFIG", "version": "1", "migrationId": "api-first-example", "profile": "standard",
   "source": {
     "root": "examples/api-first/source", "baseUrl": "http://127.0.0.1:8310",
-    "relevantFiles": ["index.php", "validation.php", "build.php", "tests/validation-test.php"],
+    "relevantFiles": ["index.php", "validation.php", "store.php", "reset.php", "build.php", "evaluation/state-probe.php", "tests/validation-test.php"],
+    "generatedPaths": ["data"],
     "commands": [
       {"id":"build","kind":"build","argv":["php","build.php"],"cwd":".","timeoutMs":30000},
       {"id":"serve","kind":"serve","argv":["php","-S","127.0.0.1:8310","-t",".","index.php"],"cwd":".","timeoutMs":3600000},
-      {"id":"regression","kind":"test","argv":["php","tests/validation-test.php"],"cwd":".","timeoutMs":15000}
+      {"id":"regression","kind":"test","argv":["php","tests/validation-test.php"],"cwd":".","timeoutMs":30000},
+      {"id":"probe-state","kind":"probe","argv":["php","evaluation/state-probe.php"],"cwd":".","timeoutMs":5000},
+      {"id":"reset-db","kind":"reset","argv":["php","reset.php"],"cwd":".","timeoutMs":15000}
     ],
     "build": {"commandId":"build","outputDir":"dist","cleanOutput":true},
     "serve": {"commandId":"serve","readyTimeoutMs":60000}
@@ -18,21 +21,35 @@
       "src/main/java/com/example/apifirst/ApiFirstApplication.java",
       "src/main/java/com/example/apifirst/ApiSemantics.java",
       "src/main/java/com/example/apifirst/ApiExceptionHandler.java",
+      "src/main/java/com/example/apifirst/CustomerStore.java",
       "src/main/java/com/example/apifirst/ProfileController.java",
-      "src/main/java/com/example/apifirst/RegressionTest.java"
+      "src/main/java/com/example/apifirst/RegressionTest.java",
+      "src/main/java/com/example/apifirst/PersistenceTest.java",
+      "src/main/java/com/example/apifirst/Reset.java",
+      "src/main/java/com/example/apifirst/StateProbe.java"
     ],
+    "generatedPaths": ["data"],
     "writePaths": [
       "pom.xml",
       "src/main/java/com/example/apifirst/ApiFirstApplication.java",
       "src/main/java/com/example/apifirst/ApiSemantics.java",
       "src/main/java/com/example/apifirst/ApiExceptionHandler.java",
+      "src/main/java/com/example/apifirst/CustomerStore.java",
       "src/main/java/com/example/apifirst/ProfileController.java"
     ],
-    "protectedPaths": ["src/main/java/com/example/apifirst/RegressionTest.java"],
+    "protectedPaths": [
+      "src/main/java/com/example/apifirst/RegressionTest.java",
+      "src/main/java/com/example/apifirst/PersistenceTest.java",
+      "src/main/java/com/example/apifirst/Reset.java",
+      "src/main/java/com/example/apifirst/StateProbe.java"
+    ],
     "commands": [
       {"id":"build","kind":"build","argv":["mvn","-q","-DskipTests","package"],"cwd":".","timeoutMs":900000},
       {"id":"serve","kind":"serve","argv":["java","-jar","target/api-first-target.jar","--server.port=8353"],"cwd":".","timeoutMs":3600000},
-      {"id":"regression","kind":"test","argv":["java","-cp","target/classes","com.example.apifirst.RegressionTest"],"cwd":".","timeoutMs":30000}
+      {"id":"regression","kind":"test","argv":["java","-cp","target/classes","com.example.apifirst.RegressionTest"],"cwd":".","timeoutMs":30000},
+      {"id":"persistence","kind":"test","argv":["java","-cp","target/classes","com.example.apifirst.PersistenceTest"],"cwd":".","timeoutMs":60000},
+      {"id":"probe-state","kind":"probe","argv":["java","-cp","target/classes","com.example.apifirst.StateProbe"],"cwd":".","timeoutMs":5000},
+      {"id":"reset-db","kind":"reset","argv":["java","-cp","target/classes","com.example.apifirst.Reset"],"cwd":".","timeoutMs":15000}
     ],
     "build": {"commandId":"build","outputDir":"target","cleanOutput":true},
     "serve": {"commandId":"serve","readyTimeoutMs":60000}
@@ -41,7 +58,7 @@
     {
       "definition": {
         "scenarioId":"profile-mount","unitId":"profile-api","name":"Read fixed profile",
-        "description":"GET /api/profile returns the fixed deterministic profile document",
+        "description":"GET /api/profile returns the profile document persisted by the reset baseline",
         "entryUrl":"http://127.0.0.1:8310/api/profile","preconditions":{},
         "steps":[
           {"stepId":"get-profile","action":"request","method":"GET","path":"/api/profile"}
@@ -82,13 +99,83 @@
         "source":{"entryUrl":"http://127.0.0.1:8310/api/customer","steps":[]},
         "target":{"entryUrl":"http://127.0.0.1:8353/api/customer","steps":[]}
       }
+    },
+    {
+      "definition": {
+        "scenarioId":"save-persists","unitId":"customer-api","name":"Save persists and reads back",
+        "description":"PUT /api/customer with a valid email then GET /api/profile: a later request reads the persisted customer back and exactly one audit record lands",
+        "entryUrl":"http://127.0.0.1:8310/api/customer","preconditions":{},
+        "steps":[
+          {"stepId":"put-save","action":"request","method":"PUT","path":"/api/customer","body":{"email":"new@example.test"}},
+          {"stepId":"get-profile-after-save","action":"request","method":"GET","path":"/api/profile"}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/api-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:8310/api/customer","steps":[]},
+        "target":{"entryUrl":"http://127.0.0.1:8353/api/customer","steps":[]}
+      },
+      "stateCaptures":[
+        {"id":"save-persists-end","projectionId":"customer-domain","checkpoint":{"kind":"SCENARIO_END"},"required":true,
+         "bindings":{"source":{"commandId":"probe-state"},"target":{"commandId":"probe-state"}},
+         "settle":{"kind":"PROBE_BARRIER","completedPath":"/_settle","completedValue":"complete","timeoutMs":10000,"pollIntervalMs":100,"maxAttempts":100}}
+      ]
+    },
+    {
+      "definition": {
+        "scenarioId":"invalid-leaves-state","unitId":"customer-api","name":"Invalid email leaves state unchanged",
+        "description":"PUT /api/customer with an invalid email answers 422 and the persisted baseline customer and audit collection stay untouched",
+        "entryUrl":"http://127.0.0.1:8310/api/customer","preconditions":{},
+        "steps":[
+          {"stepId":"put-invalid","action":"request","method":"PUT","path":"/api/customer","body":{"email":"not-an-email"}},
+          {"stepId":"get-profile-unchanged","action":"request","method":"GET","path":"/api/profile"}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/api-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:8310/api/customer","steps":[]},
+        "target":{"entryUrl":"http://127.0.0.1:8353/api/customer","steps":[]}
+      },
+      "stateCaptures":[
+        {"id":"invalid-leaves-state-end","projectionId":"customer-domain","checkpoint":{"kind":"SCENARIO_END"},"required":true,
+         "bindings":{"source":{"commandId":"probe-state"},"target":{"commandId":"probe-state"}},
+         "settle":{"kind":"PROBE_BARRIER","completedPath":"/_settle","completedValue":"complete","timeoutMs":10000,"pollIntervalMs":100,"maxAttempts":100}}
+      ]
+    },
+    {
+      "definition": {
+        "scenarioId":"fault-rolls-back","unitId":"customer-api","name":"Injected audit failure rolls back",
+        "description":"PUT /api/customer with the declared fault trigger (JSON field faultPhase=audit, the documented equivalent of header X-Fault-Phase: audit) answers 500 injected failure and rolls back completely: no customer change, no audit record",
+        "entryUrl":"http://127.0.0.1:8310/api/customer","preconditions":{},
+        "steps":[
+          {"stepId":"put-fault","action":"request","method":"PUT","path":"/api/customer","body":{"email":"new@example.test","faultPhase":"audit"}},
+          {"stepId":"get-profile-rolled-back","action":"request","method":"GET","path":"/api/profile"}
+        ],"testDataProfile":"standard"
+      },
+      "required":true,"fixtureRoot":"examples/api-first/fixtures",
+      "bindings":{
+        "source":{"entryUrl":"http://127.0.0.1:8310/api/customer","steps":[]},
+        "target":{"entryUrl":"http://127.0.0.1:8353/api/customer","steps":[]}
+      },
+      "stateCaptures":[
+        {"id":"fault-rolls-back-end","projectionId":"customer-domain","checkpoint":{"kind":"SCENARIO_END"},"required":true,
+         "bindings":{"source":{"commandId":"probe-state"},"target":{"commandId":"probe-state"}},
+         "settle":{"kind":"PROBE_BARRIER","completedPath":"/_settle","completedValue":"complete","timeoutMs":10000,"pollIntervalMs":100,"maxAttempts":100}}
+      ]
     }
   ],
   "checks":[
     {"id":"source-build","side":"source","commandId":"build","required":true},
     {"id":"target-build","side":"target","commandId":"build","required":true},
     {"id":"source-regression","side":"source","commandId":"regression","required":true},
-    {"id":"target-regression","side":"target","commandId":"regression","required":true}
+    {"id":"target-regression","side":"target","commandId":"regression","required":true},
+    {"id":"target-persistence","side":"target","commandId":"persistence","required":true}
+  ],
+  "stateProjections":[
+    {"id":"customer-domain",
+     "comparison":{"collections":[{"path":"/customers","mode":"KEYED","keyFields":["fixtureKey"]}]},
+     "privacy":{"allowedPaths":["/customers/*/fixtureKey","/customers/*/email","/customers/*/name","/audit/count","/_settle"],
+       "fields":[{"path":"/customers/*/email","representation":"KEYED_EQUALITY","domain":"customer-email"}]}}
   ],
   "requirements":[
     {"id":"profile-email-string","scenarioId":"profile-mount","description":"GET /api/profile returns an email field of type string",
@@ -105,11 +192,38 @@
       "responseClaim":{"kind":"RESPONSE_FIELD","path":"email","valueType":"string"}},
     {"id":"invalid-error-string","scenarioId":"customer-save-invalid","description":"An invalid save returns an error field of type string",
       "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/index.php","required":true,
+      "responseClaim":{"kind":"RESPONSE_FIELD","path":"error","valueType":"string"}},
+    {"id":"save-persists-profile-email","scenarioId":"save-persists","description":"After a successful save, a later GET /api/profile returns the persisted email as a string field (read-after-write)",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/index.php","required":true,
+      "responseClaim":{"kind":"RESPONSE_FIELD","path":"email","valueType":"string"}},
+    {"id":"save-persists-customer-email","scenarioId":"save-persists","description":"The saved customer email is persisted in the domain state captured at scenario end",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/evaluation/state-probe.php","required":true,
+      "stateClaim":{"kind":"STATE_FIELD","captureId":"save-persists-end","path":"/customers/0/email","predicate":{"kind":"EQUALS","value":"new@example.test"}}},
+    {"id":"save-persists-audit-count","scenarioId":"save-persists","description":"Exactly one audit record lands for the single successful save",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/store.php","required":true,
+      "stateClaim":{"kind":"STATE_FIELD","captureId":"save-persists-end","path":"/audit/count","predicate":{"kind":"EQUALS","value":1}}},
+    {"id":"invalid-state-customer-unchanged","scenarioId":"invalid-leaves-state","description":"The rejected save leaves the persisted baseline customer email unchanged",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/store.php","required":true,
+      "stateClaim":{"kind":"STATE_FIELD","captureId":"invalid-leaves-state-end","path":"/customers/0/email","predicate":{"kind":"EQUALS","value":"user@example.test"}}},
+    {"id":"invalid-state-audit-zero","scenarioId":"invalid-leaves-state","description":"The rejected save adds no audit record",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/store.php","required":true,
+      "stateClaim":{"kind":"STATE_FIELD","captureId":"invalid-leaves-state-end","path":"/audit/count","predicate":{"kind":"EQUALS","value":0}}},
+    {"id":"invalid-state-error-string","scenarioId":"invalid-leaves-state","description":"The rejected save answers an error field of type string",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/index.php","required":true,
+      "responseClaim":{"kind":"RESPONSE_FIELD","path":"error","valueType":"string"}},
+    {"id":"fault-state-customer-unchanged","scenarioId":"fault-rolls-back","description":"The injected audit failure rolls the customer write back to the persisted baseline",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/store.php","required":true,
+      "stateClaim":{"kind":"STATE_FIELD","captureId":"fault-rolls-back-end","path":"/customers/0/email","predicate":{"kind":"EQUALS","value":"user@example.test"}}},
+    {"id":"fault-state-audit-zero","scenarioId":"fault-rolls-back","description":"The injected audit failure leaves no audit record (no partial state)",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/store.php","required":true,
+      "stateClaim":{"kind":"STATE_FIELD","captureId":"fault-rolls-back-end","path":"/audit/count","predicate":{"kind":"EQUALS","value":0}}},
+    {"id":"fault-state-error-string","scenarioId":"fault-rolls-back","description":"The injected failure answers an error field of type string",
+      "origin":"SPECIFICATION","sourceReference":"examples/api-first/source/index.php","required":true,
       "responseClaim":{"kind":"RESPONSE_FIELD","path":"error","valueType":"string"}}
   ],
   "acceptedDifferences":[],
-  "policy":{"sanitization":{"allowedPayloadKeys":["email","name","status","error"]}},
-  "reset":{"kind":"ISOLATED_FIXTURES"},
+  "policy":{"sanitization":{"allowedPayloadKeys":["email","name","status","error","faultPhase"]}},
+  "reset":{"kind":"COMMANDS","sourceCommandId":"reset-db","targetCommandId":"reset-db"},
   "environment":{"browser":"chromium","locale":"en-US","viewport":{"width":1280,"height":720}},
   "limits":{"sourceRuns":2,"maxRepairAttempts":3,"maxDurationMs":180000}
 }

@@ -47,6 +47,15 @@ public final class ApiSemantics {
         return new Outcome(200, body("status", "saved", "email", email));
     }
 
+    /**
+     * Outcome of a validated save whose atomic write failed (declared fault injection or a
+     * genuine store failure): 500 with the fixed body. Mirrors saveFailureOutcome() in
+     * validation.php; the persistence layer returns it, never an exception, to the controller.
+     */
+    static Outcome injectedFailure() {
+        return new Outcome(500, body("error", "injected failure"));
+    }
+
     private static LinkedHashMap<String, String> body(String... keyValues) {
         LinkedHashMap<String, String> body = new LinkedHashMap<>();
         for (int i = 0; i < keyValues.length; i += 2) {
