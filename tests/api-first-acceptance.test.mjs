@@ -15,7 +15,7 @@ import './helpers/privacy.mjs';
 const exec = promisify(execFile), repo = resolve('.');
 const cli = join(repo, 'packages/cli/dist/index.js');
 const toolchains = () => [['php', '--version'], ['java', '--version'], ['mvn', '--version']]
-  .every(([tool, flag]) => spawnSync(tool, [flag], { encoding: 'utf8' }).status === 0);
+  .every(([tool, flag]) => spawnSync(tool, [flag], { encoding: 'utf8', shell: process.platform === 'win32' }).status === 0);
 
 const mutations = {
   'wrong response value': {
