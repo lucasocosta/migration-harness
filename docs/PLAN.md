@@ -595,8 +595,8 @@ substitui os criterios de aceite de produto ainda sem evidencia.
 
 Handoff: manutencao do harness; perfis standard/restricted preservados. Commit e
 push do harness autorizados; nenhum merge, push dos apps ou alteracao de contratos
-Cinema faz parte desta tarefa. Licenca permissiva continua sendo decisao futura do
-responsavel; UNLICENSED preserva a ausencia atual de concessao de reutilizacao.
+Cinema faz parte desta tarefa. Licenca MIT adotada pelo responsavel em 2026-09-28
+(LICENSE), superando a decisao anterior de manter UNLICENSED.
 
 ## Adiado, nao requisito do primeiro ciclo
 

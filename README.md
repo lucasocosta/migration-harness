@@ -89,5 +89,5 @@ is pinned for the framework fixtures and compiler helpers. `pnpm test` and
 both executable examples, the smokes, restricted pilots, dependency advisories
 and links against the files actually tracked by Git.
 
-The packages are private and `UNLICENSED`; no open-source reuse license has been
-selected. Local assistant settings in `.codex/` and `.serena/` are ignored.
+The repository is MIT-licensed; see [LICENSE](LICENSE). The packages are not
+published to npm. Local assistant settings in `.codex/` and `.serena/` are ignored.

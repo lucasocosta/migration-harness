@@ -269,9 +269,9 @@ engine so the same oracle can later face other pairs.
 
 - Diffy, OpenRewrite/Moderne recipes: Apache-2.0 ecosystem; ast-grep: MIT; Hurl: MIT;
   ts-morph: MIT. Check each dependency’s NOTICE before vendoring or linking.
-- This repository remains private `UNLICENSED` (README). Choosing an open-source
-  license is a prerequisite for inviting external derivative work or publishing
-  reusable recipes under copyleft-compatible terms; do not silently mix licenses.
+- This repository is MIT-licensed ([LICENSE](../LICENSE)) and remains private on
+  GitHub. External derivative work and reusable recipes must keep license
+  compatibility and attribution; do not silently mix licenses.
 - Borrow ideas and formats freely; do not copy code without license compatibility
   and attribution.
 
