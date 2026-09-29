@@ -605,7 +605,39 @@ primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
   oculta de estado detectada como `BEHAVIOR_DIVERGENCE (STATE_DIVERGENCE)` na
   preservacao. Criterios 1-9 do design registrados em PLAN-PHP-JAVA.md.
 
-Progresso segue o protocolo abaixo; as decisoes (1)-(4) do doc devem estar
+Revisao do PR #4 (oraculo, 2026-09-29): request changes com 8 MAJOR + 3 MINOR,
+aceitos pelo responsavel como nao-bloqueantes para merge — nada impede o
+funcionamento do ciclo (suítes 305/305 · 32/32 e acceptance verdes). As
+garantias afetadas (privacidade de estado em shapes adversariais, binding de
+evidencia alvo, atribuicao de endpoint, teardown de descendentes) devem ser
+tratadas antes de uso intensivo em migracao real.
+
+### Backlog de revisao do PR #4
+
+- [ ] MAJOR: a sanitizacao de estado retem escalares brutos em ancestrais de
+  paths permitidos, valores em chaves-curinga e ecoa key tuples em caminhos de
+  divergencia (`packages/engine/src/state-capture.ts`).
+- [ ] MAJOR: falsos passes — `ABSENT` sobre campo omitido pela privacidade e
+  `KEYED_EQUAL` sobre evidencia so-estrutural passam; o avaliador mistura
+  representacoes entre projecoes (`packages/quality-gates/src/state-field.ts`).
+- [ ] MAJOR: snapshot alvo ausente/stale pode ser pulado na preservacao;
+  binding de identidade do snapshot alvo e incompleto
+  (`packages/engine/src/migration-operations.ts`).
+- [ ] MAJOR: dependencias de extracao das probes continuam editaveis pelo
+  candidato (falta inventario protegido de entradas de avaliacao).
+- [ ] MAJOR: `acceptedDifferences` de estado sem cardinalidade nem vinculo ao
+  capture dos claims exigidos.
+- [ ] MAJOR: resposta do driver API com buffer ilimitado antes do cap
+  (`packages/scenario-runner/src/api.ts`).
+- [ ] MAJOR: readiness do managed serve nao atribui o endpoint ao filho
+  lancado (processo antigo pode responder e ser capturado).
+- [ ] MAJOR: teardown pode deixar descendentes vivos (SIGKILL condicional ao
+  fechamento do lider).
+- [ ] MINOR: settle aceita resultado apos o deadline; estabilidade ignora
+  ordem de colecoes KEYED (falso-INCONCLUSIVE); `serve` ignora o `cwd`
+  declarado.
+
+Progresso segue o protocolo abaixo; as decisoes (1)-(5) do doc devem estar
 registradas como resolvidas antes de declarar P7 entregue.
 
 ## Auditoria de intencao e prontidao - 2026-09-12

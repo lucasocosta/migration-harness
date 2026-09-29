@@ -249,6 +249,12 @@ proibido); exit 0 = execucao bem-sucedida, nao evidencia completa.
   (sem chave, NOT_EVALUABLE); campos STRUCTURAL nao decidem literais; path de
   claim com curinga e AMBIGUOUS; aplicabilidade por lado (`appliesTo`) e
   refinamento futuro — hoje ambos os lados devem satisfazer.
+- Ressalva (revisao do PR #4): as garantias (8) e (9) valem para saida de probe
+  declarada e bem-formada; shapes adversariais ou inesperados tem lacunas de
+  robustez registradas no backlog do [PLAN](PLAN.md) (ancestrais e
+  chaves-curinga na sanitizacao, falsos passes por evidencia omitida ou
+  so-estrutural, binding de evidencia alvo, cardinalidade de
+  `acceptedDifferences`, atribuicao de endpoint e teardown de descendentes).
 
 ## Nao-objetivos do primeiro ciclo
 

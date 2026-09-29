@@ -756,6 +756,17 @@ STRUCTURAL fields cannot decide literals, wildcard claim paths are ambiguous,
 and per-requirement side applicability (`appliesTo`) is a future refinement —
 today both sides must satisfy.
 
+Review note (PR #4): the oracle review found robustness gaps in the new state
+paths — raw scalars surviving allowlist ancestor handling, `ABSENT`/
+`KEYED_EQUAL` false passes over privacy-omitted or structural-only evidence,
+unbound target snapshots, candidate-writable probe dependencies, unbounded
+accepted differences, unbounded API response buffering, managed-serve endpoint
+attribution and descendant teardown. They are tracked in the
+[PLAN](PLAN.md) backlog and were accepted as non-blocking for merge: the
+exercised paths and all suites stay green. The privacy and acceptance
+guarantees above hold for declared, well-formed probe output; adversarial or
+unexpected shapes are the open risk.
+
 ## Environment facts that affect interpretation
 
 - Private raw artifacts live under `~/.local/state/migration-harness/<hash>/raw`,
