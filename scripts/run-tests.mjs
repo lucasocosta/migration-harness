@@ -15,10 +15,11 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { plan, skipIsAllowed, ROOT } from '../tests/test-groups.mjs';
 
-const REPORTER = fileURLToPath(new URL('./test-events-reporter.mjs', import.meta.url));
+// The reporter is passed to Node's ESM loader via --test-reporter, which requires a
+// file:// URL on every platform (a native Windows path like D:\... is read as scheme "d:").
+const REPORTER = new URL('./test-events-reporter.mjs', import.meta.url).href;
 const CONCURRENCY = { l2: 2 };
 const tempDir = mkdtempSync(join(tmpdir(), 'harness-run-tests-'));
 
