@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { BoundedWorker, HttpWorkerProvider, fileHash } from '../packages/llm-worker/dist/index.js';
+import { BoundedWorker, HttpWorkerProvider, fileHash } from '../packages/core/dist/llm-worker/index.js';
 
 test('HTTP worker transport handles structured patches, errors, redirects, caps and cancellation', async () => {
   const manifest = { unitId: 'unit', generatedAt: new Date().toISOString(), transformer: { kind: 'LLM', name: 'local-protocol-fixture' }, mappings: [] };

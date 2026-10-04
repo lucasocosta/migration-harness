@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EquivalenceValidator } from '../packages/equivalence-validator/dist/index.js';
+import { EquivalenceValidator } from '../packages/engine/dist/equivalence/index.js';
 import { trace, event, contract } from './helpers.mjs';
 const validator = new EquivalenceValidator();
 const compare = (source, target, extra = {}) => validator.validate({ source, target, ...extra });

@@ -1,7 +1,7 @@
 # Assistant integration
 
 Direction: [RFC v0.3](RFC.md). Status: [STATUS.md](STATUS.md).
-This replaces the mandatory brief-only product model. No model API is required.
+No model API is required.
 
 ## Standard profile: implemented through P4 acceptance
 
@@ -14,8 +14,8 @@ One assistant, in the same conversation, can:
 6. Repeat within a persisted budget and deliver evidence with remaining limitations.
 
 The assistant may interpret and summarize results, never manufacture a tool verdict.
-It does not need a codemod, successful discovery, mandatory manifest, patch JSON,
-hidden scenarios or a fresh conversation to validate a migration.
+It does not need a codemod, successful discovery, mandatory manifest, submission
+format, hidden scenarios or a fresh conversation to validate a migration.
 
 Implemented integration capabilities:
 - Runtime-validated migration config with roots, scope, commands/cwd, URLs, scenarios,
@@ -26,10 +26,12 @@ Implemented integration capabilities:
 - Persisted attempt history across calls; no-progress detection and bounded retries.
 - Diff checks for scoped edits, protected inputs and unrelated preexisting user changes.
 
-Select `profile: "standard"` in config before preparation, not a `--profile` flag.
-Use the new `migracao-padrao` agent and the session commands in [USAGE.md](USAGE.md).
-Versioned reference updates are adopted into an existing session by
-`update-migration-session` (P4.2) with preserved history/budgets.
+Select `profile: "standard"` in config before preparation; profile rules are
+owned by [AGENTS.md](../AGENTS.md). Use the `migracao-padrao` agent and the v2
+cycle in [OPERATOR.md](OPERATOR.md).
+Versioned reference updates are adopted into the open session by the v2
+`reference` command with preserved history and budgets; a weakening needs an
+explicit owner decision.
 Implementation milestones and acceptance live in [PLAN.md](PLAN.md).
 
 P1/P2 implement configuration/report schemas, reference collection from declared
@@ -57,7 +59,7 @@ Preparation can create scenarios. After capture, additions/binding adaptations
 need recorded new versions and validation on both sides. Removing requirements,
 accepting a new difference or broadening ignore rules requires owner review.
 A missing payload field is normally a target defect, not a contract-review request.
-The session freezes config/reference. Use `update-migration-session` for a
+The session freezes config/reference. Use the `reference` command for a
 controlled refresh; it preserves history and counters and requires an explicit
 owner decision when the proposed reference weakens evaluation criteria.
 
@@ -65,43 +67,16 @@ Escalate ambiguity, scope/permission changes, secret exposure, unsupported evide
 unsafe execution and exhausted budgets. Diagnose infrastructure separately from
 behavior; an incomplete run is not a pass. Harness maintenance is a separate task.
 
-## Restricted profile: available compatibility path
+## Restricted profile: WITHDRAWN (retired 2026-10-03)
 
-Existing commands and hooks retain their semantics. See [USAGE.md](USAGE.md)
-for arguments and root [AGENTS.md](../AGENTS.md) for enforceable worker instructions.
-
-| Operation | Implemented behavior |
-| --- | --- |
-| `brief` | Requires approved intact contract, unit/plan/scenarios, sanitized source trace, policy, scoped files and optional read-only context |
-| `apply-patch` | Accepts issued brief plus complete TS/TSX replacements and manifest; owns candidate writes |
-| `run --max-repairs 0` | Recaptures source/target for one scenario and returns comparison plus disposition |
-| `brief --repair` | Only localized supported HTTP-method mismatches; does not enable general semantic repairs |
-
-Issuance records protect unit, plan, contract, scenarios, source trace, policy,
-context and AGENTS.md fingerprints. The brief has references/hashes, not raw
-runtime values. Contract content is screened too; even WARNING ARIA content can
-make a brief unsafe. A new approved version must never be silently stripped.
-
-Submissions contain `briefId`, `patches: [{path, beforeHash, content}]` and
-`manifest`. New-file hashes use empty content; existing bytes must match issuance.
-Read-only destination context may support imports, not writes. Scope, packages,
-AST constructs, leak screens, submission limits and configured static gates apply.
-A changed baseline requires a fresh issued brief, not editing `beforeHash`.
-
-Apply PASS means permitted application, not behavioral success. Structured REFUSED
-changes no candidate bytes. Handled write/persistence failures roll back; process
-crashes are not a cross-file transaction. Stale locks require inspected recovery.
-
-Use the same artifact/candidate roots at issue and apply. Issuance is local consistency,
-not authenticated provenance. The returned next command covers only the first
-scenario: rebuild and independently execute every required scenario plus project
-regression. Repair counters are caller-supplied today.
-
-The two existing Copilot agent definitions and boundary hook remain restricted.
-Do not use them for standard end-to-end operation or disable their checks to mimic it.
-A recorded clean-context session is an optional restricted-profile demonstration,
-not a gate for the standard product. The deterministic protocol pilot is not that
-session and must never be relabeled as one.
+The issued-workflow protocol, its CLI commands, boundary hook and the two Copilot
+agent definitions for it were removed by owner decision ([PLAN-V2](PLAN-V2.md)
+§8.2); the earlier operation tables and submission rules for that profile are
+withdrawn with them. The invariants it enforced remain in force for the standard
+flow through [AGENTS.md](../AGENTS.md) and [OPERATOR.md](OPERATOR.md): the harness
+is the sole issuer of verdicts, scope and integrity checks cannot be disabled,
+approvals are never fabricated, and recorded results of the retired profile are
+historical evidence only — never a gate for the standard product.
 
 ## MCP transport (optional, agent-facing)
 
@@ -124,13 +99,13 @@ Recorded spike (2026-09-27, GitHub Copilot CLI 1.0.83, model `gpt-5.4`):
 - `tools/list` returned all six engine tools through Copilot.
 - `inspect_migration_session` on a synthetic standard config reached the engine and
   returned `ENOENT ... artifacts/sessions/<pair>` — correct: inspect never creates a
-  session (`start-migration-session` does).
+  session (`start_migration_session` does).
 - Environment note: if `COPILOT_PROVIDER_BASE_URL` is set to an unreachable BYOK
   endpoint, unset it (and `COPILOT_PROVIDER_TYPE`) to use GitHub Copilot auth, or
   point BYOK at a live provider and pass an explicit `--model`.
 
 A recorded standard-session loop through Copilot + MCP is summarized in
-[MCP-COPILOT-EVIDENCE.md](MCP-COPILOT-EVIDENCE.md): `gpt-6-luna` drove
+[MCP-COPILOT-EVIDENCE.md](archive/MCP-COPILOT-EVIDENCE.md): `gpt-6-luna` drove
 `prepare_migration` → `start_migration_session` → `verify_migration_session` on an
 isolated component-first copy to `COMPLETE`/`PASS` (5/5 scenarios). A prior
 `gpt-5.4` continuation returned `REVIEW_REFERENCE`/`INCONCLUSIVE` when source
@@ -154,7 +129,6 @@ The integration is usable when the owner supplies scope, the assistant completes
 page migration with ordinary edits and multiple non-method repairs, and the harness
 reports all required evidence without manual JSON preparation or mandatory context
 handoffs. Track owner interventions and verify candidate identity, failure handling,
-coverage, privacy and restricted compatibility. Exact acceptance: RFC section 15,
+coverage and privacy. Exact acceptance: RFC section 15,
 PLAN P5/P6 — both demonstrated on 2026-09-12 (Cinema run 0001 PASS, commit
-`2c98611`; component-first run 0001 PASS). The restricted-profile claims in this
-document remain unchanged and separate.
+`2c98611`; component-first run 0001 PASS).

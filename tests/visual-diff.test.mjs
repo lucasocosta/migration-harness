@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   compareVisualCheckpoints, visualCheckpoints, hashImage, EquivalenceValidator, migrationComparisonPolicy,
-} from '../packages/equivalence-validator/dist/index.js';
+} from '../packages/engine/dist/equivalence/index.js';
 import { parseSanitizedTrace } from '../packages/core/dist/index.js';
 import { event } from './helpers.mjs';
 

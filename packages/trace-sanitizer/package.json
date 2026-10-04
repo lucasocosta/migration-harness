@@ -1,1 +1,0 @@
-{"name":"@migration-harness/trace-sanitizer","version":"0.3.0","private":true,"type":"module","main":"dist/index.js","types":"dist/index.d.ts","dependencies":{"@migration-harness/core":"workspace:*","yaml":"^2.8.0"},"scripts":{"build":"tsc -b","typecheck":"tsc -b --pretty false"}}

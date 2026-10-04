@@ -3,8 +3,16 @@
 Date: 2026-09-06. Availability updated 2026-09-12: P0-P4 implemented and accepted;
 Cinema P5 and component-first P6 have recorded PASS results. The Cinema-specific
 three-regression acceptance item remains open; see PLAN.md for its evidence gap.
-Supersedes v0.2 as the target specification, not existing CLI semantics or approved
-contracts. Delivery: [STATUS.md](STATUS.md). Execution plan: [PLAN.md](PLAN.md).
+Supersedes v0.2 as the target specification, not approved contracts. Delivery:
+[STATUS.md](STATUS.md). Execution plan: [PLAN.md](PLAN.md).
+
+**Status note (2026-10-03):** the owner retired the restricted profile and the
+previous 26-command CLI surface together (owner decision,
+[PLAN-V2](PLAN-V2.md) §8.2). The sections that specified that profile — the
+`brief`/`apply-patch` protocol and its commands — are marked **withdrawn** below and
+trimmed where they were dead weight; rules that still hold for the standard flow are
+kept in current terms. The v2 CLI (`init`/`doctor`/`prepare`/`verify`/`status`/
+`reference`), its envelope and exit codes are specified in [OPERATOR.md](OPERATOR.md).
 
 ## 1. Product objective
 
@@ -41,17 +49,21 @@ diagnostic hint; neither it nor a confidence score can override failing evidence
 
 **Standard (implemented through P4 acceptance):** normal scoped destination edits,
 including styles, assets and tests; one assistant operates the whole lifecycle.
-No mandatory brief, patch JSON, discovery success, codemod or manifest.
+No mandatory submission format, discovery success, codemod or manifest.
 Dependency/configuration changes still need declared scope and execution permissions.
 
-**Restricted (implemented):** existing brief-only workflow, issued patches,
-approved critical contracts, package/file boundaries and hooks. Keep its checks
-and compatibility tests. A recorded clean-context session proves this profile,
-not the standard product's universal Definition of Done.
+**Restricted (WITHDRAWN — retired 2026-10-03):** the issued-workflow protocol and
+its CLI commands were removed by owner decision ([PLAN-V2](PLAN-V2.md) §8.2). What
+that profile protected still holds for everyone: the harness is the oracle, the
+reference and criteria are immutable during ordinary repair, and no agent certifies
+its own work — those rules are normative in [AGENTS.md](../AGENTS.md) and enforced by
+the standard flow. Recorded sessions of the retired profile are historical evidence
+under `docs/archive/`, never a Definition of Done.
 
 Select standard with `profile: "standard"` in config and a recorded SPEC choice;
-there is no `--profile` flag. Full milestone acceptance remains in PLAN.md.
-No silent downgrade of active restricted migrations or relabeling of old evidence.
+profile rules are owned by [AGENTS.md](../AGENTS.md), operations by
+[OPERATOR.md](OPERATOR.md). Full milestone acceptance remains in PLAN.md.
+Never relabel old evidence as current.
 
 ## 4. Minimal workflow
 
@@ -66,8 +78,9 @@ Owner's specification
 ```
 
 The harness exposes operations and feedback, not model API calls or a mandatory
-code generator. Optional discovery/codemods can save work; an unsupported Angular
-construct must not block validation merely because there is no automatic conversion.
+code generator. Discovery and codemods were retired with the restricted profile
+([PLAN-V2](PLAN-V2.md) §8.2); an unsupported Angular construct must not block
+validation merely because there is no automatic conversion.
 
 ## 5. Specification and reference
 
@@ -77,9 +90,9 @@ strategy, required checks and retry budget. The assistant fills technical detail
 the owner need not manually author CLI JSON.
 
 P1 provides versioned runtime-validated configuration and reference schemas plus the
-reference collection/verification and change-classification library APIs. P3 binds
-these to `prepare-migration` / `verify-migration`; P4 adds persistent scoped sessions.
-Commands and current limitations: USAGE.md.
+reference collection/verification and change-classification library APIs. The v2
+commands `prepare` and `verify` bind them to one resumable session; `status` reads it
+and `reference` versions it. Commands and current limitations: OPERATOR.md.
 
 A reference records:
 - Source revision and relevant working-tree fingerprints, including untracked inputs.
@@ -124,8 +137,8 @@ After a reference exists:
   version. Never rewrite past verdicts or approved contracts in place.
 
 Do not turn a failure-to-pass loop into repeated weakening of the test suite.
-P4 implements adoption of reference updates with `update-migration-session`,
-preserving history and budgets. P3 preparation versioning alone does not update a session.
+The v2 `reference` command adopts reference updates into the open session, preserving
+history and budgets; a weakening requires an explicit owner decision (OPERATOR §4).
 
 ## 8. Scenario execution
 
@@ -188,8 +201,7 @@ inputs mid-run or missing required scenarios prevent success.
 
 ## 11. Results and diagnosis
 
-Aggregate report statuses (P1 schema, delivered by P3 verification; distinct from
-the restricted EquivalenceResult enum):
+Aggregate report statuses (P1 schema, delivered by verification):
 - PASS: every required check covered and passed for the recorded candidate/reference.
 - FAIL: reproducible implementation/requirement regression with sufficient evidence.
 - INCONCLUSIVE: stale, unstable, insufficient or unsupported evidence, or execution
@@ -204,15 +216,15 @@ Warnings remain visible; the agent cannot demote required checks. Coverage perce
 refer to a declared inventory, not all possible behavior. Missing a known required
 error scenario blocks completion.
 
-Existing EQUIVALENT/NOT_EQUIVALENT, apply PASS and eligibility retain their meanings.
-A compatibility adapter must not blindly map any of them to aggregate success.
+Legacy per-scenario verdicts and patch-application results belong to the retired
+surface (see the status note); nothing maps them onto aggregate success.
 
 ## 12. Repair and escalation
 
 The assistant may correct implementation defects within authorized scope: values,
 validation, navigation, callbacks, UI state and project check failures. A contract
-violation is not itself a reason to review the contract. Standard repairs do not
-need a new brief or arbitrary byte limit.
+violation is not itself a reason to review the contract. Repairs are ordinary edits
+inside `target.writePaths`; there is no submission format or byte limit.
 
 Persist attempt history across invocations, enforce time/attempt budgets and detect
 lack of progress. Rebuild after edits. Focused checks may guide iterations; final
@@ -235,26 +247,28 @@ sensitive fields, origins, retention, protected evaluation inputs and scope chec
 Hashes, static scans and hooks are not a sandbox against the same user.
 
 Check normal edits as a diff against authorized scope, including new/deleted files,
-symlinks and protected paths. Preserve unrelated user edits. Restricted issuance
-and rollback remain unchanged. Encryption, rotation, backups and anchoring are
+symlinks and protected paths. Preserve unrelated user edits. Encryption, rotation,
+backups and anchoring are
 optional operations, not prerequisites for a synthetic local migration.
 
 ## 14. Architecture and compatibility
 
 Reuse core schemas (version new formats), runner, recorder, sanitizer, validator,
 quality gates and artifacts. Add orchestration/reporting incrementally.
-Discovery, codemods, importers, manifests and bounded workers remain optional.
+Discovery, codemods and the OpenAPI/test importers were retired with the restricted
+profile ([PLAN-V2](PLAN-V2.md) §8.2); bounded workers and manifests live in `core`.
 Do not rewrite the monorepo for package topology.
 
-Keep v0.2 command/result tests and restricted pilots passing. A new standard
-classifier must not silently grant more authority to restricted workers.
-See [ARCHITECTURE.md](ARCHITECTURE.md) for current versus proposed boundaries.
+Command/result tests track the v2 surface; the legacy flow and its pilots were
+retired with their tests ([PLAN-V2](PLAN-V2.md) §8.2). Nothing may grant authority by
+relabeling an old result. See [ARCHITECTURE.md](ARCHITECTURE.md) for delivered
+boundaries and responsibilities.
 
 ## 15. Definition of Done
 
 One standard assistant session must:
 - Start from scoped existing Angular/React repositories and prepare a stable reference.
-- Implement a page normally without mandatory formal contract/brief/patch JSON.
+- Implement a page normally with no mandatory formal contract or submission format.
 - Operate consolidated verification and receive safe actionable feedback.
 - Detect and repair wrong values, missing validation and wrong navigation, not only
   PUT/POST, without weakening criteria or clerical owner intervention.
@@ -269,8 +283,8 @@ the harness should reduce validation work, not transfer it to the owner.
 
 ## 16. Decision
 
-Adopt validation-first standard direction and retain restricted compatibility.
-Formal contract approval and clean-context proof are no longer universal product
-gates. Protect evidence and requirements, not a prescribed way of writing React.
-[PLAN.md](PLAN.md) defines delivery; [research.md](research.md) preserves historical
+Adopt validation-first standard direction. Formal contract approval and recorded
+clean-context sessions are not product gates. Protect evidence and requirements, not
+a prescribed way of writing React.
+[PLAN.md](PLAN.md) defines delivery; [research.md](research/research.md) preserves historical
 principles, not an instruction to finish every v0.2 extension first.

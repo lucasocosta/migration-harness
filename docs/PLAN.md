@@ -3,7 +3,7 @@
 Atualizado: 2026-09-12. P0-P4 implementadas e aceitas; Cinema tem PASS registrado
 e P6 tem PASS integrado. O runtime antes ausente foi commitado em `58d0d27`.
 Manutencao de publicacao em andamento com autorizacao explicita para commit/push;
-[PUBLICATION.md](PUBLICATION.md) registra a revisao e os checks finais.
+[archive/PUBLICATION.md](archive/PUBLICATION.md) registra a revisao e os checks finais.
 As tres regressoes controladas especificas do Cinema e a medicao completa de
 usabilidade permanecem pendentes. Autoridade: [RFC v0.3](RFC.md).
 
@@ -21,7 +21,7 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 
 | Etapa | Estado | Evidencia de conclusao |
 | --- | --- | --- |
-| P0 - Realinhar documentos | Concluido | 21 documentos/49 links conferidos; hook 8/8; VALIDATION.md |
+| P0 - Realinhar documentos | Concluido | 21 documentos/49 links conferidos; hook 8/8; archive/VALIDATION.md |
 | P1 - Contratos de operacao e referencia | Concluido | Configuracao/relatorio/adaptacao e lifecycle da referencia implementados e testados |
 | P2 - Precisao da comparacao | Concluido | Valores, assertivas por unidade/checkpoint, bindings aplicados, read-back de persistencia e repetibilidade source/source |
 | P3 - Verificacao consolidada | Concluido | Operacao prepare/verify com referencia verificada, comparacao, requisitos, checks nativos e relatorio agregado |
@@ -31,7 +31,7 @@ incremental; nao esperar o produto inteiro para executar o primeiro comparador.
 
 Commits de implementacao (2026-09-07): P1/P2 em `c4f319b`; P3 em `5079579`,
 `378d730`, `adc61d4` e `75100c9`. Commit nao
-substitui evidencia; aceites registrados em VALIDATION.md. Execucoes P5/P6 registradas em
+substitui evidencia; aceites registrados em archive/VALIDATION.md. Execucoes P5/P6 registradas em
 2026-09-12: candidato Cinema commitado como `2c98611` em apps/react (repositorio
 separado, autorizacao explicita) e P6 (exemplo component-first + docs) como
 `92f73cd` no harness, ambos com autorizacao explicita, sem merge/push.
@@ -44,7 +44,7 @@ separado, autorizacao explicita) e P6 (exemplo component-first + docs) como
 - [x] Concluir reconciliacao de todos os documentos e handoff do cinema.
 - [x] Conferir links, regras contraditorias, diff e compatibilidade dos agentes restritos.
 
-Evidencia P0: VALIDATION.md, secao Documentation transition checks. Somente Markdown
+Evidencia P0: archive/VALIDATION.md, secao Documentation transition checks. Somente Markdown
 alterado; 21 documentos, 49 links locais, frontmatter valido e hook 8/8 PASS.
 P0 foi somente documental. O primeiro incremento de codigo da P1 esta descrito abaixo.
 
@@ -99,7 +99,7 @@ verificacao fica UNVERIFIABLE (SOURCE_OBSERVATIONS_MISSING), porque coletar
 estabilidade e trabalho da P3. Nenhuma migracao foi verificada ou aprovada por isto.
 P2, descrita abaixo, completou a comparacao de valores/estado como biblioteca.
 
-Verificacao registrada em VALIDATION.md: build PASS; suite unit/CLI 110/110 em
+Verificacao registrada em archive/VALIDATION.md: build PASS; suite unit/CLI 110/110 em
 execucao serializada; tests/migration-reference.test.mjs 8/8; smokes e diff-check PASS.
 Browser/pilotos nao reexecutados nestes incrementos de biblioteca.
 
@@ -206,7 +206,7 @@ nao uma verificacao de que o backend foi realmente limpo. Ligar tudo a uma execu
 com processos, build e servidor e a P3.
 Proxima tarefa: P3, uma operacao de verificacao completa.
 
-Verificacao registrada em VALIDATION.md: build PASS; unit/CLI 132/132 serializado;
+Verificacao registrada em archive/VALIDATION.md: build PASS; unit/CLI 132/132 serializado;
 browser 13/13; ambos os smokes; pilotos deterministico e de protocolo PASS;
 diff-check PASS.
 
@@ -256,7 +256,7 @@ entre cenarios, identidade do build servido, suite source/target, checks no rela
 de migracao e diagnosticos operacionais mais localizados. Executor Linux/macOS/Windows
 (Windows: modo degradado de privacy com disclosure; ver OS-PORTABILITY.md),
 sem sandbox; processos que escapam deliberadamente da arvore nao sao isolados.
-Este comando nao captura estabilidade nem aprova referencia. Evidencia: VALIDATION.md.
+Este comando nao captura estabilidade nem aprova referencia. Evidencia: archive/VALIDATION.md.
 
 Verificacao deste incremento: build PASS, unit/CLI 143/143 serializado (11 testes
 novos de checks), ambos os smokes, links/diff-check PASS. Baseline real do React:
@@ -283,7 +283,7 @@ novos, respeitar AbortSignal e fechar seus recursos. Hashes cobrem inputs declar
 nao autenticam o build nem isolam codigo hostil. Nao preserva output gerado anterior.
 Verificacao: build PASS; 11/11 unitarios novos e 1/1 teste Chromium focado; regressao
 completa 168/168 (154 unit/CLI + 14 browser), ambos os smokes e diff-check PASS.
-Teste Chromium novo cobre ambos os lados e viewports desktop/mobile. VALIDATION.md
+Teste Chromium novo cobre ambos os lados e viewports desktop/mobile. archive/VALIDATION.md
 registra comandos/limites; pilotos separados e builds reais do Cinema nao reexecutados.
 
 Terceiro incremento P3: `captureProjectSuite` coordena builds/servidores, reset,
@@ -312,7 +312,7 @@ Playwright so e carregado quando a captura e solicitada, sem custo nos outros co
 Backend sintetico com estado prova reset antes de cada uma de seis capturas;
 sem reset, a origem e detectada como instavel. Regressao final 178/178 PASS
 (158 unit/CLI + 20 browser), build, ambos os smokes e diff-check PASS.
-Pilotos separados e builds reais do Cinema nao reexecutados. VALIDATION.md registra
+Pilotos separados e builds reais do Cinema nao reexecutados. archive/VALIDATION.md registra
 tambem a execucao anterior e a verificacao apos adiar o carregamento do navegador.
 
 Quarto incremento P3 (consolidado): `prepare-migration` estabelece a baseline fixa —
@@ -335,7 +335,7 @@ e 1/1 browser (tests/browser/migration-verify.test.mjs) novos. Regressao complet
 builds reais do Cinema nao reexecutados. Limites: nenhuma migracao real verificada
 por esta operacao; porta ocupada/build obsoleto/timeout no nivel da operacao dependem
 dos testes da biblioteca de builds; iteracao normal do assistente e orcamentos
-persistentes sao a P4. Evidencia em VALIDATION.md.
+persistentes sao a P4. Evidencia em archive/VALIDATION.md.
 
 Proxima etapa: P4, iteracao autonoma do assistente com reparos sem brief.
 
@@ -381,7 +381,7 @@ Somente COMPLETE com relatorio correspondente a arvore atual sustenta entrega.
 Evidencia inicial: build e 17/17 testes novos PASS (6 escopo, 9 sessao/CLI,
 2 browser), incluindo falha de requisito -> reparo -> COMPLETE e parada real sem
 progresso. Verificacao final ampliada: regressao 205/205 PASS (180 unit/CLI +
-25 browser), smokes e pilotos PASS, diff-check PASS; detalhes em VALIDATION.md.
+25 browser), smokes e pilotos PASS, diff-check PASS; detalhes em archive/VALIDATION.md.
 
 Limites declarados: controle por arquivo, nao autoria por linha; scanner nao e
 sandbox/hook do editor. .git/dependencias/outputs gerados excluidos; entradas
@@ -403,7 +403,7 @@ Evidencia: build PASS; 5/5 testes novos de sessao (14/14 no arquivo de sessao,
 25/25 browser, ambos os smokes e pilotos PASS, diff-check PASS. Ciclo de vida real
 testado com prepareMigration: gen0 PASS -> EXTENSION gen1 -> historico misto ->
 BINDING_ADAPTATION gen2 -> WEAKENING+owner gen3, com orcamento inalterado e
-imutabilidade da sessao assegurada. Detalhes em VALIDATION.md.
+imutabilidade da sessao assegurada. Detalhes em archive/VALIDATION.md.
 
 ### P4.3 - Aceite completo do reparo (2026-09-07)
 
@@ -416,7 +416,7 @@ enfraquecimento recusado sem decisao do dono (geracao/orcamento intactos), edica
 fora do escopo recusada sem consumir tentativa e INCONCLUSIVE nunca vale COMPLETE.
 
 Evidencia: 5/5 testes de aceite novos (cerca de 45 s); regressao 185/185 unit/CLI +
-30/30 browser, smokes e pilotos PASS, diff-check PASS. Detalhes em VALIDATION.md.
+30/30 browser, smokes e pilotos PASS, diff-check PASS. Detalhes em archive/VALIDATION.md.
 
 Proxima etapa: P5 - Cinema como primeiro caso de uso, com escopo/decisoes reais do
 responsavel. Nao apagar uma sessao ou criar outro workspace como substituto da
@@ -472,7 +472,7 @@ Harness em `4c7332f`; Angular `11db3f2` e React `b3bfcf5`, ambos limpos na
 retomada. P4.2/P4.3 ja concluidas; reconciliados os roteiros locais obsoletos.
 Inventario de cobertura e diagnostico reproduzivel em
 `migrations/cinema/P5-PREPARATION.md` e `probe-source-boundaries.mjs` (locais,
-ignorados pelo Git do harness). Verificacoes desta retomada em VALIDATION.md.
+ignorados pelo Git do harness). Verificacoes desta retomada em archive/VALIDATION.md.
 
 Checkpoint anterior: SPEC ainda autorizava apenas transicao documental; solicitada
 adocao operacional do standard no mesmo escopo de dois arquivos, sem commit.
@@ -541,7 +541,7 @@ autorizacao explicita.
   `/host/seletor` nos dois lados, callback onChange por efeito no DOM do host,
   teclado via press (Enter/Espaco), estados disabled nos limites, tokens do
   design system reutilizados; run 0000 INCONCLUSIVE -> run 0001 PASS
-  (sessao `16afbd43dd389ed382272b9939e73dae`), evidencia em VALIDATION.md.
+  (sessao `16afbd43dd389ed382272b9939e73dae`), evidencia em archive/VALIDATION.md.
 - [x] Demonstrar duas ou mais unidades ordenadas por dependencia, com verificacao
   por unidade e suite integrada final da mesma revisao do destino.
   Unidade B `formulario-pedido` consome A (ordenacao A -> B declarada na SPEC);
@@ -554,19 +554,19 @@ autorizacao explicita.
   o exemplo medido; tabela de operacoes e cabecalho atualizados. Template
   MIGRATION-SPEC.md: orientacoes de host/callbacks/teclado/design system e
   regra de suíte integrada final. Limite P2 de captura de outputs fechado
-  (PLAN.md secao P2 e VALIDATION.md atualizados). Limites mantidos: callbacks
+  (PLAN.md secao P2 e archive/VALIDATION.md atualizados). Limites mantidos: callbacks
   por efeito observavel, sem novo schema, sem units[] no config.
 
 ## P7 - Migracao PHP → Java (em execucao)
 
-Contrato de escopo completo em [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md). Decisoes (1)-(5)
+Contrato de escopo completo em [PLAN-PHP-JAVA](research/PLAN-PHP-JAVA.md). Decisoes (1)-(5)
 resolvidas: API pura, Spring Boot, par `examples/api-first/`, briefs fora do
 primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
 
 - [x] P7.1 Spike do par de apps PHP→Java: `MIGRATION_PREPARATION: PASS`,
   sessao `98efc2e2...`, verify `COMPLETE`/`PASS` 3/3 · 5/5 · 4/4 e ciclo
   PASS->FAIL->PASS com regressao controlada. Relatorio de gaps em
-  [PLAN-PHP-JAVA](PLAN-PHP-JAVA.md).
+  [PLAN-PHP-JAVA](research/PLAN-PHP-JAVA.md).
 - [x] P7.2 Modo servidor gerenciado: `serve`/readiness/teardown em
   `packages/engine/src/build-servers.ts`; 5 testes em
   `tests/managed-server.test.mjs`; item "custom server" do STATUS coberto.
@@ -583,7 +583,7 @@ primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
   suites de sessao/escopo/budgets.
 - [x] P7.6 Piloto assistido e CI: Session D `COMPLETE`/`PASS` — Copilot
   `gpt-6-luna` + harness-mcp no api-first, 3/3 · 5/5 · 4/4, registrada em
-  [MCP-COPILOT-EVIDENCE](MCP-COPILOT-EVIDENCE.md). Achou e corrigiu dois bugs de
+  [MCP-COPILOT-EVIDENCE](archive/MCP-COPILOT-EVIDENCE.md). Achou e corrigiu dois bugs de
   re-prepare (reuso da chave de pseudonimizacao + `ARTIFACT_NOT_FRESH`), com
   regressao em `tests/prepare-retry.test.mjs`; toolchains PHP/JDK/Maven na
   matriz CI, verde nos 3 SOes no run 36582270212 (apos corrigir o gitignore que
@@ -594,7 +594,7 @@ primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
   efeito / falha-injetada com rollback atomico, testes nativos com ciclo proprio
   reset->acao->assercao, stores sinteticos reais. Regressao controlada de
   persistencia detectada em duas camadas (stateClaim `STATE_FIELD_DIFFERS` +
-  `NATIVE_CHECK_FAILED`). Evidencia em VALIDATION.md.
+  `NATIVE_CHECK_FAILED`). Evidencia em archive/VALIDATION.md.
 - [x] P7.8 Banco Tier 2 — state capture com sondas declaradas: `kind:"probe"`,
   `stateProjections`/`stateCaptures`/`stateClaim` + acceptedDifferences
   `STATE_DIVERGENCE`, artefato `STATE_SNAPSHOT` identitario, HMAC keyed de
@@ -603,7 +603,7 @@ primeiro ciclo, banco por sondas declaradas (Tier 1+Tier 2 em escopo).
   estado no executionHash de estabilidade e preservacao diferencial independente
   dos claims. Ciclo completo `COMPLETE`/`PASS` 6/6 · 14/14 · 5/5; regressao
   oculta de estado detectada como `BEHAVIOR_DIVERGENCE (STATE_DIVERGENCE)` na
-  preservacao. Criterios 1-9 do design registrados em PLAN-PHP-JAVA.md.
+  preservacao. Criterios 1-9 do design registrados em research/PLAN-PHP-JAVA.md.
 
 Revisao do PR #4 (oraculo, 2026-09-29): request changes com 8 MAJOR + 3 MINOR,
 aceitos pelo responsavel como nao-bloqueantes para merge — nada impede o
@@ -642,9 +642,9 @@ registradas como resolvidas antes de declarar P7 entregue.
 
 ## Auditoria de intencao e prontidao - 2026-09-12
 
-A [auditoria inicial](AUDIT-2026-09-12.md) descreve `5d01da6` mais o working tree
+A [auditoria inicial](archive/AUDIT-2026-09-12.md) descreve `5d01da6` mais o working tree
 daquela execucao. As correcoes posteriores estao em `58d0d27`, `dd47241`, `e54c21d`
-e na manutencao descrita em [PUBLICATION](PUBLICATION.md). PASS de uma suite nao
+e na manutencao descrita em [PUBLICATION](archive/PUBLICATION.md). PASS de uma suite nao
 substitui os criterios de aceite de produto ainda sem evidencia.
 
 - [x] Registrar a falha de reproducao de HEAD e a regressao local inicial:
@@ -656,16 +656,17 @@ substitui os criterios de aceite de produto ainda sem evidencia.
   exemplos reais, smokes/pilotos, audit e verificacao de links rastreados.
   O novo teste browser cobre a configuracao e o fluxo standard completo de P6.
 - [x] Atualizar Angular de 19.2.25 para 20.3.31 no workspace, incluindo compiler
-  usado por codemods/static-analyzer; pnpm audit apos instalacao: zero advisories.
+  usado entao por codemods/static-analyzer (pacotes retirados no kill switch v2,
+  PLAN-V2 §8.2); pnpm audit apos instalacao: zero advisories.
 - [x] Ignorar metadados locais .codex/.serena; declarar pacotes UNLICENSED e
-  publicar [resumo Cinema](CINEMA-EVIDENCE.md) sem copiar apps/dados privados.
+  publicar [resumo Cinema](archive/CINEMA-EVIDENCE.md) sem copiar apps/dados privados.
 - [x] Verificar a entrega em checkout limpo com Node 22: `27ee47c`, install/build,
   32/32 browser, smokes/pilotos, audit sem advisories e checkout preservado. Unit/CLI
   190/190 em `3cc22d8`, com fontes/dependencias/testes dessa suite identicos no
-  commit seguinte. Evidencia e falhas intermediarias registradas em PUBLICATION.
+  commit seguinte. Evidencia e falhas intermediarias registradas em archive/PUBLICATION.md.
 - [x] Confirmar push autorizado da branch atual no origin: `31088ae` recebido em
   `next/angular-forms-and-io`. GitHub Actions iniciou a execucao `34710609341`;
-  cada push seguinte recebe nova verificacao automatica. Link em PUBLICATION.
+  cada push seguinte recebe nova verificacao automatica. Link em archive/PUBLICATION.md.
 - [ ] Demonstrar as tres regressoes controladas no Cinema dentro de escopo e
   orcamento autorizados. P4 prova as classes em fixture; o reparo de blur do Cinema
   nao comprova essas tres injecoes. Nao substituir/resetar sua sessao para esta tarefa.
@@ -673,7 +674,8 @@ substitui os criterios de aceite de produto ainda sem evidencia.
   verificacao e dois probes ja constam do registro; o restante nao foi medido.
 - [ ] MINOR adiado da revisao de seguranca (2026-09-28): canonicalizar ancestrais
   ausentes e comparar com awareness de maiusculas/minusculas na checagem de
-  proveniencia do importador HAR (contract-synthesizer/importers.ts). Nao busca
+  proveniencia do importador HAR (`contract-synthesizer/importers.ts` — o pacote foi
+  retirado no kill switch v2, PLAN-V2 §8.2; o item ficou sem dono). Nao busca
   referencias externas; nao bloqueia o ciclo atual.
 
 Handoff: manutencao do harness; perfis standard/restricted preservados. Commit e
@@ -683,8 +685,9 @@ Cinema faz parte desta tarefa. Licenca MIT adotada pelo responsavel em 2026-09-2
 
 ## Adiado, nao requisito do primeiro ciclo
 
-- Descoberta field-level inject() e novos codemods de forms/streams/DI.
-- OpenAPI condicional/dependent* e extracao generica de frameworks de testes.
+- Descoberta field-level inject() e novos codemods de forms/streams/DI (a pilha de
+  discovery/codemods foi retirada no kill switch v2 — PLAN-V2 §8.2; item sem dono).
+- OpenAPI condicional/dependent* e extracao generica de frameworks de testes. [RETIRADO no kill switch do restricted, 2026-10-03 — o pipeline de importacao/sintese que os sustentava foi removido; ver docs/PLAN-V2.md §8.2]
 - Docker contra imagem real e demonstracao brief-only do perfil restrito.
 - Novas extensoes de SW/WS, causalidade, criptografia/backup/anchoring.
 

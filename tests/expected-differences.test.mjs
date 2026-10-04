@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { trace } from './helpers.mjs';
-import { EquivalenceValidator, evaluateUnitAssertions, resolveExpectedDifferences } from '../packages/equivalence-validator/dist/index.js';
+import { EquivalenceValidator, evaluateUnitAssertions, resolveExpectedDifferences } from '../packages/engine/dist/equivalence/index.js';
 import { parseMigrationConfig, migrationConfigHash } from '../packages/core/dist/index.js';
 import { readFile } from 'node:fs/promises';
 

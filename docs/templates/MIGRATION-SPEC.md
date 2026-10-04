@@ -1,7 +1,7 @@
 # Especificacao de migracao para React existente
 
 Template da RFC v0.3. Preencher escolhas essenciais; o agente levanta detalhes
-tecnicos. Nao executar marcadores <...>. Consulte ../COPILOT-MIGRATION.md.
+tecnicos. Nao executar marcadores <...>. Consulte ../OPERATOR.md (guia canonico).
 O perfil padrao esta disponivel incrementalmente na P4; conferir limites em STATUS.md.
 Este documento nao autoriza alterar o harness, criterios protegidos ou segredos.
 
@@ -13,7 +13,7 @@ Este documento nao autoriza alterar o harness, criterios protegidos ou segredos.
 - Escopo funcional: <o que migrar e onde integrar>.
 - Fora do escopo: <funcionalidades/arquivos que devem permanecer intactos>.
 - Diferencas deliberadamente aceitas: <lista; nenhuma por padrao>.
-- Perfil escolhido: <standard com limites P4 conhecidos | restrito explicitamente escolhido>.
+- Perfil: standard (unico disponivel; o restrito foi aposentado, PLAN-V2 §8.2).
 - Permissoes de execucao: <ambiente local de teste autorizado | ambiente isolado>.
 - Escritas autorizadas: <pastas/arquivos de codigo, estilos, assets e testes pertinentes>.
 - Dependencias/configuracoes: <reutilizar existentes; novas dependencias exigem decisao>.
@@ -25,14 +25,15 @@ Este documento nao autoriza alterar o harness, criterios protegidos ou segredos.
 O agente pode pesquisar codigo relevante das duas aplicacoes dentro das raizes
 autorizadas, sem enumerar cada import no perfil padrao. Nao ler .env, credenciais,
 chaves ou raw traces. Preservar alteracoes existentes do usuario.
-No perfil restrito, o brief continua definindo a fronteira efetiva.
+No perfil padrao, a fronteira efetiva de escrita e `target.writePaths`; caminhos
+protegidos nunca sao tocados e nenhuma aprovacao e fabricada.
 
 ## Detalhes a levantar pelo agente
 
 - Revisoes/baselines e alteracoes locais relevantes: <registrar, nao descartar>.
 - Branch destino: <branch>; acompanhamento: migrations/<nome>/units.md.
 - Evidencias publicas: artifacts/<nome>; versionamento autorizado do acompanhamento: <local>.
-- Sessao padrao: <caminho emitido por start-migration-session; nunca apagar para reiniciar limite>.
+- Sessao padrao: <caminho aberto por prepare --artifact-path; nunca apagar para reiniciar limite>.
 - Outputs/caches exclusivamente gerados: <build.outputDir e generatedPaths por projeto>.
 - Roteador, auth, HTTP, estado/cache, formularios, design system e estilos: <padroes>.
 - Comandos com cwd/argumentos: <instalacao pelo lockfile, build, typecheck, lint, testes>.
@@ -81,7 +82,7 @@ O agente nao aprova contratos nem inventa aprovacao humana.
 
 ## Referencia e politica de mudancas
 
-- Referencia versionada: <identidade emitida por prepare-migration>.
+- Referencia versionada: <identidade emitida por prepare e atualizada por reference>.
 - Cenarios/dados/reset: <arquivos; fixtures dentro do diretorio dos cenarios>.
 - Bindings por aplicacao: <rotas/controles/escopo sem mudar semantica>.
 - Politica de dados/normalizacao: <campos relevantes, volatilidade explicita, origens>.
@@ -114,5 +115,6 @@ nao edicao/espera; maxRepairAttempts permite uma tentativa inicial mais os repar
 - [ ] Relatorio com evidencias, cobertura, avisos e lacunas.
 - [ ] Revisao humana final registrada; commit conforme autorizacao.
 
-No perfil restrito adicionar contrato aprovado, brief emitido, submissao e apply.
-Nao registrar esses itens como obrigatorios no padrao, nem fabricar seus artefatos.
+O perfil restrito e seus artefatos (contrato aprovado, submissao, aplicacao de patch)
+foram aposentados (PLAN-V2 §8.2): nao pertencem ao fluxo v2 e nunca devem ser
+fabricados.

@@ -6,8 +6,9 @@ import {
   resolveScenarioForSide, scenarioBindingProjection, isWithin, type ProjectCheckReport, type SanitizedObservedTrace,
   type ServedBuildIdentity,
 } from '@migration-harness/core';
-import { sanitizeTrace } from '@migration-harness/trace-sanitizer';
-import { migrationComparisonPolicy, type SourceStabilityResult } from '@migration-harness/equivalence-validator';
+import { sanitizeTrace } from '@migration-harness/core';
+import { migrationComparisonPolicy, type SourceStabilityResult } from './equivalence/index.js';
+import type { CaptureBrowser } from './scenario-runner/index.js';
 import { ArtifactStore, safeArtifactPath } from './artifacts.js';
 import { ProjectBuildError, serveDeclarations, withProjectBuildServers, type BuildServerSession } from './build-servers.js';
 import { preflightProjectChecks, runProjectReset, type ProjectResetResult } from './project-checks.js';
@@ -15,6 +16,7 @@ import {
   captureStateSnapshot, stateCapturesOf, stateEvidenceKey, verifyStateSourceStability,
   type StateCaptureReason, type StateCheckpoint, type StateCompleteness, type StateSettleStatus,
 } from './state-capture.js';
+import { PhaseTimer } from './timings.js';
 
 type Side = 'source' | 'target';
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
@@ -60,13 +62,24 @@ export async function captureProjectSuite(input: {
   phase?: 'baseline' | 'candidate'; baseline?: unknown; sourceOnly?: boolean;
   /** Harness-owned shared key for versioned reference comparison; omitted keys remain invocation-local. */
   pseudonymizationKey?: string;
+  /** Optional operation-level phase recorder; observation only, never influences capture decisions. */
+  timings?: PhaseTimer;
+  /**
+   * Optional operation-owned browser: one process for the whole suite, a fresh `BrowserContext`
+   * per capture (contexts are never reused — cookies, storage, listeners and mocks would leak).
+   * The caller keeps ownership and must close it; a standalone suite launches and closes its own.
+   */
+  browser?: CaptureBrowser;
 }): Promise<CaptureSuiteResult> {
   const serve = serveDeclarations(input.config);
   const config = parseMigrationConfig(input.config);
   if (input.allowProjectCommands !== true) throw new Error('EXECUTION_NOT_AUTHORIZED');
   for (const scenario of config.scenarios) MigrationIdSchema.parse(scenario.definition.unitId);
   const artifactPath = MigrationPathSchema.parse(input.artifactPath);
-  if ((await preflightProjectChecks(input)).status !== 'PASS') throw new Error('SUITE_PREFLIGHT_FAILED');
+  // Local timer keeps standalone callers measurable; operation runs share the caller's recorder.
+  const timer = input.timings ?? new PhaseTimer();
+  const preflight = await timer.phase('project-checks', () => preflightProjectChecks(input), { step: 'capture-preflight' });
+  if (preflight.status !== 'PASS') throw new Error('SUITE_PREFLIGHT_FAILED');
   const workspace = await realpath(resolve(input.workspaceRoot));
   const output = resolve(workspace, artifactPath);
   const overlaps = (path: string): boolean => path === output || isWithin(output, path) || isWithin(path, output);
@@ -91,8 +104,12 @@ export async function captureProjectSuite(input: {
   if (key.length < 32) throw new Error('INVALID_PSEUDONYMIZATION_KEY');
   const policy = migrationComparisonPolicy(config.policy);
   let work: Promise<void> | undefined;
+  // One browser for the whole suite. `shared` is never a context: every capture below opens a new
+  // BrowserContext. `ownsShared` records who must close the process (the suite when it launched it).
+  let shared: CaptureBrowser | undefined;
+  let ownsShared = false;
   const capture = async (session: BuildServerSession): Promise<void> => {
-    const { captureScenario, ScenarioExecutionError } = await import('@migration-harness/scenario-runner');
+    const { captureScenario, ScenarioExecutionError, launchBrowser } = await import('./scenario-runner/index.js');
     report.builds = { source: session.source, target: session.target };
     for (const item of config.scenarios) {
       const runs: SanitizedObservedTrace[] = [];
@@ -103,8 +120,8 @@ export async function captureProjectSuite(input: {
         if (session.signal.aborted) return;
         const build = session[record.side];
         record.buildHash = build.buildHash; record.buildRunId = build.runId;
-        record.reset = await runProjectReset({ config, workspaceRoot: workspace, side: record.side,
-          allowProjectCommands: true, signal: session.signal });
+        record.reset = await timer.phase('reset', () => runProjectReset({ config, workspaceRoot: workspace, side: record.side,
+          allowProjectCommands: true, signal: session.signal }), { scenarioId: record.scenarioId, side: record.side, runIndex: record.runIndex });
         if (record.reset.status !== 'PASS') {
           record.status = 'INCONCLUSIVE'; record.reason = session.signal.aborted ? 'ABORTED' : 'RESET_FAILED';
         } else {
@@ -135,27 +152,45 @@ export async function captureProjectSuite(input: {
             }
           };
           // AFTER_RESET: after the reset/baseline and before the scenario's steps.
-          await checkpointState('AFTER_RESET');
+          await timer.phase('capture', () => checkpointState('AFTER_RESET'),
+            { step: 'state-after-reset', scenarioId: record.scenarioId, side: record.side, runIndex: record.runIndex });
           try {
             const scenario = resolveScenarioForSide(config, record.scenarioId, record.side);
-            const raw = await captureScenario(parseScenario(scenario.definition), record.runIndex, {
+            // One process for the whole suite: take the operation's browser while it is connected
+            // and launch at most once otherwise (a process that dies mid-suite is relaunched). This
+            // lives inside the record's try, so a launch failure stays a per-record CAPTURE_FAILED
+            // exactly like the per-capture launch it replaces; the process closes in the finally.
+            if (!shared && input.browser?.isConnected()) { shared = input.browser; ownsShared = false; }
+            if (!shared?.isConnected()) {
+              shared = await timer.phase('launch', () => launchBrowser(), { step: 'suite-browser',
+                scenarioId: record.scenarioId, side: record.side, runIndex: record.runIndex });
+              ownsShared = true;
+            }
+            // `boot` = one capture end to end (a container for timings.json): its disjoint sub-spans
+            // `context`, `navigation`, `steps` and `close` are recorded by the runner. The suite's
+            // `launch` (shared process) is recorded once, outside this container.
+            const raw = await timer.phase('boot', () => captureScenario(parseScenario(scenario.definition), record.runIndex, {
               fixtureBaseDir: resolve(workspace, item.fixtureRoot), signal: session.signal,
               locale: config.environment.locale, viewport: config.environment.viewport,
+              timings: timer, browser: shared!,
               allowedOrigins: [...new Set([build.origin, ...(config.policy.allowedOrigins ?? [])])],
               // Managed sides answer with their own bytes: the harness health header cannot attest them.
               ...(serve[record.side] ? {} : { expectedBuild: { origin: build.origin, buildHash: build.buildHash } }),
-            });
-            const trace = sanitizeTrace(raw, { pseudonymizationKey: key,
+            }), { step: 'scenario', scenarioId: record.scenarioId, side: record.side, runIndex: record.runIndex,
+              steps: scenario.definition.steps.length });
+            const trace = timer.phaseSync('capture', () => sanitizeTrace(raw, { pseudonymizationKey: key,
               allowedPayloadKeys: config.policy.sanitization?.allowedPayloadKeys ?? [],
               allowedStorageKeys: config.policy.sanitization?.allowedStorageKeys ?? [],
               sensitiveKeys: config.policy.sanitization?.sensitiveKeys ?? [],
-            });
+            }), { step: 'sanitize', scenarioId: record.scenarioId, side: record.side, runIndex: record.runIndex });
             if (!trace.runId || trace.completion?.status !== 'COMPLETED') throw new Error('CAPTURE_INCOMPLETE');
-            const path = await store.writeSanitized(record.unitId, record.side, trace);
+            const path = await timer.phase('persistence', () => store.writeSanitized(record.unitId, record.side, trace),
+              { step: 'trace-write', scenarioId: record.scenarioId, side: record.side, runIndex: record.runIndex });
             record.evidencePath = relative(output, path).split('\\').join('/');
             record.traceRunId = trace.runId; record.traceHash = digest(trace);
             // SCENARIO_END: after the scenario's steps.
-            await checkpointState('SCENARIO_END');
+            await timer.phase('capture', () => checkpointState('SCENARIO_END'),
+              { step: 'state-scenario-end', scenarioId: record.scenarioId, side: record.side, runIndex: record.runIndex });
             // A required snapshot is part of this capture: without complete state evidence the record
             // is not COMPLETED, so source stability sees a missing run and fails closed.
             if (state.some(entry => entry.required && entry.completeness !== 'COMPLETE')) {
@@ -170,17 +205,18 @@ export async function captureProjectSuite(input: {
             }
           }
         }
-        await store.write(`captures/${record.scenarioId}/${record.side}/${record.runIndex}.json`, record);
+        await timer.phase('persistence', () => store.write(`captures/${record.scenarioId}/${record.side}/${record.runIndex}.json`, record),
+          { step: 'capture-record', scenarioId: record.scenarioId, side: record.side, runIndex: record.runIndex });
       }
-      report.stability.push({ scenarioId: item.definition.scenarioId, result: verifyStateSourceStability({
+      report.stability.push({ scenarioId: item.definition.scenarioId, result: timer.phaseSync('comparison', () => verifyStateSourceStability({
         runs, requiredRuns: config.limits.sourceRuns, reset: config.reset, policy, captures: declaredState, stateRuns,
-      }) });
+      }), { step: 'source-stability', scenarioId: item.definition.scenarioId }) });
     }
   };
   try {
     const result = await withProjectBuildServers({ config, workspaceRoot: workspace,
       ...(input.phase ? { phase: input.phase } : {}), ...(input.baseline ? { baseline: input.baseline } : {}),
-      allowProjectCommands: true, ...(input.signal ? { signal: input.signal } : {}) }, session => work = capture(session));
+      allowProjectCommands: true, ...(input.signal ? { signal: input.signal } : {}), timings: timer }, session => work = capture(session));
     report.builds = result.builds; report.checks = result.checks;
     report.status = report.captures.every(record => record.status === 'COMPLETED') ? 'COMPLETED' : 'INCONCLUSIVE';
   } catch (error) {
@@ -189,7 +225,10 @@ export async function captureProjectSuite(input: {
   } finally {
     // The managed server deadline may win its callback race; await our cooperative capture cleanup before persisting the result.
     await work?.catch(() => undefined);
+    // Guaranteed process close for abort/crash paths: only a browser this suite launched is closed
+    // here — an operation-supplied one stays with the operation, which closes it in its own finally.
+    if (ownsShared && shared) await timer.phase('close', () => shared!.close().catch(() => undefined), { step: 'suite-browser' });
   }
-  await store.write('capture-suite.json', report);
+  await timer.phase('persistence', () => store.write('capture-suite.json', report), { step: 'suite-report' });
   return report;
 }

@@ -4,12 +4,24 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prepareMigration } from '../packages/engine/dist/migration-operations.js';
 import { ArtifactStore } from '../packages/engine/dist/artifacts.js';
+import { preflightBrowser } from '../packages/engine/dist/scenario-runner/index.js';
 import { buildWorkspace, write } from './helpers/build-workspace.mjs';
 
 // Regression coverage for the two re-prepare crashes found by the Session D pilot:
 // a second prepare over the same artifact identity crashed on the pseudonymization key
 // (EEXIST), and a prepare over a non-empty artifact directory crashed on mkdir (EEXIST).
 const cleanPrivate = (t, root, dir) => t.after(() => rm(new ArtifactStore(join(root, dir)).privateRoot, { recursive: true, force: true }));
+
+// Both tests assert on a real PASS preparation, and preflight probes Chromium before the
+// preparation exists (measured 2026-10-03: `BROWSER_UNAVAILABLE` is the only divergence on a
+// host without a browser). The gate host has Chromium; this skip keeps the file usable there too.
+let chromiumIssue;
+try { await preflightBrowser(); } catch (error) { chromiumIssue = error?.message ?? String(error); }
+const withoutChromium = t => {
+  if (!chromiumIssue) return false;
+  t.skip(`Chromium unavailable: ${chromiumIssue}`);
+  return true;
+};
 
 async function fixture(t) {
   const { root, config } = await buildWorkspace();
@@ -27,6 +39,7 @@ writeFileSync('dist/app.js', 'document.querySelector("button").onclick=()=>{docu
 }
 
 test('re-preparing over the same artifact identity reuses the pseudonymization key', async t => {
+  if (withoutChromium(t)) return;
   const { root, config } = await fixture(t);
   const input = { config, workspaceRoot: root, artifactPath: 'artifacts/prepared', allowProjectCommands: true };
   const first = await prepareMigration(input);
@@ -41,6 +54,7 @@ test('re-preparing over the same artifact identity reuses the pseudonymization k
 });
 
 test('prepare refuses a non-empty artifact directory with a stable code', async t => {
+  if (withoutChromium(t)) return;
   const { root, config } = await fixture(t);
   const input = { config, workspaceRoot: root, artifactPath: 'artifacts/prepared', allowProjectCommands: true };
   const first = await prepareMigration(input);

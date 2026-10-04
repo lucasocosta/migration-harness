@@ -14,14 +14,16 @@ import { buildWorkspace, write } from '../helpers/build-workspace.mjs';
 const exec = promisify(execFile), cli = resolve('packages/cli/dist/index.js');
 const good = 'document.querySelector("button").onclick=()=>{document.querySelector("p").hidden=false};';
 const broken = 'document.querySelector("button").onclick=()=>{};';
-async function fixture(t, maxRepairAttempts = 3) {
+async function fixture(t, { maxRepairAttempts = 3, enginePrepare = true } = {}) {
   let browser;
   try { browser = await chromium.launch({ headless: true }); } catch { t.skip('Chromium unavailable'); return; }
   finally { await browser?.close(); }
   const { root, config } = await buildWorkspace();
   t.after(async () => {
     await rm(root, { recursive: true, force: true });
-    await rm(new ArtifactStore(join(root, 'artifacts/prepared')).privateRoot, { recursive: true, force: true });
+    for (const dir of ['artifacts/prepared', 'artifacts/session-opened']) {
+      await rm(new ArtifactStore(join(root, dir)).privateRoot, { recursive: true, force: true });
+    }
   });
   config.profile = 'standard'; config.limits.maxDurationMs = 120000;
   config.limits.maxRepairAttempts = maxRepairAttempts;
@@ -39,19 +41,25 @@ if(readFileSync('page.js','utf8').includes('MUTATE_DURING_BUILD')) writeFileSync
   config.scenarios[0].definition.steps = [{ stepId: 'save', action: 'click', targetRole: 'button', targetName: 'Save' }];
   config.requirements = [{ id: 'confirmation', scenarioId: 'boot', description: 'Save confirmation', origin: 'SPECIFICATION', sourceReference: 'fixture', required: true,
     assertion: { checkpoint: { kind: 'SCENARIO_END' }, claim: { kind: 'NODE_PRESENT', role: 'alert', name: 'Saved' } } }];
+  await write(root, 'migration.json', JSON.stringify(config));
   const input = { config, workspaceRoot: root };
-  const preparation = await prepareMigration({ ...input, artifactPath: 'artifacts/prepared', allowProjectCommands: true });
-  assert.equal(preparation.status, 'PASS');
+  const preparation = enginePrepare
+    ? await prepareMigration({ ...input, artifactPath: 'artifacts/prepared', allowProjectCommands: true })
+    : undefined;
+  if (preparation) assert.equal(preparation.status, 'PASS');
   return { root, config, input, preparation };
 }
 
+/** One v2 CLI invocation against the fixture workspace. */
+const v2 = (root, command, extra) => exec(process.execPath, [cli, command, '--config', join(root, 'migration.json'),
+  '--workspace-root', root, ...extra, '--json'], { maxBuffer: 16 * 1024 * 1024 });
+
 test('standard session repairs real implementation failure and checks the entire current candidate', async t => {
-  const f = await fixture(t, 1); if (!f) return;
+  const f = await fixture(t, { maxRepairAttempts: 1, enginePrepare: false }); if (!f) return;
   await write(f.root, 'target/user.txt', 'preexisting uncommitted work');
-  await write(f.root, 'migration.json', JSON.stringify(f.config));
-  const started = await exec(process.execPath, [cli, 'start-migration-session', '--config', join(f.root, 'migration.json'), '--workspace-root', f.root,
-    '--preparation', join(f.root, 'artifacts/prepared/preparation.json')]);
-  assert.equal(JSON.parse(started.stdout).kind, 'MIGRATION_SESSION_STARTED');
+  // The v2 `prepare` establishes the reference and opens the session in one operation.
+  const opened = await v2(f.root, 'prepare', ['--artifact-path', 'artifacts/session-opened', '--allow-project-commands']);
+  assert.equal(JSON.parse(opened.stdout).decision, 'READY');
   await write(f.root, 'target/page.js', broken);
   await write(f.root, 'target/page.css', 'p { color: green; }');
   await write(f.root, 'target/assets/logo.bin', Buffer.from([0, 255, 1]));
@@ -61,13 +69,24 @@ test('standard session repairs real implementation failure and checks the entire
   assert.equal(failed.attemptsUsed, 1);
   assert.ok(failed.report.diagnostics.some(item => item.code === 'REQUIREMENT_VIOLATED'));
   await write(f.root, 'target/page.js', good);
-  const passed = await exec(process.execPath, [cli, 'verify-migration', '--config', join(f.root, 'migration.json'), '--workspace-root', f.root, '--allow-project-commands']);
-  assert.match(passed.stdout, /MIGRATION_SESSION_RESULT: COMPLETE/);
+  const passed = await v2(f.root, 'verify', ['--allow-project-commands']);
+  const completed = JSON.parse(passed.stdout);
+  assert.equal(completed.decision, 'COMPLETE');
+  assert.equal(completed.report.kind, 'MIGRATION_SESSION_RESULT');
   let status = await inspectMigrationSession(f.input);
   assert.equal(status.attemptsUsed, 2); assert.equal(status.lastReportMatchesWorkspace, true);
   assert.equal(status.stop, 'STOP_LIMIT');
-  const completedStatus = await exec(process.execPath, [cli, 'migration-session-status', '--config', join(f.root, 'migration.json'), '--workspace-root', f.root]);
-  assert.equal(JSON.parse(completedStatus.stdout).lastReportMatchesWorkspace, true);
+  // The session is now at its attempt limit, so `status` answers the stop itself: decision
+  // STOP_LIMIT, exit 3 (the stop outranks the PASS report) and the catalog diagnostic A9 requires —
+  // the JSON is still the whole stdout, which is what the test reads.
+  const completedStatus = await v2(f.root, 'status', [])
+    .catch(error => ({ code: error.code, stdout: String(error.stdout ?? ''), stderr: String(error.stderr ?? '') }));
+  assert.equal(completedStatus.code, 3, `a stopped session refuses status with exit 3: ${completedStatus.stderr}`);
+  const stopped = JSON.parse(completedStatus.stdout);
+  assert.equal(stopped.decision, 'STOP_LIMIT');
+  assert.equal('outcome' in stopped, false, 'reading state is not an evaluation');
+  assert.equal(stopped.diagnostics[0].code, 'BUDGET_EXHAUSTED', 'a stop never ships empty diagnostics (A9)');
+  assert.equal(stopped.report.lastReportMatchesWorkspace, true);
   assert.deepEqual(status.attempts.map(item => item.outcome), ['FAIL', 'PASS']);
   assert.equal(await readFile(join(f.root, 'target/user.txt'), 'utf8'), 'preexisting uncommitted work');
   await write(f.root, 'target/page.js', broken);

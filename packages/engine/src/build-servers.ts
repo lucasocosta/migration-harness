@@ -9,8 +9,13 @@ import {
   canonical, parseMigrationConfig, parseProjectCheckReport, MigrationIdSchema, MigrationPathSchema, ServedBuildIdentitySchema,
   isWithin, pathSegments, type MigrationConfig, type ProjectCheckReport, type ServedBuildIdentity,
 } from '@migration-harness/core';
-import { preflightProjectChecks, runProjectChecks } from './project-checks.js';
+import { preflightProjectChecks } from './project-checks.js';
 import { killTree, resolveExecutable } from './process-tree.js';
+import { PhaseTimer, type TimingDetail } from './timings.js';
+import {
+  invalidateBuildCacheEntry, planBuildCacheSide, publishBuildCacheSide, restoreBuildCache, runProjectChecksWithCache,
+  type BuildCacheSidePlan, type BuildCacheSideReport,
+} from './build-cache.js';
 
 const HEALTH = '/__migration_harness_health__';
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -341,10 +346,16 @@ export async function preflightBuildServers(input: { config: unknown; workspaceR
 export async function withProjectBuildServers<T>(input: {
   config: unknown; workspaceRoot: string; allowProjectCommands?: boolean; signal?: AbortSignal;
   phase?: 'baseline' | 'candidate'; baseline?: unknown;
+  /** Optional operation-level phase recorder; observation only, never influences build decisions. */
+  timings?: PhaseTimer;
 }, use: (session: BuildServerSession) => Promise<T>): Promise<{
   value: T; builds: { source: ServedBuildIdentity; target: ServedBuildIdentity }; checks: ProjectCheckReport;
+  /** Immutable build-cache outcome per side (PLAN-V2 §4.3): observation only, never a decision input. */
+  cache: Record<Side, BuildCacheSideReport>;
 }> {
   if (input.allowProjectCommands !== true) throw new ProjectBuildError('EXECUTION_NOT_AUTHORIZED');
+  // Local timer keeps standalone callers measurable; operation runs share the caller's recorder.
+  const timer = input.timings ?? new PhaseTimer();
   const { config, serve } = parseServerConfig(input.config);
   const controller = new AbortController();
   let timedOut = false;
@@ -357,7 +368,7 @@ export async function withProjectBuildServers<T>(input: {
   const managed: ManagedServe[] = [];
   try {
     checkAbort();
-    const preflight = await preflightProjectChecks({ ...input, config });
+    const preflight = await timer.phase('project-checks', () => preflightProjectChecks({ ...input, config }), { step: 'suite-preflight' });
     if (preflight.status !== 'PASS') throw new ProjectBuildError('BUILD_INPUT_CHANGED');
     const baseline = input.baseline === undefined ? undefined : parseProjectCheckReport(input.baseline);
     if (baseline && (input.phase === 'baseline' || baseline.phase !== 'baseline' || baseline.configurationHash !== preflight.configurationHash
@@ -372,15 +383,55 @@ export async function withProjectBuildServers<T>(input: {
       const declaration = serve[side];
       if (declaration) plans[side] = await servePlan(workspace, config, side, declaration);
     }
-    for (const side of ['source', 'target'] as const) { checkAbort(); if (!serve[side]) servers.set(side, await reserveServer(urls[side], side)); }
+    // `serve` = port reservation, managed-serve spawn/readiness and teardown — served-app hosting,
+    // deliberately distinct from the capture container `boot` (browser launch, navigation, steps, close).
+    for (const side of ['source', 'target'] as const) {
+      checkAbort();
+      if (!serve[side]) servers.set(side, await timer.phase('serve', () => reserveServer(urls[side], side), { step: 'reserve-port', side }));
+    }
     // Static ports are now owned; managed sides bind their own port only when their declared serve command starts.
     for (const side of ['source', 'target'] as const) {
       checkAbort();
       const path = paths[side];
-      if (path) { await buildDirectory(workspace, config, side); await rm(path, { recursive: true, force: true }); }
+      if (path) await timer.phase('builds', async () => {
+        await buildDirectory(workspace, config, side); await rm(path, { recursive: true, force: true });
+      }, { step: 'clean-output', side });
     }
-    const checks = await runProjectChecks({ config, workspaceRoot: workspace, phase: input.phase ?? 'candidate',
-      ...(baseline ? { baseline } : {}), allowProjectCommands: true, signal: controller.signal });
+    // Immutable build cache: assess identity and restore verified artifacts before any command
+    // runs, so a hit never executes the managed build. Every other declared check always runs.
+    // PhaseTimer stores each detail object by reference, so results recorded after the span are
+    // part of timings.json.
+    const cachePlans: Record<Side, BuildCacheSidePlan> = { source: { status: 'NO_BUILD' }, target: { status: 'NO_BUILD' } };
+    for (const side of ['source', 'target'] as const) {
+      if (!paths[side] || !config[side].build) continue;
+      checkAbort();
+      const detail: TimingDetail = { step: 'cache-probe', side, result: 'pending' };
+      const plan = await timer.phase('builds', () => planBuildCacheSide({ config, workspaceRoot: workspace, side, checkAbort }), detail);
+      cachePlans[side] = plan; detail.result = plan.reason ?? plan.status;
+    }
+    for (const side of ['source', 'target'] as const) {
+      const plan = cachePlans[side];
+      if (plan.status !== 'HIT') continue;
+      checkAbort();
+      const detail: TimingDetail = { step: 'cache-restore', side, result: 'pending' };
+      try {
+        await timer.phase('builds', () => restoreBuildCache(plan, paths[side]!), detail);
+        detail.result = 'RESTORED';
+      } catch (error) {
+        detail.result = 'FAILED';
+        // A cache that cannot be restored behaves exactly like a miss: clean again and build.
+        await rm(paths[side]!, { recursive: true, force: true });
+        cachePlans[side] = { status: 'MISS', reason: 'RESTORE_FAILED', identity: plan.identity };
+        if (error instanceof ProjectBuildError) throw error;
+      }
+    }
+    const runDetail: TimingDetail = { step: 'run-commands', checks: config.checks.length,
+      checkPhase: input.phase ?? 'candidate', satisfiedChecks: 0, executedChecks: config.checks.length };
+    const run = await timer.phase('builds', () => runProjectChecksWithCache({ config, workspaceRoot: workspace,
+      phase: input.phase ?? 'candidate', ...(baseline ? { baseline } : {}), allowProjectCommands: true,
+      signal: controller.signal, preflight, plans: cachePlans }), runDetail);
+    runDetail.satisfiedChecks = run.satisfiedChecks; runDetail.executedChecks = run.executedChecks;
+    const checks = run.report;
     checkAbort();
     if (checks.preflight.inputHash !== preflight.inputHash || checks.inputHashAfter !== preflight.inputHash) throw new ProjectBuildError('BUILD_INPUT_CHANGED', undefined, checks);
     if (checks.findings.length || (['source', 'target'] as const).some(side => config[side].build
@@ -388,15 +439,20 @@ export async function withProjectBuildServers<T>(input: {
       throw new ProjectBuildError('BUILD_CHECK_FAILED', undefined, checks);
     }
     const builds = {} as { source: ServedBuildIdentity; target: ServedBuildIdentity };
+    const snapshots: Partial<Record<Side, Snapshot>> = {};
+    const diverged: Partial<Record<Side, boolean>> = {};
     for (const side of ['source', 'target'] as const) {
       const declaration = serve[side];
       if (declaration) {
         checkAbort();
         const plan = plans[side]!;
-        const server = startManagedServe({ side, plan, url: urls[side], readyTimeoutMs: declaration.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS });
-        // Registered before readiness so every failure path still tears the child down.
-        managed.push(server);
-        await server.ready(controller.signal, checkAbort);
+        const server = timer.phaseSync('serve', () => {
+          const started = startManagedServe({ side, plan, url: urls[side], readyTimeoutMs: declaration.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS });
+          // Registered before readiness so every failure path still tears the child down.
+          managed.push(started);
+          return started;
+        }, { step: 'serve-spawn', side });
+        await timer.phase('serve', () => server.ready(controller.signal, checkAbort), { step: 'serve-ready', side });
         // Managed bytes belong to the application: identity covers the declared launch, never a harness snapshot.
         const served = canonical({ kind: 'MANAGED_SERVE', side, origin: urls[side].origin,
           commandId: declaration.commandId, argv: plan.command.argv, cwd: plan.command.cwd });
@@ -406,12 +462,49 @@ export async function withProjectBuildServers<T>(input: {
         continue;
       }
       await buildDirectory(workspace, config, side);
-      const snapshot = await snapshotBuild(paths[side]!, side, checkAbort);
+      const snapshot = await timer.phase('builds', () => snapshotBuild(paths[side]!, side, checkAbort), { step: 'snapshot', side });
+      const plan = cachePlans[side];
+      if (plan.status === 'HIT' && snapshot.buildHash !== plan.manifest.output.buildHash) {
+        // Restored bytes must be the attested artifact; anything else is a corrupt cache and never
+        // a success. When the build actually ran (report fallback), the entry contradicts its own
+        // identity: keep this cycle's real bytes and drop the unusable entry.
+        if (run.applied) throw new ProjectBuildError('BUILD_OUTPUT_UNSAFE', side);
+        diverged[side] = true;
+        await invalidateBuildCacheEntry(plan.identity, workspace);
+      }
+      snapshots[side] = snapshot;
       builds[side] = ServedBuildIdentitySchema.parse({ kind: 'SERVED_BUILD', version: '1', side, runId: randomUUID(),
         origin: urls[side].origin, configurationHash: checks.configurationHash, inputHash: preflight.inputHash,
         buildHash: snapshot.buildHash, fileCount: snapshot.files.size, totalBytes: snapshot.totalBytes });
-      servers.get(side)!.install(snapshot, builds[side]); await verifyHealth(builds[side]);
+      servers.get(side)!.install(snapshot, builds[side]);
+      await timer.phase('serve', () => verifyHealth(builds[side]), { step: 'health', side });
     }
+    // Publish only after the build check passed and the output was snapshotted; the publication
+    // itself re-assesses the identity, so nothing is stored when an input moved during the build.
+    const published: Partial<Record<Side, string>> = {};
+    for (const side of ['source', 'target'] as const) {
+      const plan = cachePlans[side];
+      const snapshot = snapshots[side];
+      if (plan.status !== 'MISS' || !snapshot) continue;
+      const row = checks.checks.find(item => item.side === side && item.commandId === config[side].build!.commandId);
+      if (!row || row.status !== 'PASS') continue;
+      const detail: TimingDetail = { step: 'cache-publish', side, result: 'pending' };
+      const outcome = await timer.phase('builds', () => publishBuildCacheSide({ config, workspaceRoot: workspace, side,
+        identity: plan.identity, output: snapshot,
+        recorded: { at: new Date().toISOString(), durationMs: row.durationMs, exitCode: row.exitCode ?? 0,
+          stdoutBytes: row.output.stdoutBytes, stderrBytes: row.output.stderrBytes } }), detail);
+      detail.result = outcome.status;
+      if (outcome.status === 'SKIPPED' || outcome.status === 'FAILED') published[side] = `${outcome.status}:${outcome.reason}`;
+      else published[side] = outcome.status;
+    }
+    const cacheReport = (side: Side): BuildCacheSideReport => {
+      const plan = cachePlans[side];
+      if (plan.status === 'MISS') return { status: 'MISS', reason: plan.reason, ...(published[side] ? { publish: published[side] } : {}) };
+      if (plan.status !== 'HIT') return { status: plan.status, ...(plan.reason ? { reason: plan.reason } : {}) };
+      if (diverged[side]) return { status: 'HIT_NOT_APPLIED', reason: 'OUTPUT_DIVERGED' };
+      return run.applied ? { status: 'HIT' } : { status: 'HIT_NOT_APPLIED', reason: 'REPORT_NOT_APPLICABLE' };
+    };
+    const cache: Record<Side, BuildCacheSideReport> = { source: cacheReport('source'), target: cacheReport('target') };
     checkAbort();
     let onAbort: () => void;
     const aborted = new Promise<never>((_, reject) => {
@@ -425,18 +518,20 @@ export async function withProjectBuildServers<T>(input: {
     for (const side of ['source', 'target'] as const) {
       // Managed sides serve their own live bytes; snapshot health and disk-changed guards do not apply.
       if (serve[side]) continue;
-      await verifyHealth(builds[side]); await buildDirectory(workspace, config, side);
-      if ((await snapshotBuild(paths[side]!, side, checkAbort)).buildHash !== builds[side].buildHash) throw new ProjectBuildError('BUILD_DISK_CHANGED', side);
+      await timer.phase('builds', async () => {
+        await verifyHealth(builds[side]); await buildDirectory(workspace, config, side);
+        if ((await snapshotBuild(paths[side]!, side, checkAbort)).buildHash !== builds[side].buildHash) throw new ProjectBuildError('BUILD_DISK_CHANGED', side);
+      }, { step: 'post-verify', side });
     }
-    const after = await preflightProjectChecks({ ...input, config });
+    const after = await timer.phase('project-checks', () => preflightProjectChecks({ ...input, config }), { step: 'suite-postcheck' });
     if (after.status !== 'PASS' || after.inputHash !== preflight.inputHash) throw new ProjectBuildError('BUILD_INPUT_CHANGED');
     checkAbort();
-    return { value, builds, checks };
+    return { value, builds, checks, cache };
   } finally {
     clearTimeout(timeout); input.signal?.removeEventListener('abort', abort);
     // Every teardown runs to completion before the session settles, whatever any single close reports.
-    const results = await Promise.allSettled([...servers.values()].map(server => server.close())
-      .concat(managed.map(server => server.stop())));
+    const results = await timer.phase('serve', () => Promise.allSettled([...servers.values()].map(server => server.close())
+      .concat(managed.map(server => server.stop()))), { step: 'teardown' });
     const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
     if (failed) throw failed.reason;
   }

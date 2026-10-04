@@ -10,8 +10,9 @@ import {
   type MigrationConfig, type MigrationDiagnostic, type MigrationPreparation, type MigrationReport,
   type MigrationReference, type ScenarioVerification, type VerificationIdentity, type VerificationStatus,
 } from '@migration-harness/core';
-import { EquivalenceValidator, evaluateUnitAssertions, resolveExpectedDifferences, migrationComparisonPolicy, verifyCriticalContract, verifySourceStability } from '@migration-harness/equivalence-validator';
-import { assertionRequirementStatuses, buildMigrationReport, compareStateProjections, evaluateResponseFieldClaims, evaluateStateClaims, resolveStateAcceptedDivergence, type KeyedField } from '@migration-harness/quality-gates';
+import { EquivalenceValidator, evaluateUnitAssertions, resolveExpectedDifferences, migrationComparisonPolicy, verifyCriticalContract, verifySourceStability } from './equivalence/index.js';
+import type { CaptureBrowser } from './scenario-runner/index.js';
+import { assertionRequirementStatuses, buildMigrationReport, compareStateProjections, evaluateResponseFieldClaims, evaluateStateClaims, resolveStateAcceptedDivergence, type KeyedField } from './quality-gates/index.js';
 import { ArtifactStore, safeArtifactPath } from './artifacts.js';
 import { captureProjectSuite, type CaptureSuiteResult, type SuiteCapture } from './capture-suite.js';
 import { collectMigrationReference, verifyMigrationReference } from './migration-reference.js';
@@ -19,6 +20,7 @@ import { preflightProjectChecks } from './project-checks.js';
 import { preflightBuildServers, ProjectBuildError } from './build-servers.js';
 import { compareSourceStateEvidence, keyedStateValue, readStateSnapshot, stateEvidencePins, type StateSnapshotEnvelope } from './state-capture.js';
 import { assertNotPrivateWorkspace, coversPosix, isWithin, privateBaseDir } from './platform-paths.js';
+import { persistTimings, PhaseTimer } from './timings.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
 const unavailable = digest(null);
@@ -94,22 +96,42 @@ function observations(config: MigrationConfig, suite?: CaptureSuiteResult): Retu
         result!.observations.status === 'NOT_COLLECTED' ? null : result!.observations.executionHashes[index]]))) });
 }
 
-export async function preflightMigration(input: { config: unknown; workspaceRoot: string; signal?: AbortSignal }) {
+export async function preflightMigration(input: { config: unknown; workspaceRoot: string; signal?: AbortSignal;
+  /** Optional operation-level phase recorder; observation only, never influences preflight decisions. */
+  timings?: PhaseTimer;
+  /**
+   * Hand the validated Chromium back on a PASS result instead of closing it, so the operation
+   * reuses that exact process for its captures. Only PASS results are handed back; whenever
+   * `browser` is present the caller owns it and must close it (in `finally`).
+   */
+  retainBrowser?: boolean }) {
   const checks = await preflightProjectChecks(input);
   const diagnostics: MigrationDiagnostic[] = checks.findings.map(item => ({ code: 'OPERATION_FAILED', category: 'OPERATIONAL', detailCode: item.code,
     ...(item.checkId ? { checkId: item.checkId } : {}) }));
+  let browser: CaptureBrowser | undefined;
   if (checks.status === 'PASS') {
     try { await preflightBuildServers(input); }
     catch (error) { diagnostics.push({ code: 'OPERATION_FAILED', category: 'OPERATIONAL', detailCode: error instanceof ProjectBuildError ? error.code : 'PREFLIGHT_FAILED' }); }
     if (!diagnostics.length && !input.signal?.aborted) {
       try {
-        const { preflightBrowser } = await import('@migration-harness/scenario-runner');
-        await preflightBrowser();
+        const { launchBrowser } = await import('./scenario-runner/index.js');
+        // `preflightBrowser` is its own span: this chromium.launch() is not part of any capture.
+        browser = input.timings
+          ? await input.timings.phase('preflightBrowser', () => launchBrowser({ timeout: 10_000 }))
+          : await launchBrowser({ timeout: 10_000 });
       } catch { diagnostics.push({ code: 'OPERATION_FAILED', category: 'OPERATIONAL', detailCode: 'BROWSER_UNAVAILABLE' }); }
     }
   }
   if (input.signal?.aborted) diagnostics.push({ code: 'OPERATION_FAILED', category: 'OPERATIONAL', detailCode: 'ABORTED' });
-  return { kind: 'MIGRATION_PREFLIGHT' as const, status: diagnostics.length ? 'INCONCLUSIVE' as const : 'PASS' as const, checks, diagnostics };
+  const status = diagnostics.length ? 'INCONCLUSIVE' as const : 'PASS' as const;
+  // Release the probe unless a caller asked to keep it and can still use it for captures. The
+  // retained close happens in the operation's finally (recorded there as `close`).
+  if (browser && (status !== 'PASS' || input.retainBrowser !== true)) {
+    const releasing = browser; browser = undefined;
+    if (input.timings) await input.timings.phase('preflightBrowser', () => releasing.close().catch(() => undefined));
+    else await releasing.close().catch(() => undefined);
+  }
+  return { kind: 'MIGRATION_PREFLIGHT' as const, status, checks, diagnostics, ...(browser ? { browser } : {}) };
 }
 
 function budget(config: MigrationConfig, signal?: AbortSignal) {
@@ -124,9 +146,16 @@ function budget(config: MigrationConfig, signal?: AbortSignal) {
 /** Establish a source reference before edits and record native destination regression/build baseline checks. */
 export async function prepareMigration(input: OperationInput & { previous?: unknown; ownerDecisionReference?: string; preflightOnly?: boolean }) {
   if (!input.preflightOnly && input.allowProjectCommands !== true) throw new Error('EXECUTION_NOT_AUTHORIZED');
+  // Timing is observation only: every span wraps existing work unchanged and persists best-effort.
+  const timer = new PhaseTimer();
   const { config, workspace, store } = await reserve(input), session = budget(config, input.signal);
+  // One browser per operation: the preflight's validated process is reused for every capture
+  // (each capture still gets a fresh BrowserContext) and is closed here whatever happens.
+  let browser: CaptureBrowser | undefined;
   try {
-    const preflight = await preflightMigration({ config, workspaceRoot: workspace, signal: session.signal });
+    const { browser: retained, ...preflight } = await timer.phase('preflight', () => preflightMigration({ config, workspaceRoot: workspace,
+      signal: session.signal, timings: timer, retainBrowser: !input.preflightOnly }));
+    browser = retained;
     await store.write('preflight.json', preflight);
     if (input.preflightOnly || preflight.status !== 'PASS') return preflight;
     const previous = input.previous === undefined ? undefined : parseMigrationPreparation(input.previous);
@@ -134,17 +163,22 @@ export async function prepareMigration(input: OperationInput & { previous?: unkn
     const referenceInput = { config, workspaceRoot: workspace,
       ...(previous ? { previous: previous.reference } : {}),
       ...(input.ownerDecisionReference ? { ownerDecisionReference: input.ownerDecisionReference } : {}) };
-    if (previous) await collectMigrationReference(referenceInput);
+    if (previous) await timer.phase('hashing-collect', () => collectMigrationReference(referenceInput), { step: 'classify-previous' });
     const key = await referenceKey(store, previous ? await referenceKey(new ArtifactStore(resolve(workspace, previous.artifactPath))) : randomBytes(32).toString('hex'));
     let suite: CaptureSuiteResult | undefined;
     if (preflight.status === 'PASS' && !session.expired()) {
-      suite = await captureProjectSuite({ config, workspaceRoot: workspace, artifactPath: `${input.artifactPath}/capture`,
-        allowProjectCommands: true, phase: 'baseline', sourceOnly: true, signal: session.signal, pseudonymizationKey: key });
+      suite = await timer.phase('suite', () => captureProjectSuite({ config, workspaceRoot: workspace, artifactPath: `${input.artifactPath}/capture`,
+        allowProjectCommands: true, phase: 'baseline', sourceOnly: true, signal: session.signal, pseudonymizationKey: key, timings: timer,
+        ...(browser ? { browser } : {}) }),
+      { phase: 'baseline' });
     }
-    const fresh = await collectMigrationReference({ config, workspaceRoot: workspace, sourceObservations: observations(config, suite) });
+    const fresh = await timer.phase('hashing-collect', () => collectMigrationReference({ config, workspaceRoot: workspace, sourceObservations: observations(config, suite) }),
+      { step: 'collect-reference' });
     const reference = previous && classifyReferenceChange(previous.reference, fresh).classification === 'INITIAL' ? previous.reference
-      : previous ? await collectMigrationReference({ ...referenceInput, sourceObservations: fresh.sourceObservations }) : fresh;
-    const verified = await verifyMigrationReference({ config, workspaceRoot: workspace, reference });
+      : previous ? await timer.phase('hashing-collect', () => collectMigrationReference({ ...referenceInput, sourceObservations: fresh.sourceObservations }),
+        { step: 'recollect-reference' }) : fresh;
+    const verified = await timer.phase('hashing-collect', () => verifyMigrationReference({ config, workspaceRoot: workspace, reference }),
+      { step: 'verify-reference' });
     // Source STATE_SNAPSHOTs are pinned alongside their traces. An INCOMPLETE snapshot is not evidence:
     // it never becomes a pin and it keeps the prepared reference unverifiable (fail closed).
     const sourceEvidence = (suite?.captures ?? []).flatMap(item => {
@@ -162,11 +196,19 @@ export async function prepareMigration(input: OperationInput & { previous?: unkn
       artifactPath: input.artifactPath, keyId: digest(key),
       sourceEvidence,
       ...(suite?.checks ? { baseline: suite.checks } : {}), ...(suite?.builds?.source ? { sourceBuild: suite.builds.source } : {}) });
-    await store.write('reference.json', reference); await store.write('reference-verification.json', verified);
-    if (preparation.baseline) await store.write('baseline.json', preparation.baseline);
-    await store.write('preparation.json', preparation);
+    await timer.phase('persistence', async () => {
+      await store.write('reference.json', reference); await store.write('reference-verification.json', verified);
+      if (preparation.baseline) await store.write('baseline.json', preparation.baseline);
+      await store.write('preparation.json', preparation);
+    }, { step: 'prepare-artifacts' });
     return preparation;
-  } finally { session.close(); }
+  } finally {
+    session.close();
+    // Guaranteed close for abort/crash paths: the operation owns the browser it retained.
+    const closing = browser;
+    if (closing) await timer.phase('close', () => closing.close().catch(() => undefined), { step: 'operation-browser' });
+    await persistTimings(store, timer, 'prepare');
+  }
 }
 
 async function traceFor(config: MigrationConfig, suite: CaptureSuiteResult, captureRoot: string, scenarioId: string, side: 'source' | 'target', runIndex: number) {
@@ -255,12 +297,20 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
   const preparation = parseMigrationPreparation(input.preparation);
   if (preparation.referenceHash !== migrationReferenceHash(preparation.reference)) throw new Error('PREPARATION_HASH_MISMATCH');
   const { config, workspace, store } = await reserve(input), session = budget(config, input.signal);
+  // Timing is observation only: spans wrap existing work unchanged and persist best-effort.
+  const timer = new PhaseTimer();
   const diagnostics: MigrationDiagnostic[] = [];
   let suite: CaptureSuiteResult | undefined;
   let current: MigrationReference | undefined;
+  // One browser per operation: the preflight's validated process is reused for every capture
+  // (each capture still gets a fresh BrowserContext) and is closed here whatever happens.
+  let browser: CaptureBrowser | undefined;
   try {
-    let reference = await verifyMigrationReference({ config, workspaceRoot: workspace, reference: preparation.reference });
-    const preflight = await preflightMigration({ config, workspaceRoot: workspace, signal: session.signal });
+    let reference = await timer.phase('hashing-collect', () => verifyMigrationReference({ config, workspaceRoot: workspace, reference: preparation.reference }),
+      { step: 'verify-reference-initial' });
+    const { browser: retained, ...preflight } = await timer.phase('preflight', () => preflightMigration({ config, workspaceRoot: workspace,
+      signal: session.signal, timings: timer, retainBrowser: true }));
+    browser = retained;
     await store.write('preflight.json', preflight); diagnostics.push(...preflight.diagnostics);
     const baseline = preparation.baseline;
     const validPreparation = baseline?.phase === 'baseline' && baseline.configurationHash === preparation.reference.configurationHash
@@ -271,6 +321,8 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
     let key: string | undefined;
     const originalSources = new Map<string, ReturnType<typeof parseSanitizedTrace>>();
     const originalStates = new Map<string, Array<{ runIndex: number; envelope: StateSnapshotEnvelope }>>();
+    // Prepared evidence re-reads: bounded public reads of the pinned reference traces and states.
+    const endEvidence = timer.span('hashing-collect', { step: 'reference-evidence', traces: preparation.sourceEvidence.length });
     try {
       key = await referenceKey(new ArtifactStore(resolve(workspace, preparation.artifactPath)));
       if (digest(key) !== preparation.keyId) throw new Error('KEY_MISMATCH');
@@ -301,14 +353,18 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
     } catch {
       key = undefined;
       diagnostics.push({ code: 'STALE_EVIDENCE', category: 'EVIDENCE', detailCode: 'REFERENCE_EVIDENCE_UNAVAILABLE' });
-    }
+    } finally { endEvidence(); }
     if (reference.status === 'VERIFIED' && preflight.status === 'PASS' && validPreparation && key && !session.expired()) {
-      suite = await captureProjectSuite({ config, workspaceRoot: workspace, artifactPath: `${input.artifactPath}/capture`,
-        allowProjectCommands: true, phase: 'candidate', baseline, signal: session.signal, pseudonymizationKey: key });
+      suite = await timer.phase('suite', () => captureProjectSuite({ config, workspaceRoot: workspace, artifactPath: `${input.artifactPath}/capture`,
+        allowProjectCommands: true, phase: 'candidate', baseline, signal: session.signal, pseudonymizationKey: key, timings: timer,
+        ...(browser ? { browser } : {}) }),
+      { phase: 'candidate' });
     }
     if (suite?.failureCode) diagnostics.push({ code: 'OPERATION_FAILED', category: 'OPERATIONAL', detailCode: suite.failureCode });
-    reference = await verifyMigrationReference({ config, workspaceRoot: workspace, reference: preparation.reference });
-    current = await collectMigrationReference({ config, workspaceRoot: workspace }).catch(() => undefined);
+    reference = await timer.phase('hashing-collect', () => verifyMigrationReference({ config, workspaceRoot: workspace, reference: preparation.reference }),
+      { step: 'verify-reference-mid' });
+    current = await timer.phase('hashing-collect', () => collectMigrationReference({ config, workspaceRoot: workspace }).catch(() => undefined),
+      { step: 'collect-current' });
     const sourceObservations = observations(config, suite);
     if (sourceObservations.status !== 'STABLE') diagnostics.push({ code: 'SOURCE_UNSTABLE', category: 'EVIDENCE',
       detailCode: sourceObservations.status === 'UNSTABLE' ? 'SOURCE_UNSTABLE' : 'SOURCE_OBSERVATIONS_MISSING' });
@@ -326,15 +382,19 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
     const criticalStates: VerificationStatus[] = [];
     let sourceUnchanged = !!key;
     const contract = config.criticalContract && reference.criticalContract === 'VERIFIED'
-      ? parseContract(await readEvidence(workspace, config.criticalContract.path)) : undefined;
+      ? parseContract(await timer.phase('hashing-collect', () => readEvidence(workspace, config.criticalContract!.path), { step: 'contract-read' })) : undefined;
     for (const item of config.scenarios) {
       const scenarioId = item.definition.scenarioId;
       const requirements = config.requirements.filter(item => item.scenarioId === scenarioId).map(item => ({ requirementId: item.id, status: 'INCONCLUSIVE' as VerificationStatus }));
       const result: ScenarioVerification = { identity, scenarioId, status: 'INCONCLUSIVE', requirements, diagnostics: [], evidencePaths: [] };
+      let endComparison = (): void => {};
       try {
         if (!suite || suite.failureCode) throw new Error('SUITE_UNAVAILABLE');
-        const source = await traceFor(config, suite, resolve(store.root, 'capture'), scenarioId, 'source', 0);
-        const target = await traceFor(config, suite, resolve(store.root, 'capture'), scenarioId, 'target', 0);
+        const source = await timer.phase('hashing-collect', () => traceFor(config, suite!, resolve(store.root, 'capture'), scenarioId, 'source', 0),
+          { step: 'trace-read', scenarioId, side: 'source' });
+        const target = await timer.phase('hashing-collect', () => traceFor(config, suite!, resolve(store.root, 'capture'), scenarioId, 'target', 0),
+          { step: 'trace-read', scenarioId, side: 'target' });
+        endComparison = timer.span('comparison', { scenarioId });
         const policy = migrationComparisonPolicy(config.policy);
         const original = originalSources.get(scenarioId);
         if (!original || verifySourceStability({ runs: [original, source.trace], requiredRuns: 2, reset: config.reset, policy }).observations.status !== 'STABLE') {
@@ -370,9 +430,15 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
         const accepted = new Set(expected.acceptedDivergenceIds);
         const blocking = comparison.divergences.filter(item => item.severity === 'BLOCKING' && !accepted.has(item.divergenceId));
         result.status = blocking.some(item => incompleteCodes.has(item.code) || item.dimension === 'SECURITY') ? 'INCONCLUSIVE' : blocking.length ? 'FAIL' : 'PASS';
+        // PLAN-V2 §11.2 A7: every divergence diagnostic carries the safe expected/actual projection the
+        // comparison already publishes for it (source → expected, target → actual: structural location,
+        // value kinds, fingerprints). That is what lets an operator localize a FAIL without diffing
+        // traces; observed values and raw traces never reach a public artifact.
         result.diagnostics = comparison.divergences.map(item => ({ scenarioId, code: accepted.has(item.divergenceId) ? 'EXPECTED_DIFFERENCE' : item.code === 'MOCKED_COVERAGE' ? 'MOCKED_COVERAGE'
           : item.severity !== 'BLOCKING' ? 'STANDARD_WARNING' : result.status === 'FAIL' ? 'BEHAVIOR_DIVERGENCE' : 'EXECUTION_INCOMPLETE',
-          detailCode: item.code, category: item.severity === 'BLOCKING' ? 'IMPLEMENTATION' : 'EVIDENCE' }));
+          detailCode: item.code, category: item.severity === 'BLOCKING' ? 'IMPLEMENTATION' : 'EVIDENCE',
+          ...(item.source !== undefined ? { expected: item.source } : {}),
+          ...(item.target !== undefined ? { actual: item.target } : {}) }));
         // STATE_SNAPSHOT evidence of run 0 per side feeds the state-claim evaluation; unreadable or
         // incomplete entries are simply absent evidence and stay INCONCLUSIVE.
         const stateSnapshots = async (side: 'source' | 'target'): Promise<unknown[]> => {
@@ -431,9 +497,11 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
         }
         // Missing or INCOMPLETE fresh state evidence can never end a scenario in PASS.
         if (stateOutcome.incomplete && result.status === 'PASS') result.status = 'INCONCLUSIVE';
+        endComparison();
         const evidencePath = `comparisons/${scenarioId}.json`;
-        await store.write(evidencePath, { scenarioId, preservation: result.status, diagnostics: result.diagnostics, assertions: assertions.outcomes,
-          observedPreservation: comparison.status, expectedDifferences: expected.evidence });
+        await timer.phase('persistence', () => store.write(evidencePath, { scenarioId, preservation: result.status, diagnostics: result.diagnostics,
+          assertions: assertions.outcomes, observedPreservation: comparison.status, expectedDifferences: expected.evidence }),
+        { step: 'scenario-evidence', scenarioId });
         result.evidencePaths = [source.path, target.path, evidencePath];
       } catch {
         const failed = suite?.captures.find(record => record.scenarioId === scenarioId && record.status !== 'COMPLETED');
@@ -441,7 +509,7 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
           detailCode: failed?.executionCode ?? failed?.reason ?? 'EVIDENCE_UNAVAILABLE',
           ...(failed ? { side: failed.side } : {}), ...(failed?.stepId ? { stepId: failed.stepId } : {}) }];
         if (contract?.unitId === item.definition.unitId) criticalStates.push('INCONCLUSIVE');
-      }
+      } finally { endComparison(); }
       scenarios.push(result);
     }
     const checks = (suite?.checks?.checks ?? []).map(check => ({ identity, checkId: check.checkId, status: check.status,
@@ -451,19 +519,29 @@ export async function verifyMigration(input: OperationInput & { preparation: unk
           side: check.side, category: check.baselineComparison === 'BASELINE_CHECK_FAILED' ? 'BASELINE' as const : 'OPERATIONAL' as const,
           detailCode: check.baselineComparison === 'BASELINE_CHECK_FAILED' ? 'BASELINE_CHECK_FAILED' : check.reason }] }));
     if (session.expired()) diagnostics.push({ code: 'OPERATION_FAILED', category: 'OPERATIONAL', detailCode: 'SESSION_TIMEOUT' });
-    const finalReference = await verifyMigrationReference({ config, workspaceRoot: workspace, reference: preparation.reference });
-    const unchanged = current && canonical((await collectMigrationReference({ config, workspaceRoot: workspace })).target) === canonical(current.target);
+    const finalReference = await timer.phase('hashing-collect', () => verifyMigrationReference({ config, workspaceRoot: workspace, reference: preparation.reference }),
+      { step: 'verify-reference-final' });
+    const unchanged = current && canonical((await timer.phase('hashing-collect', () => collectMigrationReference({ config, workspaceRoot: workspace }),
+      { step: 'collect-unchanged' })).target) === canonical(current.target);
     const report = buildMigrationReport(config, { identity, evaluatedAt: new Date().toISOString(), reference: finalReference,
       referenceVerified: finalReference.status === 'VERIFIED' && sourceObservations.status === 'STABLE' && buildMatches
         && sourceUnchanged && !suite?.failureCode && validPreparation && !!unchanged && !session.expired(), scenarios, checks, executionDiagnostics: diagnostics,
       privacy: { mode: store.privacyMode, platform: process.platform },
       ...(config.criticalContract ? { criticalContractStatus: combine(criticalStates) } : {}) });
-    if (suite?.checks) await store.write('native-checks.json', suite.checks);
-    await store.write('reference-verification.json', finalReference);
-    await store.write('criteria.json', { requirements: config.requirements, acceptedDifferences: config.acceptedDifferences });
-    await store.write('migration-report.json', report);
+    await timer.phase('persistence', async () => {
+      if (suite?.checks) await store.write('native-checks.json', suite.checks);
+      await store.write('reference-verification.json', finalReference);
+      await store.write('criteria.json', { requirements: config.requirements, acceptedDifferences: config.acceptedDifferences });
+      await store.write('migration-report.json', report);
+    }, { step: 'report' });
     return report;
-  } finally { session.close(); }
+  } finally {
+    session.close();
+    // Guaranteed close for abort/crash paths: the operation owns the browser it retained.
+    const closing = browser;
+    if (closing) await timer.phase('close', () => closing.close().catch(() => undefined), { step: 'operation-browser' });
+    await persistTimings(store, timer, 'verify');
+  }
 }
 
 export function summarizeMigration(report: MigrationReport): string {

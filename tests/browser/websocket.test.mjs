@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from '@playwright/test';
-import { captureScenario } from '../../packages/scenario-runner/dist/index.js';
-import { sanitizeTrace } from '../../packages/trace-sanitizer/dist/index.js';
-import { EquivalenceValidator } from '../../packages/equivalence-validator/dist/index.js';
+import { captureScenario } from '../../packages/engine/dist/scenario-runner/index.js';
+import { sanitizeTrace } from '../../packages/core/dist/trace-sanitizer/index.js';
+import { EquivalenceValidator } from '../../packages/engine/dist/equivalence/index.js';
 import { trace, event, contract } from '../helpers.mjs';
 import { webSocketFixture } from './websocket-fixture.mjs';
 
@@ -34,6 +34,11 @@ test('scenario WebSocket opt-in records sent and received frames with correlatio
     const interaction = captured.events.find(e => e.type === 'USER_INTERACTION' && e.stepId === 'send-second');
     assert.deepEqual(ws[2].causedByEventIds, [interaction.eventId]);
     assert.ok(!ws[0].causedByEventIds, 'frames before any interaction carry no causal parent');
+    // Explicit precondition (PLAN-V2 §11.3 A): the fixture holds page load until the recorder has
+    // processed the whole handshake (sent AND echoed), so the click step — and the interaction the
+    // recorder processes first for causality — can only start after both frames. The interaction is
+    // registered before the auto-wait, so disabling the button would not establish this.
+    assert.ok(ws[1].timestampMs <= interaction.timestampMs, 'the handshake is recorded before the interaction that opens the step');
     assert.ok(fixture.connections.some(c => c.path === '/live' && c.frames.some(f => f.direction === 'in' && /second/.test(f.text ?? ''))));
     // Sanitizer treats frame payloads like HTTP payloads: default-deny, pseudonymized, URL-safe.
     const sanitized = sanitizeTrace(captured, { pseudonymizationKey: policy.pseudonymizationKey });
@@ -42,6 +47,50 @@ test('scenario WebSocket opt-in records sent and received frames with correlatio
     assert.doesNotMatch(JSON.stringify(sanitized), /raw-secret|world/);
     // Identical runs are equivalent through the WebSocket comparator.
     assert.equal(new EquivalenceValidator().validate({ source: sanitizeTrace(captured, policy), target: sanitizeTrace(structuredClone(captured), policy), contract: contractFor('ws-live') }).divergences.filter(d => d.code.startsWith('WEBSOCKET_')).length, 0);
+  } finally { await browser.close(); await fixture.close(); }
+});
+
+// PLAN-V2 §11.3 A — deterministic protection for the CURRENT causal limitation of the recorder.
+// `causedByEventIds` is an association by processing proximity (the last `recordUserInteraction`
+// processed so far), NOT proven causality: RFC §8–9 limits causal claims to declared dependencies,
+// and the field's contract (demonstrable edge × separate temporal association) is a pending owner
+// decision — the semantics of the field are deliberately NOT changed here. This test pins today's
+// behavior with the two windows that expose it: late delivery (the hello echo, logically caused
+// before the interaction, is held until after the click) and an autonomous server push (never
+// requested by any scenario step). Both are attributed to the click interaction purely because the
+// recorder processed them after it was recorded.
+test('WebSocket causedByEventIds associates frames by processing proximity, not proven causality', { timeout: 60000 }, async () => {
+  const fixture = await webSocketFixture();
+  const browser = await chromium.launch();
+  try {
+    const scenario = {
+      ...base('ws-causal', `${fixture.url}/page-causal`),
+      steps: [{ stepId: 'send-late', action: 'click', targetRole: 'button', targetName: 'Send' }],
+      completionSignal: { type: 'WEBSOCKET_FRAME', urlPattern: '**/causal', direction: 'received', payloadShape: { reason: 'string' }, timeoutMs: 15000 },
+    };
+    const captured = await captureScenario(scenario, 1, { browser, baseUrl: fixture.url });
+    const ws = frames(captured);
+    assert.deepEqual(ws.map(e => [e.direction, e.payload]), [
+      ['sent', { hello: 'world' }],
+      ['sent', { second: 2 }],
+      ['received', { hello: 'world' }],
+      ['received', { second: 2 }],
+      ['received', { reason: 'autonomous' }],
+    ]);
+    const interaction = captured.events.find(e => e.type === 'USER_INTERACTION' && e.stepId === 'send-late');
+    assert.ok(interaction, 'the click step recorded its interaction');
+    // The fixture gate makes both windows deterministic: the handshake completes before the step
+    // starts, and the held echo plus the autonomous push can only be delivered after the click.
+    assert.ok(ws[0].timestampMs <= interaction.timestampMs, 'the handshake is recorded before the interaction that opens the step');
+    assert.ok(ws[2].timestampMs >= interaction.timestampMs, 'the held echo is delivered after the interaction (late delivery)');
+    assert.ok(!ws[0].causedByEventIds, 'frames before any interaction carry no causal parent');
+    assert.deepEqual(ws[1].causedByEventIds, [interaction.eventId]);
+    assert.deepEqual(ws[3].causedByEventIds, [interaction.eventId]);
+    assert.deepEqual(ws[2].causedByEventIds, [interaction.eventId],
+      'late delivery: the echo is attributed by processing proximity although its logical cause (the sent hello) predates the interaction');
+    assert.deepEqual(ws[4].causedByEventIds, [interaction.eventId],
+      'autonomous frame: attributed by processing proximity although no interaction caused it');
+    assert.ok(fixture.connections.some(c => c.path === '/causal' && c.frames.some(f => f.direction === 'in' && /second/.test(f.text ?? ''))));
   } finally { await browser.close(); await fixture.close(); }
 });
 

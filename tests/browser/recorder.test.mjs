@@ -5,9 +5,8 @@ import { mkdtemp, writeFile, symlink, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { chromium } from '@playwright/test';
-import { captureScenario, ScenarioRunner } from '../../packages/scenario-runner/dist/index.js';
-import { TemporalTraceRecorder } from '../../packages/trace-recorder/dist/index.js';
-import { checkAccessibility } from '../../packages/quality-gates/dist/index.js';
+import { captureScenario, ScenarioRunner } from '../../packages/engine/dist/scenario-runner/index.js';
+import { TemporalTraceRecorder } from '../../packages/engine/dist/trace-recorder/index.js';
 import { canCreateSymlink } from '../helpers/privacy.mjs';
 
 async function server() {
@@ -81,15 +80,4 @@ test('mock fixtures cannot escape their root or bypass the network origin bounda
     await new ScenarioRunner(page, { fixtureBaseDir: root, allowedOrigins: [fixture.url] }).run(input, 1);
     assert.equal(await page.evaluate(() => localStorage.getItem('result')), 'blocked'); await context.close();
   } finally { await browser.close(); await fixture.close(); await rm(root, { recursive: true, force: true }); await rm(outside, { force: true }); }
-});
-
-test('axe accessibility adapter reports violations without claiming complete conformance', { timeout: 30000 }, async () => {
-  const browser = await chromium.launch();
-  try {
-    const context = await browser.newContext(), page = await context.newPage();
-    await page.setContent('<html lang="en"><head><title>Fixture</title></head><body><main><button></button></main></body></html>');
-    const report = await checkAccessibility(page);
-    assert.equal(report.passed, false); assert.ok(report.violations.some(v => v.id === 'button-name')); assert.equal(report.manualReviewRequired, true);
-    await context.close();
-  } finally { await browser.close(); }
 });

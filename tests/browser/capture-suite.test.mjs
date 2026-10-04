@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { chromium } from '@playwright/test';
 import { buildWorkspace, write, listen, close } from '../helpers/build-workspace.mjs';
 import { captureProjectSuite } from '../../packages/engine/dist/capture-suite.js';
-import { captureScenario } from '../../packages/scenario-runner/dist/index.js';
+import { captureScenario } from '../../packages/engine/dist/scenario-runner/index.js';
 
 const diagnostics = report => JSON.stringify({ failureCode: report.failureCode,
   captures: report.captures.map(({ scenarioId, side, runIndex, status, reason, stepId, executionCode }) =>

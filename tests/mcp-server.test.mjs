@@ -11,6 +11,12 @@ test('mcp initialize and tools/list expose engine tools without new verdicts', a
   for (const name of ['prepare_migration', 'verify_migration', 'start_migration_session', 'inspect_migration_session', 'update_migration_session', 'verify_migration_session']) {
     assert.ok(names.includes(name), name);
   }
+  // The retired restricted interface is gone from the surface itself: no tool declares a
+  // caller-selected preparation, in properties or among the required arguments (PLAN-V2 §8.2).
+  for (const tool of list.result.tools) {
+    assert.equal('preparationPath' in tool.inputSchema.properties, false, `${tool.name} declares no preparationPath`);
+    assert.ok(!tool.inputSchema.required.includes('preparationPath'), `${tool.name} never requires a preparation`);
+  }
   const unknown = await handleRequest({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'auto_approve', arguments: {} } });
   assert.equal(unknown.error.code, -32602);
 });

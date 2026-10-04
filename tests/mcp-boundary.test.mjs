@@ -38,15 +38,29 @@ test('mcp refuses config and preparation symlinks that resolve into private stor
   assert.ok(!configText.includes(secret), 'no raw file content in the response');
   assert.ok(!configText.includes('.migration-private'), 'no private path in the response');
 
+  // The retired restricted input: preparationPath is refused before any configuration or
+  // preparation file is read, so the link into private storage is never followed and nothing
+  // of the target — content or path — is reflected back.
   const viaPreparation = await toolsCall('verify_migration', {
     configPath: join(root, 'migration.json'), workspaceRoot: root,
     preparationPath: join(root, 'preparation-link.json'), artifactPath: 'artifacts/standalone',
   });
   assert.equal(viaPreparation.error?.code, -32000);
-  assert.equal(viaPreparation.error.message, 'ASSISTANT_CHANNEL_PRIVATE_PATH:preparation-path');
+  assert.equal(viaPreparation.error.message, 'INVALID_INPUT:preparation-path');
   const preparationText = JSON.stringify(viaPreparation);
   assert.ok(!preparationText.includes(secret), 'no raw file content in the response');
   assert.ok(!preparationText.includes('.migration-private'), 'no private path in the response');
+
+  // A preparation input that spells the private path itself is still screened first: privacy
+  // outranks the argument refusal, and the label names the screen, never the path.
+  const screened = await toolsCall('verify_migration', {
+    configPath: join(root, 'migration.json'), workspaceRoot: root, preparationPath: storeFile,
+  });
+  assert.equal(screened.error?.code, -32000);
+  assert.equal(screened.error.message, 'ASSISTANT_CHANNEL_PRIVATE_PATH:tool-args');
+  const screenedText = JSON.stringify(screened);
+  assert.ok(!screenedText.includes(secret), 'no raw file content in the response');
+  assert.ok(!screenedText.includes('.migration-private'), 'no private path in the response');
 });
 
 test('mcp refuses private state-dir paths under env overrides and windows separators', async t => {
@@ -102,7 +116,7 @@ test('mcp answers unknown tools and methods with stable codes and hides raw read
   assert.ok(!text.includes('missing-config.json'), 'no path content leaks');
 });
 
-test('mcp verify_migration honors session budgets and refuses profile downgrade', async t => {
+test('mcp verify_migration honors session budgets and refuses the retired sessionless inputs', async t => {
   const { root, config } = await buildWorkspace();
   t.after(() => rm(root, { recursive: true, force: true }));
   config.profile = 'standard';
@@ -110,26 +124,48 @@ test('mcp verify_migration honors session budgets and refuses profile downgrade'
   await write(root, 'migration.json', JSON.stringify(config));
   const input = { config, workspaceRoot: root };
 
-  // Standard profile without a session never reaches a standalone (budget-free) verifier.
+  // Standard profile without a session never reaches a verifier: prepare is the only way in.
   const noSession = await toolsCall('verify_migration', { configPath, workspaceRoot: root, allowProjectCommands: true });
   assert.equal(noSession.error?.code, -32000);
   assert.equal(noSession.error.message, 'STANDARD_SESSION_REQUIRED');
   assert.equal(noSession.result, undefined, 'no verification result without a session');
 
-  // Caller-selected preparation/output are refused before any read.
+  // The retired restricted interface: a caller-selected preparation is refused structurally,
+  // before the configuration or any preparation file is read (PLAN-V2 §8.2).
+  const retired = await toolsCall('verify_migration', {
+    configPath, workspaceRoot: root, preparationPath: join(root, 'prepared.json'), allowProjectCommands: true,
+  });
+  assert.equal(retired.error?.code, -32000);
+  assert.equal(retired.error.message, 'INVALID_INPUT:preparation-path');
+  assert.equal(retired.result, undefined, 'a retired input never starts a verification');
+
+  // A caller-selected output is refused as well: the session owns reference and output.
   const selected = await toolsCall('verify_migration', {
-    configPath, workspaceRoot: root, preparationPath: join(root, 'prepared.json'),
-    artifactPath: 'artifacts/bypass', allowProjectCommands: true,
+    configPath, workspaceRoot: root, artifactPath: 'artifacts/bypass', allowProjectCommands: true,
   });
   assert.equal(selected.error?.message, 'STANDARD_SESSION_OWNS_REFERENCE_AND_OUTPUT');
 
-  // Non-standard profile without a session keeps exactly the CLI-gated standalone path.
+  // Every tool refuses a configuration outside profile standard, session or not — the MCP channel
+  // is now as standard-only as commandVerify/commandStatus/commandReference/commandPrepare.
   const plain = { ...config };
   delete plain.profile;
   await write(root, 'migration.json', JSON.stringify(plain));
-  const missingPreparation = await toolsCall('verify_migration', { configPath, workspaceRoot: root, allowProjectCommands: true });
-  assert.equal(missingPreparation.error?.message, 'MISSING_PREPARATION_PATH');
+  const nonStandard = await toolsCall('verify_migration', { configPath, workspaceRoot: root, allowProjectCommands: true });
+  assert.equal(nonStandard.error?.code, -32000);
+  assert.equal(nonStandard.error.message, 'STANDARD_PROFILE_REQUIRED');
+  const inspected = await toolsCall('inspect_migration_session', { configPath, workspaceRoot: root });
+  assert.equal(inspected.error?.message, 'STANDARD_PROFILE_REQUIRED');
+  const opened = await toolsCall('start_migration_session', {
+    configPath, workspaceRoot: root, artifactPath: 'artifacts/session', allowProjectCommands: true,
+  });
+  assert.equal(opened.error?.message, 'STANDARD_PROFILE_REQUIRED');
   await write(root, 'migration.json', JSON.stringify(config));
+
+  // start_migration_session mirrors commandPrepare's own refusals before any project command runs.
+  const noArtifact = await toolsCall('start_migration_session', { configPath, workspaceRoot: root, allowProjectCommands: true });
+  assert.equal(noArtifact.error?.message, 'MISSING_FLAG:artifact-path');
+  const unauthorized = await toolsCall('start_migration_session', { configPath, workspaceRoot: root, artifactPath: 'artifacts/session' });
+  assert.equal(unauthorized.error?.message, 'EXECUTION_NOT_AUTHORIZED');
 
   // With a session, verify_migration routes through the persistent attempt budgets.
   const reference = await collectMigrationReference({ ...input, sourceObservations: { status: 'STABLE', runs: 2, executionHashes: [digest('source'), digest('source')] } });
@@ -145,13 +181,20 @@ test('mcp verify_migration honors session budgets and refuses profile downgrade'
   assert.equal(payload.attemptsUsed, 4);
   assert.equal(payload.report, undefined, 'no standalone report bypasses the stopped session');
 
+  // A live session is never started (or reset) a second time: sessions are immutable state.
+  const restart = await toolsCall('start_migration_session', {
+    configPath, workspaceRoot: root, artifactPath: 'artifacts/restart', allowProjectCommands: true,
+  });
+  assert.equal(restart.error?.code, -32000);
+  assert.equal(restart.error.message, 'SESSION_ALREADY_EXISTS');
+
   // An existing session refuses a profile downgrade instead of one-shot verification.
   const downgraded = { ...config };
   delete downgraded.profile;
   await write(root, 'migration.json', JSON.stringify(downgraded));
   const refusal = await toolsCall('verify_migration', { configPath, workspaceRoot: root, allowProjectCommands: true });
   assert.equal(refusal.error?.code, -32000);
-  assert.equal(refusal.error.message, 'STANDARD_SESSION_PROFILE_REQUIRED');
+  assert.equal(refusal.error.message, 'STANDARD_PROFILE_REQUIRED');
 });
 
 /** Hash-linked attempt journal for a session budget, as recorded by the harness itself. */

@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import {
   canonical, migrationConfigHash, migrationReferenceHash, parseMigrationPreparation, scenarioSemanticProjection,
 } from '../packages/core/dist/index.js';
-import { verifySourceStability } from '../packages/equivalence-validator/dist/index.js';
+import { verifySourceStability } from '../packages/engine/dist/equivalence/index.js';
 import { ArtifactStore } from '../packages/engine/dist/artifacts.js';
 import {
   captureStateSnapshot, compareSourceStateEvidence, parseStateSnapshot, readStateSnapshot, readStateSnapshots,

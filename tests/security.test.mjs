@@ -3,13 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, symlink, stat, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sanitizeTrace, projectTraceForLlm } from '../packages/trace-sanitizer/dist/index.js';
+import { sanitizeTrace, projectTraceForLlm } from '../packages/core/dist/trace-sanitizer/index.js';
 import { ArtifactStore, AuditTrail, verifyAudit, runRepairLoop } from '../packages/engine/dist/index.js';
-import { BoundedWorker, fileHash } from '../packages/llm-worker/dist/index.js';
-import { approveContract, reviewContract, verifyContractIntegrity } from '../packages/contract-review/dist/index.js';
-import { InvariantMiner, EvidenceFusionEngine } from '../packages/contract-synthesizer/dist/index.js';
-import { evaluateGates, measureCoverage } from '../packages/quality-gates/dist/index.js';
-import { trace, event, contract, endpoint } from './helpers.mjs';
+import { BoundedWorker, fileHash } from '../packages/core/dist/llm-worker/index.js';
+import { approveContract, reviewContract, verifyContractIntegrity } from '../packages/core/dist/contract-review/index.js';
+import { measureCoverage } from '../packages/engine/dist/quality-gates/index.js';
+import { trace, event, contract } from './helpers.mjs';
 import { storeOptions, canEnforcePosixModes, canCreateSymlink } from './helpers/privacy.mjs';
 
 test('denylist, pseudonyms, schema boundary and injection-free LLM projection', () => {
@@ -59,16 +58,6 @@ test('approval is an explicit transition and does not share mutable nested objec
   approved.scenarios[0].invariants.network[0].value.payloadRequirements.requiredFields = [];
   assert.equal(verifyContractIntegrity(approved), false);
 });
-test('runtime mining counts distinct runs and never creates blocking requirements', () => {
-  const runs = [1, 2, 3].map(runIndex => ({ ...trace(), runIndex, runId: `run-${runIndex}` }));
-  const mined = InvariantMiner.mineHttpRuntimeEvidence(runs).candidateInvariants;
-  assert.deepEqual(mined[0].value.payloadRequirements.requiredFields, []);
-  assert.notEqual(mined[0].enforcement, 'BLOCKING');
-  assert.throws(() => InvariantMiner.mineHttpRuntimeEvidence([runs[0], runs[0], runs[0]]), /distinct/);
-  const fused = new EvidenceFusionEngine().fuseHttpEvidence(mined, [endpoint({ pathTemplate: '/api/customers/123' })]);
-  assert.deepEqual(fused[0].value.payloadRequirements.requiredFields, ['email']);
-  assert.throws(() => new EvidenceFusionEngine().fuseHttpEvidence([], mined));
-});
 test('worker rejects oracle edits, changed baselines, dependencies and deadlines', async () => {
   const policy = { allowedFiles: ['candidate.tsx'], allowedPackages: ['react'], maxFiles: 1, maxInputBytes: 10000, maxOutputBytes: 10000, timeoutMs: 20 };
   const plan = { unitId: 'unit', createdAt: new Date().toISOString(), items: [] };
@@ -81,19 +70,18 @@ test('worker rejects oracle edits, changed baselines, dependencies and deadlines
   ]) await assert.rejects(new BoundedWorker({ complete: async () => ({ patches: [patch], manifest }) }, policy).transform({ plan, files }));
   await assert.rejects(new BoundedWorker({ complete: async () => new Promise(() => {}) }, policy).transform({ plan, files }), /deadline/);
 });
-test('repair budget and oracle immutability, audited revalidation and gate precedence', async () => {
+test('repair budget and oracle immutability, audited revalidation', async () => {
   const approved = contract(); let method = 'POST';
   const fixed = await runRepairLoop({ source: trace(), contract: approved, maxRepairAttempts: 1, captureTarget: async () => trace(method), repair: async () => { method = 'PUT'; return { changedFiles: ['candidate.tsx'], patchHash: 'test' }; } });
   assert.equal(fixed.result.status, 'EQUIVALENT'); assert.equal(fixed.attempts, 1); assert.equal(verifyAudit(fixed.audit), true);
   const failed = await runRepairLoop({ source: trace(), contract: approved, maxRepairAttempts: 0, captureTarget: async () => trace('POST'), repair: async () => { throw new Error('Must not repair'); } });
   assert.equal(failed.result.status, 'NOT_EQUIVALENT');
-  assert.equal(evaluateGates({ unitId: approved.unitId, results: [failed.result], requiredScenarioIds: ['update-customer'], contractIntegrityVerified: true, securityBoundaryVerified: true, staticChecksPassed: true, experimentalConfidenceScore: 100 }).eligibility, 'NOT_ELIGIBLE');
   const mutable = contract();
   await assert.rejects(runRepairLoop({ source: trace(), contract: mutable, maxRepairAttempts: 1, captureTarget: async () => trace('POST'), repair: async () => { mutable.scenarios = []; return { changedFiles: [], patchHash: '' }; } }), /Protected/);
   const audit = new AuditTrail(); audit.record('TEST', { ok: true }); const entries = audit.snapshot(); entries[0].data.ok = false; assert.equal(verifyAudit(entries), false);
 });
 
-test('coverage measures required observations and cannot be replaced by a score', () => {
+test('coverage measures required observations and never claims unobserved routes', () => {
   const scenario = { scenarioId: 'update-customer', steps: [{ stepId: 'save', action: 'click' }], testDataProfile: 'error_flow' };
   const expected = { routes: ['/customers/:id'], mutations: [{ method: 'PUT', pathTemplate: '/api/customers/:id' }], scenarios: [scenario] };
   const observed = event(event(trace(), 'NAVIGATION', { fromUrl: 'about:blank', toUrl: 'http://app.test/customers/123' }), 'USER_INTERACTION', { stepId: 'save', action: 'click', targetAriaRole: 'button' });
@@ -101,9 +89,4 @@ test('coverage measures required observations and cannot be replaced by a score'
   const coverage = measureCoverage(expected, [observed]); assert.equal(coverage.isPolicySatisfied, true);
   assert.equal(coverage.knownErrorScenarios, 1);
   assert.equal(measureCoverage(expected, [trace()]).isPolicySatisfied, false);
-  const result = { scenarioId: 'update-customer', status: 'EQUIVALENT', divergences: [] };
-  const input = { unitId: 'unit', results: [result], requiredScenarioIds: ['update-customer'], contractIntegrityVerified: true, securityBoundaryVerified: true, staticChecksPassed: true };
-  assert.equal(evaluateGates({ ...input, coverage }).eligibility, 'ELIGIBLE');
-  assert.equal(evaluateGates(input).eligibility, 'ELIGIBLE_WITH_REVIEW');
-  assert.equal(evaluateGates({ ...input, coverage: measureCoverage(expected, []), experimentalConfidenceScore: 100 }).eligibility, 'NOT_ELIGIBLE');
 });

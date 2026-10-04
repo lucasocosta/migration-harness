@@ -157,6 +157,26 @@ export function disposition(report: MigrationReport): SessionDecision {
   if (!actionable.length && report.diagnostics.length) return 'REVIEW_REFERENCE';
   return 'FIX_ENVIRONMENT';
 }
+
+/**
+ * Identity of one attempt's failure for the STOP_NO_PROGRESS comparison (RFC §12; PLAN-V2 §11.3 B).
+ * Digests the semantic fields only: status, errorCode, scope findings and, per diagnostic, the
+ * classification keys (code, detailCode, scenarioId, requirementId, checkId, side, stepId, category).
+ * The A7 presentation enrichment (`expected`/`actual`, PLAN-V2 §11.2 A7 — the safe localization
+ * projection a divergence already publishes) is deliberately excluded: it is presentational evidence
+ * whose payload can vary between runs of a byte-identical candidate (measured: the `guard` scenario's
+ * async fetch moves `targetRoles` inside a non-blocking ARIA warning), and presentation must never
+ * decide whether a failure is "the same". Any semantic difference still digests differently, so
+ * genuinely different failures keep consuming the session as distinct — see
+ * tests/browser/migration-acceptance.test.mjs.
+ */
+export function failureFingerprint(attempt: { status: MigrationReport['status']; diagnostics?: MigrationReport['diagnostics'] | undefined;
+  errorCode?: string | null | undefined; findings?: readonly unknown[] | undefined }): string {
+  const semantic = (diagnostic: MigrationReport['diagnostics'][number]): string =>
+    canonical(Object.fromEntries(Object.entries(diagnostic).filter(([key]) => key !== 'expected' && key !== 'actual')));
+  return digest({ status: attempt.status, diagnostics: (attempt.diagnostics ?? []).map(semantic).sort(),
+    errorCode: attempt.errorCode ?? null, findings: attempt.findings ?? [] });
+}
 function allowance(session: MigrationSession, entries: HistoryItem[]) {
   const usedMs = entries.reduce((sum, item) => sum + (item.finish?.durationMs ?? item.start.remainingMs), 0);
   const remainingMs = Math.max(0, session.maxActiveMs - usedMs);
@@ -373,7 +393,7 @@ export async function verifyMigrationSession(input: Input & { allowProjectComman
     if (durationMs >= limits.remainingMs) { errorCode = 'SESSION_TIME_LIMIT'; decision = 'STOP_LIMIT'; }
     const finish = SessionAttemptFinishSchema.parse({ index, startHash: digest(start), finishedAt: new Date().toISOString(), durationMs,
       outcome: decision === 'REFUSED_SCOPE' ? 'REFUSED_SCOPE' : errorCode ? 'INCONCLUSIVE' : report?.status ?? 'INCONCLUSIVE',
-      fingerprint: digest({ status: report?.status ?? 'INCONCLUSIVE', diagnostics: report?.diagnostics.map(item => canonical(item)).sort() ?? [], errorCode: errorCode ?? null, findings }),
+      fingerprint: failureFingerprint({ status: report?.status ?? 'INCONCLUSIVE', diagnostics: report?.diagnostics, errorCode: errorCode ?? null, findings }),
       candidateHash: after.target.hash, findings, generation: current.index, ...(errorCode ? { errorCode } : {}),
       ...(report ? { reportPath: `${context.path}/runs/${id}/migration-report.json`, reportHash: digest(report) } : {}) });
     await store.write(`attempts/${id}.finished.json`, finish);

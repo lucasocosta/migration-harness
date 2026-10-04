@@ -26,36 +26,46 @@ repair. Evaluation inputs remain protected independently of who runs the tools.
 
 | Layer | Implemented | Remaining |
 | --- | --- | --- |
-| Configuration/reference | Versioned config/reference, working-tree fingerprints, input/build identity | Session reference refresh preserving budgets |
-| Execution | Suite coordination, bindings, reset, managed static builds and cleanup | Real Cinema exercise; static SPAs only |
+| Configuration/reference | Versioned config/reference, working-tree fingerprints, input/build identity, session reference refresh that preserves budgets (v2 `reference`) | Weakened criteria still require an explicit owner decision reference |
+| Execution | Suite coordination, bindings, reset, managed static builds and cleanup; Cinema exercised end to end | Static SPAs only; SSR and real Docker execution unverified |
 | Privacy | Sanitizer, safe value comparison, structural diagnostics, private keys | Same-user execution is not isolated |
-| Comparison | Selected values, scoped assertions, navigation, storage, ARIA, causality, contracts | Measured real-migration coverage |
-| Project validation | Native commands, baseline comparisons and aggregate required coverage | Real-migration regression evidence |
-| Agent integration | Normal scoped edits, persistent session history, CLI repair decisions and standard agent | Complete P4 acceptance and P5/P6 demonstrations |
-| Optional adapters | discovery, codemods, OpenAPI/test importers, manifests, bounded workers | Not prerequisites for standard verification |
+| Comparison | Selected values, scoped assertions, navigation, storage, ARIA, causality, contracts | Measured real-migration coverage; the three Cinema controlled regressions stay open |
+| Project validation | Native commands, baseline comparisons and aggregate required coverage | Broader real-migration regression evidence beyond the recorded exercises |
+| Agent integration | Normal scoped edits, persistent session history, CLI repair decisions, standard agent, complete P4 acceptance, recorded P5/P6 PASS | Cinema three-regression acceptance item and effort measurement |
+| Optional helpers | Bounded worker privacy screens (contract content screening, trace projection) shipped as libraries inside `core` | discovery, codemods and the OpenAPI/test importers were retired with the restricted profile ([PLAN-V2](PLAN-V2.md) §8.2) and are not available |
 
 No package-wide rewrite is required. Extend existing boundaries, version schemas
 and preserve tested behavior where it still serves the product.
 
-## Current versus proposed
+## Implemented surface
 
-Today `trace` captures one scenario; `compare` compares sanitized traces with an
-optional contract/manifest. `run` requires an approved contract, expects both apps
-already served, handles one scenario and has only a method-repair implementation.
-Its output is not a complete migration report.
+The CLI surface is the six v2 commands — `init`, `doctor`, `prepare`, `verify`,
+`status`, `reference` — over the engine; the envelope and exit codes are specified
+in [OPERATOR.md](OPERATOR.md). Capture, comparison and project-check building
+blocks are reached through `prepare`/`verify` and the library APIs below, not as
+standalone commands.
 
-The existing `brief -> apply-patch -> run` integration is the **restricted**
-profile. Keep issuance, protected hashes, read/write lists, patch screens, audit
-and compatibility tests there. The two Copilot agents and hook implement that
-profile; they are not an end-to-end standard agent.
+The repository is four packages. `core` holds the schemas and inferred types, the
+platform paths, normalization, contract integrity, trace sanitization and the bounded
+worker — the single source of truth the other packages import. `engine` holds
+reference/session state, capture (scenario runner and temporal recorder) and
+evaluation (equivalence, report and claim evaluation). `cli` (`harness`) and
+`mcp-server` (`harness-mcp`) are thin front ends over the same engine.
+
+The restricted profile and the previous 26-command surface were retired together
+by owner decision on 2026-10-03 ([PLAN-V2](PLAN-V2.md) §8.2): the issued-workflow
+protocol, its hooks and the other agent definitions went with them. The remaining
+agent definition is
+[.github/agents/migracao-padrao.agent.md](../.github/agents/migracao-padrao.agent.md),
+an operator of the v2 cycle.
 
 The implemented P3 operation coordinates native project checks, current builds,
 all required scenarios and destination regression. P1 provides configuration, reference
 and PASS/FAIL/INCONCLUSIVE report schemas, a library aggregator and reference
 collection/verification over real project inputs. P2 added selected value comparison,
 unit-scoped semantic assertions, per-application bindings, persistence read-back and
-source repeatability, all with structural diagnostics. P3 now adds check-projects
-for input/cwd preflight and native commands with bounded process cleanup, plus
+source repeatability, all with structural diagnostics. P3 now adds input/cwd
+preflight and native commands with bounded process cleanup, plus
 `withProjectBuildServers` for clean static builds, reserved loopback ports, bounded
 immutable file snapshots, healthchecks and callback-scoped server cleanup.
 `SERVED_BUILD` binds that session to configuration, declared inputs and served bytes;
@@ -63,17 +73,21 @@ build metadata participates in reference environment identity. `captureProjectSu
 now coordinates native resets and all configured scenarios, uses the runner's
 cancellation/build-navigation checks, sanitizes in memory and persists build-linked
 capture outcomes plus observed source stability. It does not compare source/target
-or issue/update references on its own. `prepare-migration` and `verify-migration`
-now add reference integration, comparisons/assertions, aggregate reporting and CLI.
+or issue/update references on its own. The operations behind `prepare` and `verify`
+now add reference integration, comparisons/assertions, aggregate reporting and the
+v2 envelope.
 
-P4 wraps that verifier with `migration-session`: immutable baseline scope and
-preparation, deterministic storage per project pair, exclusive attempt reservation,
-hash-linked outcomes and reports, scope checks before/after the complete run and
-persistent attempts/active-time/no-progress limits. `migration-scope` fingerprints
+P4 wraps that verifier with the session layer — preparation with immutable baseline
+scope in one operation, controlled reference refresh (`reference`) and state
+inspection (`status`) — plus deterministic storage per project pair, exclusive
+attempt reservation, hash-linked outcomes and reports, scope checks before/after the
+complete run and persistent attempts/active-time/no-progress limits. The engine's
+`migration-scope` module fingerprints
 current public trees, never follows links and excludes declared generated outputs.
-Private entries are opaque metadata; .git/dependencies are excluded. The new standard
-agent makes normal edits, while restricted issuance/hooks remain unchanged.
-Reference-refresh integration and full milestone acceptance remain pending.
+Private entries are opaque metadata; .git/dependencies are excluded. The standard
+agent makes normal edits inside `target.writePaths`; no command edits the candidate.
+P4 acceptance is complete and P5/P6 have recorded PASS runs; the Cinema
+three-regression acceptance item remains open (see [STATUS.md](STATUS.md)).
 
 ## Trust and evidence boundaries
 
@@ -88,4 +102,4 @@ Reference-refresh integration and full milestone acceptance remain pending.
 - Approved critical contracts keep their approval/integrity semantics in both profiles.
 
 See [ASSISTANT-INTEGRATION.md](ASSISTANT-INTEGRATION.md) for the integration contract
-and [USAGE.md](USAGE.md) for commands that actually exist.
+and [OPERATOR.md](OPERATOR.md) for the commands that actually exist.
