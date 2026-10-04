@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { exitCodeFor } from '../packages/cli/dist/v2/envelope.js';
 import { ArtifactStore } from '../packages/engine/dist/artifacts.js';
 import { buildWorkspace, write } from './helpers/build-workspace.mjs';
+import { canEnforcePosixModes } from './helpers/privacy.mjs';
 import { preflightBrowser } from '../packages/engine/dist/scenario-runner/index.js';
 
 // Canonical owner of the decision × exit matrix (PLAN-V2 §11.1 item 3, kill switch §8.2): what the
@@ -109,8 +110,15 @@ test('a target behavior divergence decides REPAIR_IMPLEMENTATION with a FAIL rep
   assert.ok(report.scenarios.some(item => item.status === 'FAIL'));
   assert.ok(report.diagnostics.some(item => item.code === 'BEHAVIOR_DIVERGENCE' && item.detailCode === 'STORAGE_MISMATCH'),
     'the FAIL is attributed to the divergent storage evidence');
-  assert.ok(!report.diagnostics.some(item => item.code === 'WEAK_PRIVATE_PERMISSIONS' || item.code === 'DEGRADED_ISOLATION'),
-    'strict privacy reports carry no disclosure noise');
+  if (await canEnforcePosixModes()) {
+    assert.ok(!report.diagnostics.some(item => item.code === 'WEAK_PRIVATE_PERMISSIONS' || item.code === 'DEGRADED_ISOLATION'),
+      'strict privacy reports carry no disclosure noise where the filesystem enforces modes');
+  } else {
+    // Windows/degraded FS: WEAK_PRIVATE_PERMISSIONS + DEGRADED_ISOLATION are expected disclosures
+    // (AGENTS.md, docs/OS-PORTABILITY.md), not noise — the decision and exit above prove they change nothing.
+    assert.ok(report.diagnostics.some(item => item.code === 'WEAK_PRIVATE_PERMISSIONS' || item.code === 'DEGRADED_ISOLATION'),
+      'degraded filesystems disclose the documented privacy mode');
+  }
   assert.equal(envelope.report.attemptsUsed, 1);
 });
 
