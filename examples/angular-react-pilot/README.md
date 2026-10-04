@@ -4,7 +4,11 @@ This is an implemented v0.2 synthetic integration fixture retained for regressio
 It is not the RFC v0.3 standard end-to-end assistant workflow. See
 [the implementation plan](../../docs/PLAN.md) for that acceptance milestone.
 
-Run `pnpm pilot` from the repository root after installing dependencies and Chromium.
+> **Retired runner:** the `pnpm pilot` package script (`scripts/pilot.mjs`) that drove this
+> fixture was removed with the restricted transformation pipeline (owner decision,
+> [PLAN-V2](../../docs/PLAN-V2.md) §8.2). The paragraphs below describe what that runner did;
+> nothing in the repository executes the fixture anymore — the Angular source, scenario and
+> policy are kept as reference material only.
 
 The fixture boots real Angular 20 in Chromium, transforms a supported standalone component to React with the codemod, and executes the same scenario using the TypeScript ScenarioRunner. Angular's async code is compiled for ES2016 so Zone.js can track Promise continuations.
 
@@ -14,10 +18,17 @@ Each execution prints its public and private artifact directories. Raw traces st
 
 The synthetic reviewer is deliberately named `synthetic-pilot-reviewer`. No actual human or production approval is implied. The provider is deterministic, not an external LLM, and the source component is within the codemod's documented subset.
 
-## Assistant protocol pilot
+## Assistant protocol pilot (retired)
 
-Run `pnpm pilot:assistant` to exercise the real `brief`, `apply-patch` and `run --max-repairs 0` commands. It enables TypeScript/lint gates, rebuilds the applied candidate bytes, detects PUT -> POST, obtains a repair brief, verifies the repair, rejects an out-of-boundary submission, and checks unchanged contract bytes and the audit chain.
+The assistant-protocol variant of this fixture — a package script driving the
+now-removed command surface — was retired together with the restricted profile
+(owner decision, [PLAN-V2](../../docs/PLAN-V2.md) §8.2); its instructions are gone
+from this README on purpose. The fixture ships no `migration.json`, so there is no
+session to open against it.
 
-The fixture selects structural/critical invariants before synthetic approval: runtime ARIA observations can contain pseudonyms and must not enter any section of a brief. Approved contracts are never stripped or rehashed to bypass a refusal. Three briefs and four apply results are archived under `artifacts/pilot-assistant-*`.
-
-This script simulates the assistant with deterministic codemod output. It does not prove a real assistant session. A clean-context recording is optional restricted-profile evidence under RFC v0.3, not a universal product gate. No generated candidate is production-approved by this demonstration.
+To drive a real migration, use the six-command cycle
+`doctor → prepare → edit the candidate → verify → status/reference` with the JSON
+envelope, as documented in [OPERATOR.md](../../docs/OPERATOR.md); the executable
+template is [examples/validation-first](../validation-first/README.md), which runs
+from the repository root after `corepack pnpm build`. The fixture
+described above is unchanged; only its `pnpm pilot` runner left with the kill switch.

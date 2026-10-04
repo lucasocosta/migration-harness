@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EquivalenceValidator, evaluateUnitAssertions } from '../packages/equivalence-validator/dist/index.js';
+import { EquivalenceValidator, evaluateUnitAssertions } from '../packages/engine/dist/equivalence/index.js';
 import { parseUnitAssertion, parseMigrationConfig, migrationConfigHash, unitAssertionsForScenario } from '../packages/core/dist/index.js';
-import { adaptLegacyComparison, assertionRequirementStatuses } from '../packages/quality-gates/dist/migration-report.js';
+import { adaptLegacyComparison, assertionRequirementStatuses } from '../packages/engine/dist/quality-gates/migration-report.js';
 import { event } from './helpers.mjs';
 
 const validator = new EquivalenceValidator();

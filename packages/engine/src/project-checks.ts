@@ -15,6 +15,37 @@ const digest = (value: unknown): string => createHash('sha256').update(canonical
 const OUTPUT_LIMIT = 1_048_576;
 type ProjectSide = 'source' | 'target';
 type Command = MigrationConfig['source']['commands'][number];
+/**
+ * The single `MigrationConfigSchema.superRefine` rule a cache-hit view may violate, mirrored here
+ * by its exact wording in `packages/core/src/migration-config.ts`. If that wording ever drifts, the
+ * permission below stops matching: the view is refused and the cycle falls back to a full run —
+ * never an incorrect report, only a lost gain.
+ */
+const SATISFIED_VIEW_ISSUE = 'At least one required target project check is necessary';
+
+/**
+ * The configuration parse every project check runs through, plus the one permission a cache-hit
+ * view needs (build-cache `runProjectChecksWithCache`): such a view is the full configuration with
+ * every cache-satisfied build check — and that side's `build` declaration — removed, so it may
+ * legitimately leave a side with no required check left, which the schema refuses for every real
+ * configuration. That rule alone is relaxed, and only when `satisfiedView` is set: any other
+ * rejection, and this same one outside a view, throws unchanged, so a caller that cannot build an
+ * honest view keeps falling back to a full run instead of guessing. The real schema is untouched.
+ */
+export function parseProjectCheckConfig(value: unknown, satisfiedView = false): MigrationConfig {
+  try { return parseMigrationConfig(value); }
+  catch (error) {
+    const issues = (error as { issues?: unknown }).issues;
+    const viewOnlyIssue = satisfiedView && Array.isArray(issues) && issues.length > 0
+      && issues.every((issue: { code?: unknown; message?: unknown; path?: unknown }) =>
+        issue.code === 'custom' && issue.message === SATISFIED_VIEW_ISSUE
+        && Array.isArray(issue.path) && issue.path.length === 0);
+    // The base object parse succeeded when superRefine is the only source of issues, and the schema
+    // has no defaults or transforms — so the raw view is exactly what a successful parse returns.
+    if (!viewOnlyIssue) throw error;
+    return value as MigrationConfig;
+  }
+}
 
 async function workspacePath(root: string): Promise<string> {
   const path = await realpath(resolve(root));
@@ -40,14 +71,28 @@ async function inputHash(config: MigrationConfig, workspaceRoot: string): Promis
     protectedFiles: reference.target.protectedFiles, criteria: reference.criteria });
 }
 
-export async function preflightProjectChecks(input: { config: unknown; workspaceRoot: string }): Promise<ProjectPreflight> {
-  const config = parseMigrationConfig(input.config);
+/**
+ * Hash basis of a check run: always the full configuration. For a cache-hit view (`config` holds
+ * the view) that is `satisfiedView.configuration` — the origin the view was derived from — because
+ * the view's own schema refusal proves it is not a configuration the hashing helpers will parse.
+ */
+function hashBasis(input: { satisfiedView?: { configuration: unknown } }, config: MigrationConfig): MigrationConfig {
+  return input.satisfiedView === undefined ? config : parseMigrationConfig(input.satisfiedView.configuration);
+}
+
+export async function preflightProjectChecks(input: {
+  config: unknown; workspaceRoot: string;
+  /** Full origin of the cache-hit view in `config` (see `runProjectChecksWithCache`). */
+  satisfiedView?: { configuration: unknown };
+}): Promise<ProjectPreflight> {
+  const config = parseProjectCheckConfig(input.config, input.satisfiedView !== undefined);
+  const hashed = hashBasis(input, config);
   const findings: ProjectPreflight['findings'] = [];
   const workspace = await workspacePath(input.workspaceRoot).catch(() => undefined);
   let fingerprint: string | undefined;
   if (!workspace) findings.push({ code: 'INPUT_UNAVAILABLE' });
   else {
-    fingerprint = await inputHash(config, workspace).catch(() => { findings.push({ code: 'INPUT_UNAVAILABLE' }); return undefined; });
+    fingerprint = await inputHash(hashed, workspace).catch(() => { findings.push({ code: 'INPUT_UNAVAILABLE' }); return undefined; });
     for (const check of config.checks) {
       const command = config[check.side].commands.find(item => item.id === check.commandId)!;
       await commandCwd(workspace, config, check.side, command).catch(() => findings.push({ code: 'CWD_UNAVAILABLE', checkId: check.id }));
@@ -61,7 +106,7 @@ export async function preflightProjectChecks(input: { config: unknown; workspace
     disclosures.push({ code: 'DEGRADED_ISOLATION', detailCode: 'PRIVATE_STORE_DEGRADED' });
   }
   return ProjectPreflightSchema.parse({ kind: 'PROJECT_PREFLIGHT', version: '1', migrationId: config.migrationId,
-    configurationHash: migrationConfigHash(config), workspaceHash: digest(workspace ?? resolve(input.workspaceRoot)),
+    configurationHash: migrationConfigHash(hashed), workspaceHash: digest(workspace ?? resolve(input.workspaceRoot)),
     status: findings.length ? 'INCONCLUSIVE' : 'PASS', ...(fingerprint ? { inputHash: fingerprint } : {}),
     findings, ...(disclosures.length ? { disclosures } : {}) });
 }
@@ -157,9 +202,18 @@ async function execute(command: Command, cwd: string, timeoutMs: number, signal?
 export async function runProjectChecks(input: {
   config: unknown; workspaceRoot: string; phase: 'baseline' | 'candidate'; allowProjectCommands?: boolean;
   baseline?: unknown; signal?: AbortSignal;
+  /**
+   * Full origin of the cache-hit view in `config` (build-cache `runProjectChecksWithCache`): the
+   * view may miss the one schema rule its removal triggers (`parseProjectCheckConfig`), and every
+   * hash of this run — configuration hash, preflight input hash and `inputHashAfter` — is computed
+   * over this configuration, never over the view, so a view run proves the same full-config facts
+   * the reassembled report carries. Absent, `config` is a real configuration: every rule applies.
+   */
+  satisfiedView?: { configuration: unknown };
 }): Promise<ProjectCheckReport> {
   const started = Date.now();
-  const config = parseMigrationConfig(input.config);
+  const config = parseProjectCheckConfig(input.config, input.satisfiedView !== undefined);
+  const hashed = hashBasis(input, config);
   if (!['baseline', 'candidate'].includes(input.phase)) throw new Error('Invalid check phase');
   const preflight = await preflightProjectChecks(input);
   const findings: ProjectCheckReport['findings'] = [];
@@ -193,7 +247,7 @@ export async function runProjectChecks(input: {
     checks.push({ checkId: check.id, side: check.side, required: check.required, commandId: check.commandId,
       commandHash, ...outcome, baselineComparison });
   }
-  const after = preflight.status === 'PASS' ? await inputHash(config, input.workspaceRoot).catch(() => undefined) : undefined;
+  const after = preflight.status === 'PASS' ? await inputHash(hashed, input.workspaceRoot).catch(() => undefined) : undefined;
   if (preflight.status === 'PASS' && after !== preflight.inputHash) findings.push({ code: 'INPUT_CHANGED' });
   const required = checks.filter(check => check.required);
   const status = preflight.status !== 'PASS' || findings.length || required.some(check => check.status === 'INCONCLUSIVE') ? 'INCONCLUSIVE'

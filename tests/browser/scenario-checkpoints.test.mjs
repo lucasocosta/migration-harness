@@ -4,9 +4,9 @@ import { createServer } from 'node:http';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { captureScenario } from '../../packages/scenario-runner/dist/index.js';
-import { sanitizeTrace } from '../../packages/trace-sanitizer/dist/index.js';
-import { evaluateUnitAssertions } from '../../packages/equivalence-validator/dist/index.js';
+import { captureScenario } from '../../packages/engine/dist/scenario-runner/index.js';
+import { sanitizeTrace } from '../../packages/core/dist/trace-sanitizer/index.js';
+import { evaluateUnitAssertions } from '../../packages/engine/dist/equivalence/index.js';
 
 test('explicit checkpoints record busy state, sequenced responses and text-specific completion in fresh contexts', async () => {
   const root = await mkdtemp(join(tmpdir(), 'scenario-checkpoints-'));

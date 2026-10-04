@@ -107,22 +107,30 @@ Build output (`source/dist/`, `java/target/`) and the runtime stores (`source/da
 ## Verify the implemented example
 
 Ports **8310** (source) and **8353** (target) must be free; the harness owns and
-closes both servers. Use a fresh `--artifact-path` for preparation, and never reset a
-session to dodge a budget.
+closes both servers. Use a fresh `--artifact-path` for `prepare`, and never reset a
+session to dodge a budget. The shipped config already carries `profile: "standard"`,
+so there is no `init` step. Run from the repository root after `corepack pnpm build`:
 
 ```bash
-node packages/cli/dist/index.js prepare-migration \
-  --config examples/api-first/migration.json --workspace-root . \
-  --artifact-path artifacts/api-first/prepared --allow-project-commands
-node packages/cli/dist/index.js start-migration-session \
-  --config examples/api-first/migration.json --workspace-root . \
-  --preparation artifacts/api-first/prepared/preparation.json
-# Both APIs are implemented; verify the complete suite:
-node packages/cli/dist/index.js verify-migration \
-  --config examples/api-first/migration.json --workspace-root . --allow-project-commands
-node packages/cli/dist/index.js migration-session-status \
-  --config examples/api-first/migration.json --workspace-root .
+HARNESS="node packages/cli/dist/index.js"
+CFG=examples/api-first/migration.json
+
+$HARNESS doctor --config "$CFG" --workspace-root . --json
+$HARNESS prepare --config "$CFG" --workspace-root . \
+  --artifact-path artifacts/api-first/prepared --allow-project-commands --json
+# Both APIs are implemented; if a repair is needed, edit only the target files listed
+# in target.writePaths between two verify runs — no command edits the candidate:
+$HARNESS verify --config "$CFG" --workspace-root . --allow-project-commands --json
+$HARNESS status --config "$CFG" --workspace-root . --json
 ```
+
+`doctor` runs no project command; `prepare` opens the session (`decision: READY`) with
+`--allow-project-commands` as the explicit consent to run the declared commands;
+`verify` spends one attempt per run and takes no reference or output path — the session
+owns both; `status` reads budget, blocks and next action without spending an attempt.
+For a versioned reference update use `reference` (a weakening is refused until the
+owner passes `--owner-decision`); the envelope and exit codes are documented in
+[OPERATOR.md](../../docs/OPERATOR.md).
 
 ## What this example exercises
 

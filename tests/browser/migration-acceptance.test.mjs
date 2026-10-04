@@ -8,7 +8,7 @@ import { canonical, migrationConfigHash, migrationReferenceHash } from '../../pa
 import { collectMigrationReference, ReferenceWeakeningError } from '../../packages/engine/dist/migration-reference.js';
 import { runProjectChecks } from '../../packages/engine/dist/project-checks.js';
 import { prepareMigration } from '../../packages/engine/dist/migration-operations.js';
-import { startMigrationSession, verifyMigrationSession, inspectMigrationSession, updateMigrationSessionReference, migrationSessionPath } from '../../packages/engine/dist/migration-session.js';
+import { startMigrationSession, verifyMigrationSession, inspectMigrationSession, updateMigrationSessionReference, migrationSessionPath, failureFingerprint } from '../../packages/engine/dist/migration-session.js';
 import { ArtifactStore } from '../../packages/engine/dist/artifacts.js';
 import '../helpers/privacy.mjs';
 import { buildWorkspace, write } from '../helpers/build-workspace.mjs';
@@ -207,6 +207,37 @@ test('acceptance negative: repeated identical failure stops for no progress', as
   assert.equal(second.decision, 'STOP_NO_PROGRESS', 'the same candidate and fingerprint cannot keep consuming the session');
   assert.equal(second.attemptsUsed, 2);
   assert.equal((await inspectMigrationSession(f.input)).stop, 'STOP_NO_PROGRESS');
+});
+
+// PLAN-V2 §11.3 B: the session fingerprint decides "the same failure" for STOP_NO_PROGRESS. The A7
+// presentation enrichment (expected/actual projections) may vary between runs of a byte-identical
+// candidate — measured: the `guard` scenario's async fetch moves `targetRoles` inside a non-blocking
+// ARIA warning — and must never flip that verdict; every semantic difference must keep failures apart.
+test('session fingerprint ignores the A7 presentation projection but keeps distinct failures distinct', () => {
+  const attempt = {
+    status: 'FAIL',
+    diagnostics: [
+      { code: 'BEHAVIOR_DIVERGENCE', scenarioId: 'guard', category: 'IMPLEMENTATION', detailCode: 'ARIA_SEMANTICS_MISMATCH' },
+      { code: 'REQUIREMENT_VIOLATED', scenarioId: 'guard', requirementId: 'empty-submit-forbidden', category: 'IMPLEMENTATION' },
+    ],
+    errorCode: null,
+    findings: [],
+  };
+  const identity = failureFingerprint(attempt);
+  const projection = [{ checkpoint: 'scenario_completed', difference: 'TREE', sourceRoles: ['alert'], targetRoles: ['button'] }];
+  assert.equal(failureFingerprint({ ...attempt, diagnostics: [{ ...attempt.diagnostics[0], expected: projection }, attempt.diagnostics[1]] }), identity,
+    'the expected projection is presentation, never part of the failure identity');
+  assert.equal(failureFingerprint({ ...attempt, diagnostics: [{ ...attempt.diagnostics[0], expected: [...projection], actual: [...projection] }, attempt.diagnostics[1]] }), identity);
+  assert.equal(failureFingerprint({ ...attempt, diagnostics: [...attempt.diagnostics].reverse() }), identity, 'diagnostic order is not identity');
+  const distinct = (changed, why) => assert.notEqual(failureFingerprint(changed), identity, why);
+  distinct({ ...attempt, status: 'INCONCLUSIVE' }, 'a different status is a different failure');
+  distinct({ ...attempt, errorCode: 'SESSION_VERIFICATION_FAILED' }, 'a different errorCode is a different failure');
+  distinct({ ...attempt, findings: [{ side: 'target', path: 'build.mjs', code: 'OUTSIDE_WRITE_SCOPE', change: 'ADDED' }] }, 'scope findings are semantic');
+  distinct({ ...attempt, diagnostics: [{ ...attempt.diagnostics[0], code: 'EXECUTION_INCOMPLETE' }, attempt.diagnostics[1]] }, 'diagnostic code is semantic');
+  distinct({ ...attempt, diagnostics: [{ ...attempt.diagnostics[0], detailCode: 'STATE_DIVERGENCE' }, attempt.diagnostics[1]] }, 'detailCode is semantic');
+  distinct({ ...attempt, diagnostics: [{ ...attempt.diagnostics[0], scenarioId: 'save' }, attempt.diagnostics[1]] }, 'scenarioId is semantic');
+  distinct({ ...attempt, diagnostics: [{ ...attempt.diagnostics[0], category: 'OPERATIONAL' }, attempt.diagnostics[1]] }, 'category is semantic');
+  distinct({ ...attempt, diagnostics: [attempt.diagnostics[1]] }, 'a missing diagnostic is a different failure');
 });
 
 test('acceptance negative: criteria weakening is refused and the session keeps its generation and budget', async t => {

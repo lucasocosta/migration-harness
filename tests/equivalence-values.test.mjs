@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EquivalenceValidator, diffValues, migrationComparisonPolicy, parseValidationPolicy, safeUrl, valuePathPresent,
-} from '../packages/equivalence-validator/dist/index.js';
-import { sanitizeTrace } from '../packages/trace-sanitizer/dist/index.js';
-import { adaptLegacyComparison } from '../packages/quality-gates/dist/migration-report.js';
+} from '../packages/engine/dist/equivalence/index.js';
+import { sanitizeTrace } from '../packages/core/dist/trace-sanitizer/index.js';
+import { adaptLegacyComparison } from '../packages/engine/dist/quality-gates/migration-report.js';
 import { trace, event } from './helpers.mjs';
 
 const validator = new EquivalenceValidator();

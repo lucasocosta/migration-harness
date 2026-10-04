@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   proposeNoiseSuggestions, verifySourceStability, migrationComparisonPolicy,
-} from '../packages/equivalence-validator/dist/index.js';
+} from '../packages/engine/dist/equivalence/index.js';
 import { parseSuggestionReport, HarnessPolicySchema, MigrationConfigSchema } from '../packages/core/dist/index.js';
 import { event } from './helpers.mjs';
 

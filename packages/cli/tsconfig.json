@@ -9,26 +9,11 @@
     "src/**/*.ts"
   ],
   "references": [
-    { "path": "../scenario-runner" },
-    { "path": "../static-analyzer" },
-    { "path": "../transformation-planner" },
-    { "path": "../codemods" },
-    { "path": "../engine" },
-    { "path": "../llm-worker" },
     {
       "path": "../core"
     },
     {
-      "path": "../contract-review"
-    },
-    {
-      "path": "../contract-synthesizer"
-    },
-    {
-      "path": "../equivalence-validator"
-    },
-    {
-      "path": "../quality-gates"
+      "path": "../engine"
     }
   ]
 }

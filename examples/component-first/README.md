@@ -44,24 +44,34 @@ Both apps are self-contained: `build.mjs` bundles the app and copies `design-sys
 ## Verify the implemented example
 
 Ports 4210/5175 must be free; the harness owns and closes both servers. Use a fresh
-`--artifact-path` for preparation, and never reset a session to dodge a budget.
+`--artifact-path` for `prepare`, and never reset a session to dodge a budget. The
+shipped config already carries `profile: "standard"`, so there is no `init` step. Run
+from the repository root after `corepack pnpm build`:
 
 ```bash
-node packages/cli/dist/index.js prepare-migration \
-  --config examples/component-first/migration.json --workspace-root . \
-  --artifact-path artifacts/component-first/prepared --allow-project-commands
-node packages/cli/dist/index.js start-migration-session \
-  --config examples/component-first/migration.json --workspace-root . \
-  --preparation artifacts/component-first/prepared/preparation.json
-# The committed components are implemented; verify the complete integrated suite:
-node packages/cli/dist/index.js verify-migration \
-  --config examples/component-first/migration.json --workspace-root . --allow-project-commands
-node packages/cli/dist/index.js migration-session-status \
-  --config examples/component-first/migration.json --workspace-root .
+HARNESS="node packages/cli/dist/index.js"
+CFG=examples/component-first/migration.json
+
+$HARNESS doctor --config "$CFG" --workspace-root . --json
+$HARNESS prepare --config "$CFG" --workspace-root . \
+  --artifact-path artifacts/component-first/prepared --allow-project-commands --json
+# The committed components are implemented. If a repair is needed, edit only
+# examples/component-first/react/** (target.writePaths: App.tsx, SeletorQuantidade.tsx,
+# FormularioPedido.tsx) between two verify runs — no command edits the candidate:
+$HARNESS verify --config "$CFG" --workspace-root . --allow-project-commands --json
+$HARNESS status --config "$CFG" --workspace-root . --json
 ```
 
-If this workspace already has a session, inspect it with `migration-session-status`
-and continue it within its remaining budget. For an independent automated check,
+`doctor` runs no project command; `prepare` opens the session (`decision: READY`) with
+`--allow-project-commands` as the explicit consent to run the declared commands;
+`verify` spends one attempt per run and takes no reference or output path — the session
+owns both; `status` reads budget, blocks and next action without spending an attempt.
+For a versioned reference update use `reference` (a weakening is refused until the
+owner passes `--owner-decision`); the envelope and exit codes are documented in
+[OPERATOR.md](../../docs/OPERATOR.md).
+
+If this workspace already has a session, inspect it with `status` and continue it
+within its remaining budget. For an independent automated check,
 run `node --test tests/browser/component-first.test.mjs` after building the harness;
 the test copies the example and creates its own isolated session.
 

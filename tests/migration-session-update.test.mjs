@@ -11,12 +11,32 @@ import { runProjectChecks } from '../packages/engine/dist/project-checks.js';
 import { startMigrationSession, inspectMigrationSession, verifyMigrationSession, updateMigrationSessionReference, migrationSessionPath } from '../packages/engine/dist/migration-session.js';
 import { prepareMigration } from '../packages/engine/dist/migration-operations.js';
 import { ArtifactStore } from '../packages/engine/dist/artifacts.js';
+import { preflightBrowser } from '../packages/engine/dist/scenario-runner/index.js';
 import { buildWorkspace, write } from './helpers/build-workspace.mjs';
 
 const digest = value => createHash('sha256').update(canonical(value)).digest('hex');
 const exec = promisify(execFile), cli = resolve('packages/cli/dist/index.js');
+async function run(args) {
+  try {
+    const { stdout, stderr } = await exec(process.execPath, [cli, ...args], { timeout: 180_000 });
+    return { code: 0, stdout, stderr };
+  } catch (error) {
+    return { code: error.code, stdout: String(error.stdout ?? ''), stderr: String(error.stderr ?? '') };
+  }
+}
 const read = async (root, path) => JSON.parse(await readFile(join(root, path), 'utf8'));
 const cleanPrivate = (t, root, dir) => t.after(() => rm(new ArtifactStore(join(root, dir)).privateRoot, { recursive: true, force: true }));
+
+// The two tests that run the real preparation/update gate probe Chromium first (measured
+// 2026-10-03: without a browser they stop at `BROWSER_UNAVAILABLE`, the three bookkeeping/CLI
+// tests stay green). Per-test guard keeps that bookkeeping coverage running everywhere.
+let chromiumIssue;
+try { await preflightBrowser(); } catch (error) { chromiumIssue = error?.message ?? String(error); }
+const withoutChromium = t => {
+  if (!chromiumIssue) return false;
+  t.skip(`Chromium unavailable: ${chromiumIssue}`);
+  return true;
+};
 
 // Synthetic observation declarations exercise session bookkeeping only; update itself always runs the real prepareMigration.
 async function syntheticFixture(t, { requirement = false } = {}) {
@@ -70,6 +90,7 @@ test('reference update refuses open attempts, pair changes and limit edits befor
 });
 
 test('update classifies reference changes through the real preparation gate: weakening needs an owner decision, an owner decision needs weakening', async t => {
+  if (withoutChromium(t)) return;
   const f = await syntheticFixture(t, { requirement: true });
   await assert.rejects(updateMigrationSessionReference({ ...f.input, config: { ...f.config, requirements: [] },
     artifactPath: 'artifacts/update-weakened', allowProjectCommands: true }),
@@ -79,9 +100,15 @@ test('update classifies reference changes through the real preparation gate: wea
   /Only a weakened reference version records an owner decision/);
   assert.equal(await readFile(f.generationsPath).catch(() => 'missing'), 'missing', 'refused updates append nothing');
   await write(f.root, 'weakened.json', JSON.stringify({ ...f.config, requirements: [] }));
-  await assert.rejects(exec(process.execPath, [cli, 'update-migration-session', '--config', join(f.root, 'weakened.json'),
-    '--workspace-root', f.root, '--artifact-path', 'artifacts/update-cli', '--allow-project-commands']),
-  error => error.code === 1 && /REFERENCE_CHANGE_REQUIRES_OWNER_DECISION/.test(error.stderr));
+  const refused = await run(['reference', '--config', join(f.root, 'weakened.json'), '--workspace-root', f.root,
+    '--artifact-path', 'artifacts/update-cli', '--allow-project-commands', '--json']);
+  assert.equal(refused.code, 1, `a weakening is a structured refusal: ${refused.stderr}`);
+  const envelope = JSON.parse(refused.stdout);
+  assert.equal(envelope.operationStatus, 'refused');
+  assert.equal(envelope.diagnostics[0].code, 'REFERENCE_CHANGE_REQUIRES_OWNER_DECISION');
+  assert.equal('owner-decision' in (envelope.nextActions[0]?.args ?? {}), false,
+    'a recommendation never pre-fills an approval the harness does not have');
+  assert.equal(envelope.nextActions[0].requiresApproval, 'requires_authorization');
 });
 
 test('generations chain is validated on every load; corruption throws and deletion falls back to generation zero', async t => {
@@ -107,20 +134,28 @@ test('generations chain is validated on every load; corruption throws and deleti
   assert.equal(fallback.generation, 0); assert.equal(fallback.referenceStatus, 'VERIFIED', 'without entries the original session reference is active again');
 });
 
-test('update-migration-session CLI accepts its flags and rejects others', async () => {
-  const help = await exec(process.execPath, [cli, 'update-migration-session', '--help']);
-  assert.match(help.stdout, /^update-migration-session --config <migration\.json> --workspace-root <dir> --artifact-path <new-relative-dir> \[--owner-decision <reference>\] --allow-project-commands/);
-  assert.match(help.stdout, /--allow-project-commands/); assert.match(help.stdout, /session resets remain forbidden/);
-  await assert.rejects(exec(process.execPath, [cli, 'update-migration-session', '--preparation', 'x.json', '--workspace-root', '.', '--config', 'x', '--artifact-path', 'y']),
-    error => error.code === 1 && /UNSUPPORTED_MIGRATION_OPTION/.test(error.stderr));
-  await assert.rejects(exec(process.execPath, [cli, 'update-migration-session', '--preflight-only']),
-    error => error.code === 1 && /UNSUPPORTED_MIGRATION_OPTION/.test(error.stderr));
-  // --owner-decision is session-legal without --previous; the missing-flag error proves the guard was passed.
-  await assert.rejects(exec(process.execPath, [cli, 'update-migration-session', '--owner-decision', 'ref']),
-    error => error.code === 1 && /MISSING_WORKSPACE_ROOT/.test(error.stderr));
+test('v2 reference accepts its flags and rejects the retired interface', async () => {
+  const help = await run(['reference', '--help']);
+  assert.equal(help.code, 0, help.stderr);
+  assert.match(help.stdout, /^reference --config <migration\.json> --workspace-root <dir> --artifact-path <new-relative-dir> \[--owner-decision <reference>\]/);
+  assert.match(help.stdout, /--allow-project-commands/);
+  // The retired sessionless reference interface is not a flag of this command any more.
+  for (const extra of [['--preparation', 'x.json'], ['--previous', 'x.json'], ['--preflight-only']]) {
+    const rejected = await run(['reference', ...extra, '--workspace-root', '.', '--config', 'x', '--artifact-path', 'y', '--json']);
+    assert.equal(rejected.code, 1, extra.join(' '));
+    assert.equal(JSON.parse(rejected.stdout).diagnostics[0].code, 'UNKNOWN_OPTION', extra.join(' '));
+  }
+  // --owner-decision is session-legal on its own; the missing-flag error names the first absent
+  // required flag, which proves the option itself passed validation.
+  const missing = await run(['reference', '--owner-decision', 'ref', '--json']);
+  assert.equal(missing.code, 1);
+  const refusal = JSON.parse(missing.stdout);
+  assert.equal(refusal.diagnostics[0].code, 'MISSING_FLAG');
+  assert.equal(refusal.diagnostics[0].fieldPath, '--config');
 });
 
 test('session reference update preserves identity, attempts and budgets across coverage, binding and owner-approved changes', async t => {
+  if (withoutChromium(t)) return;
   const { root, config } = await buildWorkspace();
   config.profile = 'standard'; config.limits = { sourceRuns: 2, maxRepairAttempts: 3, maxDurationMs: 600000 };
   const script = `import { mkdirSync, writeFileSync } from 'node:fs';

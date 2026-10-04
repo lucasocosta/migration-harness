@@ -9,8 +9,8 @@ import {
   parseMigrationReference, parseReferenceVerification,
 } from '../packages/core/dist/index.js';
 import { collectMigrationReference, verifyMigrationReference, ReferenceWeakeningError } from '../packages/engine/dist/migration-reference.js';
-import { approveContract } from '../packages/contract-review/dist/index.js';
-import { buildMigrationReport } from '../packages/quality-gates/dist/migration-report.js';
+import { approveContract } from '../packages/core/dist/contract-review/index.js';
+import { buildMigrationReport } from '../packages/engine/dist/quality-gates/migration-report.js';
 
 const time = '2026-09-06T12:00:00.000Z';
 const sha256 = value => createHash('sha256').update(value).digest('hex');

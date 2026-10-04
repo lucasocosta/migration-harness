@@ -1,5 +1,5 @@
 {
-  "kind": "MIGRATION_CONFIG", "version": "1", "migrationId": "validation-example",
+  "kind": "MIGRATION_CONFIG", "version": "1", "migrationId": "validation-example", "profile": "standard",
   "source": {
     "root": "examples/validation-first/angular", "baseUrl": "http://127.0.0.1:4320",
     "relevantFiles": ["main.ts", "build.mjs", "package.json"],

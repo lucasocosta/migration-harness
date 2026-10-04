@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MigrationConfigSchema, parseMigrationConfig, migrationConfigHash, parseMigrationReport } from '../packages/core/dist/index.js';
-import { buildMigrationReport, adaptLegacyComparison } from '../packages/quality-gates/dist/migration-report.js';
-import { EquivalenceValidator } from '../packages/equivalence-validator/dist/index.js';
+import { buildMigrationReport, adaptLegacyComparison } from '../packages/engine/dist/quality-gates/migration-report.js';
+import { EquivalenceValidator } from '../packages/engine/dist/equivalence/index.js';
 import { trace } from './helpers.mjs';
 
 const hash = 'a'.repeat(64);

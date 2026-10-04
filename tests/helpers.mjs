@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { approveContract, reviewContract } from '../packages/contract-review/dist/index.js';
+import { approveContract, reviewContract } from '../packages/core/dist/contract-review/index.js';
 import './helpers/privacy.mjs';
 
 export function trace(method = 'PUT', payload = { email: 'person@example.test' }) {

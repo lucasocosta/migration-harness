@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline';
 import {
-  prepareMigration, verifyMigration, startMigrationSession, inspectMigrationSession,
+  prepareMigration, startMigrationSession, inspectMigrationSession,
   verifyMigrationSession, updateMigrationSessionReference, migrationSessionPath,
 } from '@migration-harness/engine';
 import { parseMigrationConfig, type MigrationConfig } from '@migration-harness/core';
@@ -16,6 +16,10 @@ import { readPublicJson } from './public-io.js';
  * and error — is hygiene-screened, so private markers, pseudonyms and raw exception text
  * never reflect back onto the channel. Malformed input answers INVALID_REQUEST and the
  * transport keeps serving.
+ * The tools speak the CLI v2 vocabulary only (packages/cli/src/v2/commands.ts): profile
+ * standard, a session-owned reference/output/budget, and no caller-selected preparation —
+ * that restricted interface died with the profile (PLAN-V2 §8.2), so the argument is
+ * refused structurally instead of being served by a fallback path.
  */
 
 export interface JsonRpcRequest {
@@ -49,14 +53,12 @@ const TOOLS = [
   },
   {
     name: 'verify_migration',
-    description: 'Verify the candidate against the fixed reference. Harness-issued PASS/FAIL/INCONCLUSIVE only. A standard profile or existing session uses the session-owned reference, output and budgets.',
+    description: 'Verify the candidate against the fixed reference. Harness-issued PASS/FAIL/INCONCLUSIVE only, through the open standard session: the session owns the reference, the output and the budgets.',
     inputSchema: {
       type: 'object',
       properties: {
         configPath: { type: 'string' },
         workspaceRoot: { type: 'string' },
-        artifactPath: { type: 'string' },
-        preparationPath: { type: 'string' },
         allowProjectCommands: { type: 'boolean' },
       },
       required: ['configPath', 'workspaceRoot'],
@@ -64,11 +66,11 @@ const TOOLS = [
   },
   {
     name: 'start_migration_session',
-    description: 'Start a standard-profile persistent session (budgets, attempts).',
+    description: 'Start a standard-profile persistent session (budgets, attempts) the way prepare does: from a preparation the harness itself runs, never from a caller-supplied one.',
     inputSchema: {
       type: 'object',
-      properties: { configPath: { type: 'string' }, workspaceRoot: { type: 'string' }, preparationPath: { type: 'string' } },
-      required: ['configPath', 'workspaceRoot', 'preparationPath'],
+      properties: { configPath: { type: 'string' }, workspaceRoot: { type: 'string' }, artifactPath: { type: 'string' }, allowProjectCommands: { type: 'boolean' } },
+      required: ['configPath', 'workspaceRoot', 'artifactPath'],
     },
   },
   {
@@ -116,7 +118,7 @@ async function readConfig(path: string): Promise<MigrationConfig> {
   return parseMigrationConfig(await readPublicJson(path, 'config-path'));
 }
 
-/** Same deterministic session path the CLI lstats before accepting any one-shot verification. */
+/** Same deterministic session path the CLI lstats before accepting a session operation. */
 async function sessionExists(config: MigrationConfig, workspaceRoot: string): Promise<boolean> {
   const { lstat } = await import('node:fs/promises');
   const { resolve } = await import('node:path');
@@ -124,38 +126,57 @@ async function sessionExists(config: MigrationConfig, workspaceRoot: string): Pr
     (error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return false; throw error; });
 }
 
+/**
+ * CLI parity (packages/cli/src/v2/commands.ts, assertStandard): every MCP tool is part of the
+ * session flow, and the session flow refuses any configuration that does not declare profile
+ * standard — the restricted profile retired with its caller-selected preparation.
+ */
+function assertStandard(config: MigrationConfig): void {
+  if (config.profile !== 'standard') throw new Error('STANDARD_PROFILE_REQUIRED');
+}
+
+/** The standard session owns the output (commandVerify): a caller-selected artifact never reaches a verifier. */
+function assertSessionOwnsOutput(args: Record<string, unknown>): void {
+  if (callerSelected(args.artifactPath)) throw new Error('STANDARD_SESSION_OWNS_REFERENCE_AND_OUTPUT');
+}
+
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   assertAgentSafe(args, 'tool-args');
+  // The restricted interface is retired (PLAN-V2 §8.2): no tool declares preparationPath, so
+  // asking for one is refused as invalid input before any configuration or file is read.
+  if (callerSelected(args.preparationPath)) throw new Error('INVALID_INPUT:preparation-path');
   const workspaceRoot = String(args.workspaceRoot ?? '');
   const config = await readConfig(String(args.configPath ?? ''));
+  assertStandard(config);
   switch (name) {
     case 'prepare_migration':
+      // commandPrepare: a live session owns this source/target pair, so it is never prepared again.
+      if (await sessionExists(config, workspaceRoot)) throw new Error('SESSION_ALREADY_EXISTS');
       return prepareMigration({
         config, workspaceRoot, artifactPath: String(args.artifactPath ?? ''),
         allowProjectCommands: args.allowProjectCommands === true,
       });
     case 'verify_migration':
-      // CLI parity (packages/cli/src/migration.ts): the standard profile and any existing
-      // session own the reference, the output and the persistent budgets; a caller-selected
-      // preparation/output never reaches a standalone verifier.
-      if (config.profile === 'standard') {
-        if (callerSelected(args.preparationPath) || callerSelected(args.artifactPath)) throw new Error('STANDARD_SESSION_OWNS_REFERENCE_AND_OUTPUT');
-        if (!await sessionExists(config, workspaceRoot)) throw new Error('STANDARD_SESSION_REQUIRED');
-        return verifyMigrationSession({ config, workspaceRoot, allowProjectCommands: args.allowProjectCommands === true });
-      }
-      if (await sessionExists(config, workspaceRoot)) throw new Error('STANDARD_SESSION_PROFILE_REQUIRED');
-      if (!callerSelected(args.preparationPath)) throw new Error('MISSING_PREPARATION_PATH');
-      return verifyMigration({
-        config, workspaceRoot, artifactPath: String(args.artifactPath ?? 'artifacts'),
-        preparation: await readPublicJson(String(args.preparationPath), 'preparation-path', 32_000_000),
-        allowProjectCommands: args.allowProjectCommands === true,
-      });
+      // commandVerify: the standard session owns the reference, the output and the persistent
+      // budgets, so a sessionless input never reaches the verifier and a missing session is a
+      // structured refusal that points at prepare.
+      assertSessionOwnsOutput(args);
+      if (!await sessionExists(config, workspaceRoot)) throw new Error('STANDARD_SESSION_REQUIRED');
+      return verifyMigrationSession({ config, workspaceRoot, allowProjectCommands: args.allowProjectCommands === true });
     case 'start_migration_session':
-      if (!callerSelected(args.preparationPath)) throw new Error('MISSING_PREPARATION_PATH');
-      return startMigrationSession({
-        config, workspaceRoot,
-        preparation: await readPublicJson(String(args.preparationPath), 'preparation-path', 32_000_000),
-      });
+      // commandPrepare: the session opens from a preparation the harness itself produced during
+      // this call — the retired interface used to hand one in from outside through preparationPath.
+      if (await sessionExists(config, workspaceRoot)) throw new Error('SESSION_ALREADY_EXISTS');
+      if (!callerSelected(args.artifactPath)) throw new Error('MISSING_FLAG:artifact-path');
+      if (args.allowProjectCommands !== true) throw new Error('EXECUTION_NOT_AUTHORIZED');
+      {
+        const preparation = await prepareMigration({
+          config, workspaceRoot, artifactPath: String(args.artifactPath), allowProjectCommands: true,
+        });
+        // A preparation that did not pass opens no session; its report is the answer, as in commandPrepare.
+        if (preparation.status !== 'PASS' || preparation.kind !== 'MIGRATION_PREPARATION') return preparation;
+        return startMigrationSession({ config, workspaceRoot, preparation });
+      }
     case 'inspect_migration_session':
       return inspectMigrationSession({ config, workspaceRoot });
     case 'update_migration_session':
@@ -165,7 +186,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
         ...(args.ownerDecision ? { ownerDecisionReference: String(args.ownerDecision) } : {}),
       });
     default:
-      // Only verify_migration_session reaches the default: it never takes a caller preparation or output.
+      // Only verify_migration_session reaches the default: it takes no caller preparation or output.
+      assertSessionOwnsOutput(args);
       return verifyMigrationSession({ config, workspaceRoot, allowProjectCommands: args.allowProjectCommands === true });
   }
 }

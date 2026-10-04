@@ -4,7 +4,7 @@ import {
   parseMigrationConfig, resolveScenarioForSide, scenarioBindingProjection, scenarioSemanticProjection,
   migrationConfigHash, parseScenario,
 } from '../packages/core/dist/index.js';
-import { evaluateUnitAssertions } from '../packages/equivalence-validator/dist/index.js';
+import { evaluateUnitAssertions } from '../packages/engine/dist/equivalence/index.js';
 import { event } from './helpers.mjs';
 
 function config() {

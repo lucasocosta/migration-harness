@@ -10,12 +10,25 @@ import { prepareMigration } from '../packages/engine/dist/migration-operations.j
 import { ArtifactStore } from '../packages/engine/dist/artifacts.js';
 import { startMigrationSession, inspectMigrationSession, verifyMigrationSession, updateMigrationSessionReference,
   migrationSessionPath, SessionScopeRefusalError } from '../packages/engine/dist/migration-session.js';
+import { preflightBrowser } from '../packages/engine/dist/scenario-runner/index.js';
 import { buildWorkspace, write } from './helpers/build-workspace.mjs';
 
 const digest = value => createHash('sha256').update(canonical(value)).digest('hex');
 const read = async (root, path) => JSON.parse(await readFile(join(root, path), 'utf8'));
 const missing = async promise => (await promise.catch(() => 'missing')) === 'missing';
 const cleanPrivate = (t, root, dir) => t.after(() => rm(new ArtifactStore(join(root, dir)).privateRoot, { recursive: true, force: true }));
+
+// Three of the five tests here run the real `prepareMigration`/reference-update gate, and that
+// gate probes Chromium first (measured 2026-10-03: without a browser those three fail with
+// `BROWSER_UNAVAILABLE` while the two synthetic-fixture scope tests stay green). The guard is
+// per test, so the synthetic bookkeeping coverage still runs everywhere.
+let chromiumIssue;
+try { await preflightBrowser(); } catch (error) { chromiumIssue = error?.message ?? String(error); }
+const withoutChromium = t => {
+  if (!chromiumIssue) return false;
+  t.skip(`Chromium unavailable: ${chromiumIssue}`);
+  return true;
+};
 
 // Synthetic observation declarations exercise session bookkeeping only; scope guards run before any preparation.
 async function scopeFixture(t, setup) {
@@ -96,6 +109,7 @@ test('protected destination work refuses a reference update with or without scop
 });
 
 test('a declared scope expansion and coverage update adopt the new scope while attempts and budgets persist', async t => {
+  if (withoutChromium(t)) return;
   const { root, config } = await buildWorkspace();
   config.profile = 'standard'; config.limits = { sourceRuns: 2, maxRepairAttempts: 3, maxDurationMs: 600000 };
   const script = `import { mkdirSync, writeFileSync } from 'node:fs';
@@ -148,6 +162,7 @@ writeFileSync('dist/app.js', 'document.querySelector("button").onclick=()=>{docu
 });
 
 test('a writePaths expansion on a byte-identical workspace is refused until the opt-in, and only then authorizes edit-second work', async t => {
+  if (withoutChromium(t)) return;
   const { root, config } = await buildWorkspace();
   config.profile = 'standard'; config.limits = { sourceRuns: 2, maxRepairAttempts: 3, maxDurationMs: 600000 };
   const script = `import { mkdirSync, writeFileSync } from 'node:fs';
@@ -194,6 +209,7 @@ writeFileSync('dist/app.js', 'document.querySelector("button").onclick=()=>{docu
 });
 
 test('promoting a relevant but non-writable file into writePaths needs the explicit opt-in', async t => {
+  if (withoutChromium(t)) return;
   const { root, config } = await buildWorkspace();
   config.profile = 'standard'; config.limits = { sourceRuns: 2, maxRepairAttempts: 3, maxDurationMs: 600000 };
   const script = `import { mkdirSync, writeFileSync } from 'node:fs';

@@ -44,10 +44,14 @@ test('published component-first example verifies both dependent units in one sta
   assert.equal(status.referenceStatus, 'VERIFIED');
   assert.equal(status.lastReportMatchesWorkspace, true);
 
-  // A new process must also observe the durable result from this exact example.
+  // A new process must also observe the durable result from this exact example — through the v2
+  // status envelope (the retired `migration-session-status` command is gone, kill switch §8.2).
   await writeFile(join(root, 'config.json'), JSON.stringify(config));
-  const cli = await exec(process.execPath, [resolve('packages/cli/dist/index.js'), 'migration-session-status',
-    '--config', join(root, 'config.json'), '--workspace-root', root]);
-  assert.equal(JSON.parse(cli.stdout).lastReportMatchesWorkspace, true);
-  assert.equal(JSON.parse(cli.stdout).sessionPath, migrationSessionPath(config));
+  const cli = await exec(process.execPath, [resolve('packages/cli/dist/index.js'), 'status',
+    '--config', join(root, 'config.json'), '--workspace-root', root, '--json']);
+  const envelope = JSON.parse(cli.stdout);
+  assert.equal(envelope.operationStatus, 'processed');
+  assert.equal(envelope.decision, 'COMPLETE');
+  assert.equal(envelope.report.lastReportMatchesWorkspace, true);
+  assert.equal(envelope.sessionId, migrationSessionPath(config));
 });

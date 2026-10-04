@@ -11,10 +11,7 @@
   },
   "dependencies": {
     "@migration-harness/core": "workspace:*",
-    "@migration-harness/contract-review": "workspace:*",
-    "@migration-harness/equivalence-validator": "workspace:*",
-    "@migration-harness/quality-gates": "workspace:*",
-    "@migration-harness/scenario-runner": "workspace:*",
-    "@migration-harness/trace-sanitizer": "workspace:*"
+    "@playwright/test": "1.63.0",
+    "yaml": "^2.8.0"
   }
 }

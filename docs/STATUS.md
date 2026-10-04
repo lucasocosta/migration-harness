@@ -1,6 +1,6 @@
 # Status
 
-Updated: 2026-09-12. Current work is harness maintenance for publication on
+Updated: 2026-10-03 (previous revision 2026-09-12). Current work is harness maintenance for publication on
 `next/angular-forms-and-io`; the owner explicitly authorized corrections, commit
 and push. The separate Cinema application repositories are outside this push.
 
@@ -10,14 +10,19 @@ The standard profile is implemented through P4 acceptance. One assistant can
 prepare a fixed reference, edit the scoped destination, verify, repair and adopt
 controlled reference updates in the same session. Attempts, active verification
 time and history persist. Select `profile: "standard"` in MigrationConfig and
-record that choice in the specification; there is no `--profile` flag.
+record that choice in the specification. The CLI surface is v2 — `init`, `doctor`,
+`prepare`, `verify`, `status`, `reference` (owner decision 2026-10-03,
+[PLAN-V2](PLAN-V2.md) §8.2); the former 26-command surface and the restricted
+profile were retired with it. Profile rules, including which CLI flags do not
+exist, are in [AGENTS.md](../AGENTS.md); operation is specified in
+[OPERATOR.md](OPERATOR.md).
 
 Cinema (P5) has a recorded migration PASS and an authorized React commit. P6 has
 a recorded integrated PASS for a routeless component and two dependent units.
 The Cinema-specific three controlled regressions and complete usability effort
 measurement remain open. Do not describe the whole RFC checklist as closed.
-See [PLAN](PLAN.md), [public Cinema evidence](CINEMA-EVIDENCE.md), and
-[VALIDATION](VALIDATION.md) for current tasks and historical execution records.
+See [PLAN](PLAN.md) for current tasks, [public Cinema evidence](archive/CINEMA-EVIDENCE.md)
+and [VALIDATION](archive/VALIDATION.md) for historical execution records (not normative).
 
 | Area | Delivered | Practical limits |
 | --- | --- | --- |
@@ -25,15 +30,15 @@ See [PLAN](PLAN.md), [public Cinema evidence](CINEMA-EVIDENCE.md), and
 | Comparison | Network shapes and selected values, scoped assertions, navigation, storage, persistence read-back, declared expected differences | Mocked coverage is disclosed and does not prove a real backend |
 | Evidence | Versioned fixed reference, hashes, build-linked suite records, public structural diagnostics and consolidated report | Fingerprints detect inconsistency, not malicious mutation by the same OS user |
 | Project checks | Authorized argv/cwd, bounded execution, baseline checks, managed static builds and servers | Static SPA serving; SSR and real Docker image execution are not verified |
-| Iteration | Scoped normal edits, persistent budgets, no-progress detection and controlled reference refresh | File-level scope checks cannot attribute individual edited lines |
-| Restricted compatibility | Brief/patch protocol, approval integrity, hooks and deterministic pilots | Restricted repair adapter remains method-only; old evidence is not standard acceptance |
-| Optional helpers | Angular discovery, partial IO/forms codemods, OpenAPI/test import and worker adapters | Field-level inject discovery and additional codemods are deferred |
+| Iteration | Scoped normal edits, persistent budgets, no-progress detection and controlled reference refresh (`reference`) | File-level scope checks cannot attribute individual edited lines |
+| Optional helpers | Bounded worker privacy screens (contract content screening, trace projection) as libraries inside `core` | discovery, codemods and the OpenAPI/test importers were retired with the restricted profile ([PLAN-V2](PLAN-V2.md) §8.2); they are not available |
 
-`prepare-migration` PASS establishes a reference; it does not approve a migration.
-`verify-migration` emits PASS/FAIL/INCONCLUSIVE, with CLI exit codes 0/4/5.
-Standard sessions may refuse completion on scope/budget grounds even when a
-nested behavioral report passes. Human integration/release review remains distinct.
-See [USAGE](USAGE.md) for complete operations and limits.
+A `prepare` PASS (`decision: READY`) establishes a reference; it does not approve a
+migration. `verify` emits PASS/FAIL/INCONCLUSIVE with exit codes 0/4/5, and a stop
+decision (exit 3) outranks any nested report. Sessions may refuse completion on
+scope/budget grounds even when a nested behavioral report passes. Human
+integration/release review remains distinct. See [OPERATOR.md](OPERATOR.md) for the
+cycle, the envelope and the limits.
 
 ## Publication corrections
 
@@ -47,8 +52,8 @@ Angular packages used by fixtures and compiler helpers are pinned to 20.3.31.
 The dependency audit after installation reports zero advisories. The repository
 is MIT-licensed as of 2026-09-28 ([LICENSE](../LICENSE)); packages are not
 published to npm.
-A new same-revision verification is recorded in [PUBLICATION](PUBLICATION.md).
-The original [audit](AUDIT-2026-09-12.md) is historical and is not silently rewritten.
+A new same-revision verification is recorded in [PUBLICATION](archive/PUBLICATION.md).
+The original [audit](archive/AUDIT-2026-09-12.md) is historical and is not silently rewritten.
 
 ## Recorded demonstrations
 
@@ -75,12 +80,13 @@ The original [audit](AUDIT-2026-09-12.md) is historical and is not silently rewr
   claims isolation guarantees. See docs/OS-PORTABILITY.md. The historical WSL
   browser close stall was avoided with an isolated TMPDIR under `/dev/shm`; that is
   an environment workaround, not relaxed validation.
-- Standard budgets count cumulative verification time, excluding preparation,
-  editing and idle time. Restricted repair counters are caller-supplied.
+- Session budgets are frozen at `prepare`: `maxRepairAttempts + 1` attempts plus
+  cumulative verification time `maxDurationMs`, excluding preparation, editing and
+  idle time. Reading `status` never spends an attempt.
 - Missing source-stability evidence remains UNVERIFIABLE. Missing Git metadata
   may produce UNVERSIONED. Preserve existing work; inspect crash/stale-lock state
   before recovery. Do not reset a session to avoid budget limits.
-- AGENTS.md changes invalidate restricted briefs that fingerprint it; reissue
-  through the harness. Never edit approval/brief hashes or read private raw traces.
-- Additional codemods, broader service-worker/WebSocket capture, Docker proof and
-  a clean-context restricted demonstration remain deferred, not publication gates.
+- Never edit approval, reference or report hashes, and never read private raw
+  traces or private-state paths into the assistant context.
+- Additional codemods, broader service-worker/WebSocket capture and Docker proof
+  remain deferred, not publication gates.

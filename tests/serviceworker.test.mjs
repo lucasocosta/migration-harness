@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseScenario, parseRawTrace, parseSanitizedTrace } from '../packages/core/dist/index.js';
-import { sanitizeTrace, projectTraceForLlm } from '../packages/trace-sanitizer/dist/index.js';
-import { EquivalenceValidator } from '../packages/equivalence-validator/dist/index.js';
+import { sanitizeTrace, projectTraceForLlm } from '../packages/core/dist/trace-sanitizer/index.js';
+import { EquivalenceValidator } from '../packages/engine/dist/equivalence/index.js';
 import { trace } from './helpers.mjs';
 
 const scenario = extra => ({ scenarioId: 'sw', unitId: 'unit', name: 'sw', description: '', entryUrl: 'http://app.test/', preconditions: {}, steps: [], testDataProfile: 'standard', ...extra });

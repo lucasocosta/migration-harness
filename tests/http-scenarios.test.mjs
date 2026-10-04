@@ -9,11 +9,11 @@ import {
   canonical, classifyReferenceChange, migrationConfigHash, parseMigrationConfig, parseRawTrace, parseScenario,
   responseFieldClaimsForScenario,
 } from '../packages/core/dist/index.js';
-import { captureScenario } from '../packages/scenario-runner/dist/index.js';
-import { sanitizeTrace } from '../packages/trace-sanitizer/dist/index.js';
-import { EquivalenceValidator } from '../packages/equivalence-validator/dist/index.js';
-import { evaluateResponseFieldClaims } from '../packages/quality-gates/dist/index.js';
-import { assertionRequirementStatuses, buildMigrationReport } from '../packages/quality-gates/dist/migration-report.js';
+import { captureScenario } from '../packages/engine/dist/scenario-runner/index.js';
+import { sanitizeTrace } from '../packages/core/dist/trace-sanitizer/index.js';
+import { EquivalenceValidator } from '../packages/engine/dist/equivalence/index.js';
+import { evaluateResponseFieldClaims } from '../packages/engine/dist/quality-gates/index.js';
+import { assertionRequirementStatuses, buildMigrationReport } from '../packages/engine/dist/quality-gates/migration-report.js';
 import { scenarioRequirementStatuses } from '../packages/engine/dist/migration-operations.js';
 import { collectMigrationReference } from '../packages/engine/dist/migration-reference.js';
 

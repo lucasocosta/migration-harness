@@ -12,7 +12,7 @@ import {
 } from '@migration-harness/core';
 import {
   verifySourceStability, type SourceStabilityInput, type SourceStabilityResult,
-} from '@migration-harness/equivalence-validator';
+} from './equivalence/index.js';
 import { safeArtifactPath, type ArtifactStore } from './artifacts.js';
 import { assertNotPrivateWorkspace, pathSegments } from './platform-paths.js';
 import { killTree, resolveExecutable } from './process-tree.js';

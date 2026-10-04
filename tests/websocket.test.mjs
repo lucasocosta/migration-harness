@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseScenario, parseSanitizedTrace, urlPatternMatches, matchesDeclaredShape, valueShape } from '../packages/core/dist/index.js';
-import { sanitizeTrace, projectTraceForLlm } from '../packages/trace-sanitizer/dist/index.js';
-import { EquivalenceValidator, parseValidationPolicy } from '../packages/equivalence-validator/dist/index.js';
-import { evaluateGates } from '../packages/quality-gates/dist/index.js';
+import { sanitizeTrace, projectTraceForLlm } from '../packages/core/dist/trace-sanitizer/index.js';
+import { EquivalenceValidator, parseValidationPolicy } from '../packages/engine/dist/equivalence/index.js';
 import { trace, event } from './helpers.mjs';
 
 const scenario = signal => ({ scenarioId: 'ws', unitId: 'unit', name: 'ws', description: '', entryUrl: 'http://app.test/', preconditions: {}, steps: [], testDataProfile: 'standard', ...signal ? { completionSignal: signal } : {} });
@@ -122,8 +121,4 @@ test('WebSocket divergences gate releases as blocking network-family evidence', 
   const result = validator.validate({ source, target });
   const ws = result.divergences.find(d => d.code === 'WEBSOCKET_PAYLOAD_SHAPE_MISMATCH');
   assert.equal(result.status, 'NOT_EQUIVALENT');
-  const gates = evaluateGates({ unitId: 'CustomerProfileComponent', results: [result], requiredScenarioIds: ['update-customer'], contractIntegrityVerified: true, securityBoundaryVerified: true, staticChecksPassed: true });
-  assert.equal(gates.blockingGates.find(g => g.name === 'equivalence').passed, false);
-  assert.ok(gates.blockingGates.find(g => g.name === 'equivalence').errors.includes('WEBSOCKET_PAYLOAD_SHAPE_MISMATCH'));
-  assert.equal(gates.eligibility, 'NOT_ELIGIBLE');
 });

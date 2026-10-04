@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { canonical } from './normalization.js';
 import { MigrationIdSchema, MigrationPathSchema, Sha256Schema } from './migration-config.js';
 import { ReferenceVerificationSchema } from './migration-reference.js';
+import { JsonValueSchema } from './schemas.js';
 
 export const VerificationStatusSchema = z.enum(['PASS', 'FAIL', 'INCONCLUSIVE']);
 export const VerificationIdentitySchema = z.object({
@@ -19,6 +20,14 @@ export const MigrationDiagnosticSchema = z.object({
   side: z.enum(['source', 'target']).optional(), stepId: MigrationIdSchema.optional(),
   category: z.enum(['IMPLEMENTATION', 'OPERATIONAL', 'EVIDENCE', 'BASELINE']).optional(),
   detailCode: z.string().regex(/^[A-Z][A-Z0-9_]*$/).max(160).optional(),
+  /**
+   * Safe expected/actual summary of a divergence (PLAN-V2 §11.2 A7): the projection the comparison
+   * already publishes — structural location, value kinds, fingerprints — so an operator can localize
+   * a failure without diffing traces. Never an observed value and never a raw trace; absent when the
+   * projection produced no counterpart ("present only when they exist").
+   */
+  expected: JsonValueSchema.optional(),
+  actual: JsonValueSchema.optional(),
 }).strict();
 const result = z.object({
   status: VerificationStatusSchema,

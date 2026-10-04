@@ -3,7 +3,7 @@
 Dados sinteticos; nada deriva de traces. Perfil: **standard**. Esta SPEC declara
 as unidades, a ordenacao por dependencia e os hosts autorizados; os criterios
 executaveis vivem em `migration.json` (5 cenarios, 11 requisitos unit-scope,
-3 checks). Execucao registrada em `docs/VALIDATION.md` (2026-09-12).
+3 checks). Execucao registrada em `docs/archive/VALIDATION.md` (2026-09-12).
 
 ## Unidades e integracao
 

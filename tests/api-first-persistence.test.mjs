@@ -20,11 +20,10 @@ import './helpers/privacy.mjs';
 //   (5) the reset commands restore the identical baseline (probe before/after cycle equal),
 // plus the native checks of both sides. Needs php, JDK and Maven; skips cleanly where the
 // toolchains are absent. The suite copies the pair to a temp workspace (like
-// api-first-acceptance.test.mjs), builds the target, boots both servers on the reserved ports
-// 8310/8353, drives HTTP and runs the declared probe/reset commands; after() tears everything
-// down so the ports stay free for the next suite.
+// api-first-acceptance.test.mjs), builds the target, boots both servers on ephemeral ports it
+// reserves itself, drives HTTP and runs the declared probe/reset commands; after() tears
+// everything down so no port of this suite survives its run.
 const exec = promisify(execFile), repo = resolve('.');
-const SOURCE_PORT = 8310, TARGET_PORT = 8353;
 const delay = ms => new Promise(done => setTimeout(done, ms));
 const isWindows = process.platform === 'win32';
 /** Only mvn ships as a .cmd shim on Windows, which Node refuses to spawn without a shell. */
@@ -43,11 +42,31 @@ function tool(cwd, argv) {
 let world;
 const roots = [];
 const servers = {};
+/**
+ * Ephemeral-port reservations this suite still holds open. A port is picked with `listen(0)` and
+ * its listener stays bound — so no concurrent run can be handed the same number — until the very
+ * moment the real server is about to bind it. Releasing earlier (the TOCTOU window of
+ * `build-workspace.mjs`) is what the reservations exist to avoid: the exposure is the few
+ * milliseconds between `release()` and the child's `bind`, not the whole fixture setup.
+ */
+const reservations = new Set();
+async function reservePort() {
+  const server = await listen(0);
+  reservations.add(server);
+  return server;
+}
+const portOf = server => server.address().port;
+/** Free one reservation exactly once; the caller keeps the number it already read. */
+async function release(server) {
+  if (!server || !reservations.delete(server)) return;
+  await close(server);
+}
+const releaseAll = async () => { for (const server of [...reservations]) await release(server); };
 
 const sides = () => ({
-  source: { dir: world.sourceDir, port: SOURCE_PORT,
+  source: { dir: world.sourceDir, port: world.ports.source,
     probe: ['php', 'evaluation/state-probe.php'], reset: ['php', 'reset.php'] },
-  target: { dir: world.targetDir, port: TARGET_PORT,
+  target: { dir: world.targetDir, port: world.ports.target,
     probe: ['java', '-cp', 'target/classes', 'com.example.apifirst.StateProbe'],
     reset: ['java', '-cp', 'target/classes', 'com.example.apifirst.Reset'] },
 });
@@ -55,11 +74,6 @@ const sides = () => ({
 async function ensure(t) {
   if (!toolchains()) { t.skip('php/java/mvn toolchains unavailable'); return null; }
   if (world) return world;
-  for (const port of [SOURCE_PORT, TARGET_PORT]) {
-    const server = await listen(port).catch(() => undefined);
-    assert.ok(server, `port ${port} must be free: the example reserves it`);
-    await close(server);
-  }
   const root = await mkdtemp(join(tmpdir(), 'api-first-persistence-'));
   roots.push(root);
   await cp(join(repo, 'examples/api-first'), join(root, 'examples/api-first'), { recursive: true });
@@ -72,9 +86,15 @@ async function ensure(t) {
   try {
     await tool(targetDir, ['mvn', '-q', '-DskipTests', 'package']);
   } catch (error) {
+    await releaseAll();
     throw new Error(`target build failed:\n${error.stderr ?? error.message}`);
   }
-  world = { root, sourceDir, targetDir };
+  // Ports are chosen only once the expensive setup is done: each reservation is held until its
+  // server is spawned, so a concurrent run never sees a number this suite is about to use.
+  const reserved = { source: await reservePort(), target: await reservePort() };
+  world = { root, sourceDir, targetDir,
+    ports: { source: portOf(reserved.source), target: portOf(reserved.target) },
+    reservations: reserved };
   try {
     await startServers();
     // Boot order mirrors the harness: the applications serve first, then the declared reset
@@ -90,6 +110,7 @@ async function ensure(t) {
     await stop(servers.target);
     delete servers.source;
     delete servers.target;
+    await releaseAll();
     world = undefined;
     throw error;
   }
@@ -98,13 +119,17 @@ async function ensure(t) {
 
 async function startServers() {
   servers.source = await startServer(
-    ['php', '-S', `127.0.0.1:${SOURCE_PORT}`, '-t', '.', 'index.php'], world.sourceDir, SOURCE_PORT);
+    ['php', '-S', `127.0.0.1:${world.ports.source}`, '-t', '.', 'index.php'],
+    world.sourceDir, world.ports.source, world.reservations.source);
   servers.target = await startServer(
-    ['java', '-jar', 'target/api-first-target.jar', `--server.port=${TARGET_PORT}`], world.targetDir, TARGET_PORT);
+    ['java', '-jar', 'target/api-first-target.jar', `--server.port=${world.ports.target}`],
+    world.targetDir, world.ports.target, world.reservations.target);
 }
 
 /** Spawn one application and poll its health endpoint until it answers (bounded, diagnostics kept). */
-async function startServer(argv, cwd, port) {
+async function startServer(argv, cwd, port, reservation) {
+  // Last possible moment to hand the reserved port over to the server that binds it.
+  await release(reservation);
   const child = spawn(argv[0], argv.slice(1), {
     cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: shellFor(argv), detached: !isWindows,
   });
@@ -183,6 +208,7 @@ async function reset(side) {
 after(async () => {
   await stop(servers.source);
   await stop(servers.target);
+  await releaseAll();
   for (const root of roots) await rm(root, { recursive: true, force: true });
 });
 

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {
   EquivalenceValidator, comparableProjection, discloseMockedCoverage, evaluateUnitAssertions,
   executionHash, migrationComparisonPolicy, verifySourceStability,
-} from '../packages/equivalence-validator/dist/index.js';
+} from '../packages/engine/dist/equivalence/index.js';
 import { parseUnitAssertion, ScenarioVerificationSchema, SourceObservationsSchema } from '../packages/core/dist/index.js';
-import { adaptLegacyComparison } from '../packages/quality-gates/dist/migration-report.js';
+import { adaptLegacyComparison } from '../packages/engine/dist/quality-gates/migration-report.js';
 import { event } from './helpers.mjs';
 
 const validator = new EquivalenceValidator();

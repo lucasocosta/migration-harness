@@ -12,6 +12,8 @@ const text = z.string().max(1_000_000);
 const strings = z.array(id).max(10000);
 const record = z.record(text);
 const json: z.ZodType<unknown> = z.lazy(() => z.union([z.null(), z.boolean(), z.number().finite(), text, z.array(json), z.record(json)]));
+/** The same JSON-value schema under a name other modules can share (projected payloads, not prose). */
+export { json as JsonValueSchema };
 const object = z.record(json);
 const time = z.string().datetime({ offset: true });
 const severity = z.enum(['BLOCKING', 'WARNING', 'INFORMATIONAL']);

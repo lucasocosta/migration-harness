@@ -2,17 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { migrationReferenceHash, parseMigrationPreparation } from '../packages/core/dist/index.js';
 import { preflightMigration, prepareMigration, verifyMigration, summarizeMigration } from '../packages/engine/dist/migration-operations.js';
 import { ArtifactStore } from '../packages/engine/dist/artifacts.js';
-import { migrationCommand, migrationHelp } from '../packages/cli/dist/migration.js';
 import { buildWorkspace } from './helpers/build-workspace.mjs';
 
-const exec = promisify(execFile), cli = resolve('packages/cli/dist/index.js');
 const hex = digit => digit.repeat(64);
 const missing = path => assert.rejects(readFile(path), error => error.code === 'ENOENT');
 
@@ -98,12 +94,16 @@ test('verifyMigration refuses a preparation whose recorded reference hash no lon
 });
 
 test('verifyMigration with an unreadable preparation evidence root stays inconclusive with stale-evidence diagnostics', async t => {
+  // Canonical owner of STALE_EVIDENCE (PLAN-V2 §8.2): stale or unreadable prepared evidence can
+  // never become a PASS — no status upgrade, no substitution of fresh captures (the v2 `verify`
+  // side of the same contract is tests/v2-decisions.test.mjs).
   const value = await fixture(t), output = 'artifacts/verify-stale', missingPrep = `missing-prep-${randomUUID().slice(0, 8)}`;
   t.after(() => rm(new ArtifactStore(join(value.root, missingPrep)).privateRoot, { recursive: true, force: true }));
   const report = await verifyMigration({ config: value.config, workspaceRoot: value.root, artifactPath: output,
     allowProjectCommands: true, preparation: preparationStub({ artifactPath: missingPrep }) });
   assert.equal(report.kind, 'MIGRATION_REPORT');
   assert.equal(report.status, 'INCONCLUSIVE');
+  assert.notEqual(report.status, 'PASS', 'stale evidence never becomes a pass');
   assert.notEqual(report.referenceStatus, 'VERIFIED');
   assert.ok(report.diagnostics.some(item => item.code === 'STALE_EVIDENCE' && item.category === 'EVIDENCE'
     && item.detailCode === 'REFERENCE_EVIDENCE_UNAVAILABLE'));
@@ -130,19 +130,4 @@ test('preflight reports bounded status and --preflight-only writes preflight evi
   assert.deepEqual(JSON.parse(await readFile(join(value.root, output, 'preflight.json'), 'utf8')), result);
   await missing(join(value.root, output, 'preparation.json'));
   await missing(join(value.root, output, 'reference.json'));
-});
-
-test('migration CLI validates options and help before touching any workspace', async () => {
-  const prepare = migrationHelp('prepare-migration'), verify = migrationHelp('verify-migration');
-  assert.match(prepare, /--preflight-only/); assert.match(prepare, /--previous <preparation\.json>/); assert.match(prepare, /--owner-decision/);
-  assert.match(verify, /--preparation <preparation\.json>/); assert.ok(!verify.includes('--preflight-only'));
-  for (const help of [prepare, verify]) { assert.match(help, /--allow-project-commands/); assert.match(help, /Exit codes: 0 PASS; 4 FAIL; 5 INCONCLUSIVE/); assert.match(help, /examples\/validation-first\/README\.md/); }
-  await assert.rejects(migrationCommand('prepare-migration', { nope: 'x' }), /UNSUPPORTED_MIGRATION_OPTION/);
-  await assert.rejects(migrationCommand('verify-migration', { 'preflight-only': true }), /UNSUPPORTED_MIGRATION_OPTION/);
-  await assert.rejects(migrationCommand('prepare-migration', { 'preflight-only': true, 'allow-project-commands': true }), /CONFLICTING_PREFLIGHT_OPTIONS/);
-  await assert.rejects(migrationCommand('prepare-migration', { 'owner-decision': 'decision-1' }), /OWNER_DECISION_REQUIRES_PREVIOUS/);
-  await assert.rejects(migrationCommand('prepare-migration', {}), /MISSING_WORKSPACE_ROOT/);
-  const help = await exec(process.execPath, [cli, 'prepare-migration', '--help']);
-  assert.match(help.stdout, /^prepare-migration --config <migration\.json>/);
-  await assert.rejects(exec(process.execPath, [cli, 'verify-migration', '--preflight-only']), error => error.code === 1 && /UNSUPPORTED_MIGRATION_OPTION/.test(error.stderr));
 });

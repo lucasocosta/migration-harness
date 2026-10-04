@@ -5,15 +5,14 @@ import { mkdtemp, mkdir, realpath, symlink, writeFile, rm } from 'node:fs/promis
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { canonical } from '../packages/core/dist/index.js';
-import { computeContractHash, protectedContractContent } from '../packages/contract-review/dist/index.js';
-import { sanitizeTrace } from '../packages/trace-sanitizer/dist/index.js';
-import { EquivalenceValidator } from '../packages/equivalence-validator/dist/index.js';
-import { BoundedWorker, fileHash } from '../packages/llm-worker/dist/index.js';
+import { computeContractHash, protectedContractContent } from '../packages/core/dist/contract-review/index.js';
+import { sanitizeTrace } from '../packages/core/dist/trace-sanitizer/index.js';
+import { EquivalenceValidator } from '../packages/engine/dist/equivalence/index.js';
+import { BoundedWorker, fileHash } from '../packages/core/dist/llm-worker/index.js';
 import { ArtifactStore, runRepairLoop } from '../packages/engine/dist/index.js';
 import { storeOptions, canCreateSymlink } from './helpers/privacy.mjs';
-import { InvariantMiner, synthesizeContract } from '../packages/contract-synthesizer/dist/index.js';
-import { classifyFailure } from '../packages/quality-gates/dist/index.js';
-import { resolveMockFixture } from '../packages/scenario-runner/dist/index.js';
+import { classifyFailure } from '../packages/engine/dist/quality-gates/index.js';
+import { resolveMockFixture } from '../packages/engine/dist/scenario-runner/index.js';
 import { trace, event, contract } from './helpers.mjs';
 
 test('contract hashing shares locale-independent core canonicalization', () => {
@@ -63,14 +62,6 @@ test('worker rejects common dynamic-code aliases, while static checks are not a 
     const worker = new BoundedWorker({ complete: async () => ({ patches: [{ path: 'candidate.tsx', beforeHash: fileHash(''), content }], manifest }) }, policy);
     await assert.rejects(worker.transform({ plan, files }), /execution|forbidden/);
   }
-});
-test('mining rejects runIndex-only replays and includes observational state candidates', () => {
-  const replay = [1, 2, 3].map(runIndex => ({ ...trace(), runIndex }));
-  assert.throws(() => InvariantMiner.mineHttpRuntimeEvidence(replay), /execution identities/);
-  const runs = replay.map((t, i) => event(event(event({ ...t, runId: `run-${i}` }, 'NAVIGATION', { fromUrl: 'about:blank', toUrl: 'https://app.test/customers' }), 'ARIA_STATE_CHANGE', { triggerEventId: 'scenario_completed', rawYamlTree: '', jsonTree: { role: 'alert', name: 'Done' } }), 'STORAGE_DELTA', { storageType: 'localStorage', mutationType: 'SET', key: 'saved', previousValue: null, newValue: 'yes' }));
-  const draft = synthesizeContract('unit', runs);
-  const invariants = draft.scenarios[0].invariants;
-  assert.equal(invariants.navigation[0].enforcement, 'WARNING'); assert.equal(invariants.accessibilityAriaJson.enforcement, 'WARNING'); assert.equal(invariants.storageDeltas[0].enforcement, 'WARNING');
 });
 test('raw retention rejects symlinks and deterministic scenario failures do not claim nondeterminism', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'harness-review-'));

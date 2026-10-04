@@ -2,13 +2,12 @@ import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
-  canonical, classifyReferenceChange, MAX_REFERENCE_INPUT_BYTES, migrationConfigHash, migrationReferenceHash,
+  canonical, classifyReferenceChange, computeContractHash, MAX_REFERENCE_INPUT_BYTES, migrationConfigHash, migrationReferenceHash,
   MigrationPathSchema, parseContract, parseMigrationConfig, parseMigrationReference, ReferenceContentSchema,
   ReferenceVerificationSchema, scenarioBindingProjection, scenarioSemanticProjection, SourceObservationsSchema,
   type MigrationConfig, type MigrationReference, type ReferenceContent, type ReferenceFinding,
   type ReferenceVerification, type StateCapture, type StateDivergence,
 } from '@migration-harness/core';
-import { computeContractHash } from '@migration-harness/contract-review';
 import { probeCommandFor, stateCapturesOf } from './state-capture.js';
 
 const MAX_INVENTORY_FILES = 20000;

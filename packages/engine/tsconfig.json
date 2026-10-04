@@ -1,6 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "composite": true, "rootDir": "src", "outDir": "dist" },
-  "include": ["src/**/*.ts"],
-  "references":[{"path":"../core"},{"path":"../contract-review"},{"path":"../equivalence-validator"},{"path":"../quality-gates"},{"path":"../scenario-runner"},{"path":"../trace-sanitizer"}]
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [{ "path": "../core" }]
 }

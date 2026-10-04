@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from '@playwright/test';
-import { captureScenario } from '../../packages/scenario-runner/dist/index.js';
-import { sanitizeTrace } from '../../packages/trace-sanitizer/dist/index.js';
-import { EquivalenceValidator } from '../../packages/equivalence-validator/dist/index.js';
+import { captureScenario } from '../../packages/engine/dist/scenario-runner/index.js';
+import { sanitizeTrace } from '../../packages/core/dist/trace-sanitizer/index.js';
+import { EquivalenceValidator } from '../../packages/engine/dist/equivalence/index.js';
 import { serviceWorkerFixture } from './serviceworker-fixture.mjs';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

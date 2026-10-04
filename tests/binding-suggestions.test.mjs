@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   proposeBindingAdaptations, proposeScenarioInventory, proposeFromOutcomes, isBindingAnchor,
-} from '../packages/equivalence-validator/dist/index.js';
+} from '../packages/engine/dist/equivalence/index.js';
 import { parseSuggestionReport, resolveScenarioForSide, parseMigrationConfig } from '../packages/core/dist/index.js';
 
 function config() {

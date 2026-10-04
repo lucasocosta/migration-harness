@@ -1,40 +1,17 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/static-analyzer" },
-    { "path": "./packages/transformation-planner" },
-    { "path": "./packages/trace-sanitizer" },
-    { "path": "./packages/codemods" },
-    { "path": "./packages/llm-worker" },
     {
       "path": "./packages/core"
     },
     {
-      "path": "./packages/trace-recorder"
-    },
-    {
-      "path": "./packages/contract-synthesizer"
-    },
-    {
-      "path": "./packages/contract-review"
-    },
-    {
       "path": "./packages/engine"
-    },
-    {
-      "path": "./packages/quality-gates"
     },
     {
       "path": "./packages/cli"
     },
     {
       "path": "./packages/mcp-server"
-    },
-    {
-      "path": "./packages/equivalence-validator"
-    },
-    {
-      "path": "./packages/scenario-runner"
     }
   ]
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateStateClaims, compareStateProjections, resolveStateAcceptedDivergence } from '../packages/quality-gates/dist/index.js';
+import { evaluateStateClaims, compareStateProjections, resolveStateAcceptedDivergence } from '../packages/engine/dist/quality-gates/index.js';
 
 // STATE_SNAPSHOT envelope as the engine writes it (structural reader in quality-gates trusts the shape).
 const snapshot = (captureId, projection, extra = {}) => ({

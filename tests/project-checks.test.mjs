@@ -2,15 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { execFile, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { dirname, join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseProjectCheckReport } from '../packages/core/dist/index.js';
 import { preflightProjectChecks, runProjectChecks } from '../packages/engine/dist/project-checks.js';
+import { exitCodeFor } from '../packages/cli/dist/v2/envelope.js';
 
-const exec = promisify(execFile);
-const cli = resolve('packages/cli/dist/index.js');
 const roots = [];
 test.after(async () => { for (const root of roots) await rm(root, { recursive: true, force: true }); });
 async function write(root, path, content) { await mkdir(dirname(join(root, path)), { recursive: true }); await writeFile(join(root, path), content); }
@@ -156,32 +154,20 @@ test('timeout cleanup does not terminate an unrelated process', async () => {
   }
 });
 
-test('check-projects CLI separates preflight, authorization, baseline and native failure exit codes', async () => {
-  const help = await exec(process.execPath, [cli, 'check-projects', '--help']);
-  assert.match(help.stdout, /Not behavioral equivalence/);
-  const root = await workspace('process.exit(2);'); await write(root, 'config.json', JSON.stringify(config()));
-  const args = ['--config', join(root, 'config.json'), '--workspace-root', root, '--artifact-root', join(root, 'results')];
-  const call = async (...more) => {
-    try { return { ...await exec(process.execPath, [cli, 'check-projects', ...args, ...more]), code: 0 }; }
-    catch (error) { return error; }
-  };
-  assert.equal((await call('--preflight-only', '--out', 'preflight.json')).code, 0);
-  assert.equal(JSON.parse(await readFile(join(root, 'results/preflight.json'), 'utf8')).kind, 'PROJECT_PREFLIGHT');
-  assert.equal((await call('--out', 'refused.json')).code, 5);
-  assert.equal((await call('--allow-project-commands', '--out', 'baseline.json')).code, 4);
-  assert.equal(JSON.parse(await readFile(join(root, 'results/baseline.json'), 'utf8')).phase, 'baseline');
-  assert.equal((await call('--allow-project-commands', '--phase', 'candidate', '--baseline', join(root, 'results/baseline.json'), '--out', 'candidate.json')).code, 4);
-  assert.equal((await call('--allow-project-commands', '--out', '../escaped.json')).code, 1);
-});
+test('a native check report maps onto the v2 envelope exit codes (FAIL 4, INCONCLUSIVE 5)', async () => {
+  // The `check-projects` command was retired by the kill switch (PLAN-V2 §8.2): the report status
+  // is still this file's contract, and the exit code that status produces belongs to the frozen
+  // envelope table (tests/v2-envelope.test.mjs:59) — asserted together here so a status change
+  // cannot silently change what an operator sees.
+  const root = await workspace('process.exit(2);');
+  const failed = await run(root);
+  assert.equal(failed.status, 'FAIL');
+  assert.equal(exitCodeFor('processed', null, 'FAIL'), 4, 'a failing required check exits 4');
 
-test('CLI refuses existing or project-local outputs before executing a command', async () => {
-  const root = await workspace('import{writeFileSync}from"node:fs";writeFileSync("executed","yes");');
-  await write(root, 'config.json', JSON.stringify(config()));
-  await write(root, 'results/existing.json', 'keep');
-  for (const [artifact, output] of [[join(root, 'results'), 'existing.json'], [join(root, 'target'), 'new-result.json']]) {
-    await assert.rejects(exec(process.execPath, [cli, 'check-projects', '--config', join(root, 'config.json'),
-      '--workspace-root', root, '--artifact-root', artifact, '--out', output, '--allow-project-commands']));
-    assert.equal(await exists(join(root, 'target/executed')), false);
-  }
-  assert.equal(await readFile(join(root, 'results/existing.json'), 'utf8'), 'keep');
+  const inconclusiveRoot = await workspace();
+  const inconclusiveConfig = config();
+  inconclusiveConfig.target.commands[0].argv = ['missing-executable-harness-fixture'];
+  const inconclusive = await run(inconclusiveRoot, { config: inconclusiveConfig });
+  assert.equal(inconclusive.status, 'INCONCLUSIVE');
+  assert.equal(exitCodeFor('processed', null, 'INCONCLUSIVE'), 5, 'an inconclusive check run exits 5');
 });
